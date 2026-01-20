@@ -1,5 +1,11 @@
 use crate::Error;
 
+/// Maximum packet size enforced by PICObroker
+///
+/// Per MQTT 3.1.1 spec, packets can be up to 256MB. However, this embedded
+/// implementation enforces a strict 256-byte limit due to memory constraints.
+/// Attempts to encode or decode packets larger than this will return
+/// `Error::PacketTooLarge`.
 const DEFAULT_PACKET_SIZE: usize = 256;
 const DEFAULT_PAYLOAD_SIZE: usize = 128;
 
@@ -319,6 +325,26 @@ impl<'a> Connect<'a> {
         }
         let connect_flags = bytes[offset];
         offset += 1;
+
+        // Validate reserved bits per MQTT 3.1.1 spec
+        // Bit 0 (reserved) must be 0
+        if connect_flags & 0x01 != 0 {
+            return Err(Error::InvalidConnectFlags);
+        }
+
+        // Bits 6-7 (reserved) must be 0
+        if connect_flags & 0xC0 != 0 {
+            return Err(Error::InvalidConnectFlags);
+        }
+
+        // Extract will flag
+        let will_flag = (connect_flags & 0x04) != 0;
+
+        // If will flag is 0, bits 3-5 (Will QoS, Will Retain) must be 0
+        if !will_flag && (connect_flags & 0x38 != 0) {
+            return Err(Error::InvalidConnectFlags);
+        }
+
         let clean_session = (connect_flags & 0x02) != 0;
         if offset + 2 > bytes.len() {
             return Err(Error::IncompletePacket);
@@ -474,6 +500,12 @@ impl<'a> Publish<'a> {
                 return Err(Error::IncompletePacket);
             }
             let pid = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
+
+            // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
+            if pid == 0 {
+                return Err(Error::MalformedPacket);
+            }
+
             offset += 2;
             Some(pid)
         } else {
@@ -853,6 +885,17 @@ impl<'a> Packet<'a> {
         if bytes.len() < payload_start + remaining_length {
             return Err(Error::IncompletePacket);
         }
+
+        // Validate packet size against maximum (DEFAULT_PACKET_SIZE)
+        const MAX_PACKET_SIZE: usize = DEFAULT_PACKET_SIZE;
+        let total_packet_size = payload_start + remaining_length;
+        if total_packet_size > MAX_PACKET_SIZE {
+            return Err(Error::PacketTooLarge {
+                max_size: MAX_PACKET_SIZE,
+                actual_size: total_packet_size,
+            });
+        }
+
         let payload = &bytes[payload_start..payload_start + remaining_length];
 
         match packet_type {

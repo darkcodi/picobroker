@@ -39,6 +39,11 @@ pub enum Error {
     EmptyTopic,
     /// Invalid client ID length
     InvalidClientIdLength { length: u16 },
+    /// Packet size exceeded maximum allowed size
+    PacketTooLarge {
+        max_size: usize,
+        actual_size: usize,
+    },
 }
 
 impl core::fmt::Display for Error {
@@ -92,6 +97,16 @@ impl core::fmt::Display for Error {
             Error::EmptyTopic => write!(f, "Topic name cannot be empty"),
             Error::InvalidClientIdLength { length } => {
                 write!(f, "Invalid client ID length: {}", length)
+            }
+            Error::PacketTooLarge {
+                max_size,
+                actual_size,
+            } => {
+                write!(
+                    f,
+                    "Packet too large: max {} bytes, actual {} bytes",
+                    max_size, actual_size
+                )
             }
         }
     }
@@ -152,6 +167,17 @@ impl defmt::Format for Error {
             Error::EmptyTopic => defmt::write!(f, "Topic name cannot be empty"),
             Error::InvalidClientIdLength { length } => {
                 defmt::write!(f, "Invalid client ID length: {}", length)
+            }
+            Error::PacketTooLarge {
+                max_size,
+                actual_size,
+            } => {
+                defmt::write!(
+                    f,
+                    "Packet too large: max {} bytes, actual {} bytes",
+                    max_size,
+                    actual_size
+                )
             }
         }
     }
