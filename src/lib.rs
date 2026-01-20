@@ -25,7 +25,7 @@
 pub mod broker;
 pub mod client;
 pub mod error;
-pub mod packet;
+pub mod protocol;
 pub mod topics;
 
 pub use error::{Error, Result};

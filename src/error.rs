@@ -42,10 +42,7 @@ pub enum Error {
     /// Invalid client ID length
     InvalidClientIdLength { length: u16 },
     /// Packet size exceeded maximum allowed size
-    PacketTooLarge {
-        max_size: usize,
-        actual_size: usize,
-    },
+    PacketTooLarge { max_size: usize, actual_size: usize },
 }
 
 impl core::fmt::Display for Error {
