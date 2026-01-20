@@ -29,4 +29,4 @@ pub mod packet;
 pub mod topics;
 
 pub use error::{Error, Result};
-pub use topics::{TopicSubscription, TopicRegistry};
+pub use topics::{TopicRegistry, TopicSubscription};

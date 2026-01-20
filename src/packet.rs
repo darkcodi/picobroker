@@ -9,23 +9,70 @@ pub type Payload<const SIZE: usize = DEFAULT_PAYLOAD_SIZE> = heapless::Vec<u8, S
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd, Default)]
 pub enum PacketType {
+    /// Reserved
+    /// Direction: Forbidden
     #[default]
-    Reserved = 0, // Forbidden; Reserved
-    Connect = 1, // Client to Server; Client request to connect to Server
-    ConnAck = 2, // Server to Client; Connect acknowledgment
-    Publish = 3, // Client to Server or Server to Client; Publish message
-    PubAck = 4, // Client to Server or Server to Client; Publish acknowledgment
-    PubRec = 5, // Client to Server or Server to Client; Publish received (assured delivery part 1)
-    PubRel = 6, // Client to Server or Server to Client; Publish release (assured delivery part 2)
-    PubComp = 7, // Client to Server or Server to Client; Publish complete (assured delivery part 3)
-    Subscribe = 8, // Client to Server; Client subscribe request
-    SubAck = 9, // Server to Client; Subscribe acknowledgment
-    Unsubscribe = 10, // Client to Server; Client unsubscribe request
-    UnsubAck = 11, // Server to Client; Unsubscribe acknowledgment
-    PingReq = 12, // Client to Server; PING request
-    PingResp = 13, // Server to Client; PING response
-    Disconnect = 14, // Client to Server; Client is disconnecting
-    Reserved2 = 15, // Forbidden; Reserved
+    Reserved = 0,
+
+    /// Client request to connect to Server
+    /// Direction: Client to Server
+    Connect = 1,
+
+    /// Connect acknowledgment
+    /// Direction: Server to Client
+    ConnAck = 2,
+
+    /// Publish message
+    /// Direction: Client to Server or Server to Client
+    Publish = 3,
+
+    /// Publish acknowledgment
+    /// Direction: Client to Server or Server to Client
+    PubAck = 4,
+
+    /// Publish received (assured delivery part 1)
+    /// Direction: Client to Server or Server to Client
+    PubRec = 5,
+
+    /// Publish release (assured delivery part 2)
+    /// Direction: Client to Server or Server to Client
+    PubRel = 6,
+
+    /// Publish complete (assured delivery part 3)
+    /// Direction: Client to Server or Server to Client
+    PubComp = 7,
+
+    /// Client subscribe request
+    /// Direction: Client to Server
+    Subscribe = 8,
+
+    /// Subscribe acknowledgment
+    /// Direction: Server to Client
+    SubAck = 9,
+
+    /// Client unsubscribe request
+    /// Direction: Client to Server
+    Unsubscribe = 10,
+
+    /// Unsubscribe acknowledgment
+    /// Direction: Server to Client
+    UnsubAck = 11,
+
+    /// Ping request
+    /// Direction: Client to Server
+    PingReq = 12,
+
+    /// Ping response
+    /// Direction: Server to Client
+    PingResp = 13,
+
+    /// Client disconnect request
+    /// Direction: Client to Server
+    Disconnect = 14,
+
+    /// Reserved
+    /// Direction: Forbidden
+    Reserved2 = 15,
 }
 
 impl PacketType {
@@ -160,12 +207,16 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), Error> {
 }
 
 pub const fn variable_length_length(value: usize) -> usize {
-    if value < 128 { 1 }
-    else if value < 16384 { 2 }
-    else if value < 2097152 { 3 }
-    else { 4 }
+    if value < 128 {
+        1
+    } else if value < 16384 {
+        2
+    } else if value < 2097152 {
+        3
+    } else {
+        4
+    }
 }
-
 
 pub fn write_variable_length(value: usize, buffer: &mut [u8]) -> Result<usize, Error> {
     let mut encoded = value;
@@ -190,10 +241,7 @@ pub fn write_variable_length(value: usize, buffer: &mut [u8]) -> Result<usize, E
     Ok(bytes_written)
 }
 
-pub fn read_string<'a>(
-    bytes: &'a [u8],
-    offset: &'_ mut usize,
-) -> Result<&'a str, Error> {
+pub fn read_string<'a>(bytes: &'a [u8], offset: &'_ mut usize) -> Result<&'a str, Error> {
     if *offset + 2 > bytes.len() {
         return Err(Error::IncompletePacket);
     }

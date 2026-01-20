@@ -11,7 +11,9 @@ const DEFAULT_SUBSCRIPTIONS: usize = 8;
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TopicName<const MAX_TOPIC_LENGTH: usize = DEFAULT_TOPIC_LENGTH>(heapless::String<MAX_TOPIC_LENGTH>);
+pub struct TopicName<const MAX_TOPIC_LENGTH: usize = DEFAULT_TOPIC_LENGTH>(
+    heapless::String<MAX_TOPIC_LENGTH>,
+);
 
 impl<const MAX_TOPIC_LENGTH: usize> TopicName<MAX_TOPIC_LENGTH> {
     pub fn new(name: heapless::String<MAX_TOPIC_LENGTH>) -> Self {
@@ -19,7 +21,9 @@ impl<const MAX_TOPIC_LENGTH: usize> TopicName<MAX_TOPIC_LENGTH> {
     }
 }
 
-impl<const MAX_TOPIC_LENGTH: usize> From<heapless::String<MAX_TOPIC_LENGTH>> for TopicName<MAX_TOPIC_LENGTH> {
+impl<const MAX_TOPIC_LENGTH: usize> From<heapless::String<MAX_TOPIC_LENGTH>>
+    for TopicName<MAX_TOPIC_LENGTH>
+{
     fn from(name: heapless::String<MAX_TOPIC_LENGTH>) -> Self {
         TopicName(name)
     }
@@ -29,8 +33,8 @@ impl<const MAX_TOPIC_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_LENGTH
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self> {
-        let topic_str = heapless::String::try_from(value)
-            .map_err(|_| Error::TopicLengthExceeded {
+        let topic_str =
+            heapless::String::try_from(value).map_err(|_| Error::TopicLengthExceeded {
                 max_length: MAX_TOPIC_LENGTH,
                 actual_length: value.len(),
             })?;
