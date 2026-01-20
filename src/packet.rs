@@ -291,6 +291,9 @@ pub struct Connect<'a> {
     pub clean_session: bool,
     pub keep_alive: u16,
     pub client_id: &'a str,
+    pub will_flag: bool,
+    pub will_qos: QoS,
+    pub will_retain: bool,
 }
 
 impl<'a> Connect<'a> {
@@ -301,6 +304,9 @@ impl<'a> Connect<'a> {
             clean_session: true,
             keep_alive: 0,
             client_id: "pico",
+            will_flag: false,
+            will_qos: QoS::AtMostOnce,
+            will_retain: false,
         }
     }
 
@@ -346,6 +352,17 @@ impl<'a> Connect<'a> {
         }
 
         let clean_session = (connect_flags & 0x02) != 0;
+
+        // Extract will QoS (bits 4-3)
+        let will_qos = match (connect_flags >> 3) & 0b11 {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            _ => return Err(Error::InvalidConnectFlags),
+        };
+
+        // Extract will retain (bit 5)
+        let will_retain = (connect_flags & 0x20) != 0;
         if offset + 2 > bytes.len() {
             return Err(Error::IncompletePacket);
         }
@@ -361,6 +378,9 @@ impl<'a> Connect<'a> {
             clean_session,
             keep_alive,
             client_id,
+            will_flag,
+            will_qos,
+            will_retain,
         })
     }
 
@@ -372,7 +392,31 @@ impl<'a> Connect<'a> {
         }
         buffer[offset] = self.protocol_level;
         offset += 1;
-        let connect_flags = if self.clean_session { 0x02 } else { 0x00 };
+
+        // Build connect flags byte per MQTT 3.1.1 spec
+        let mut connect_flags: u8 = 0;
+
+        // Bit 0: Reserved, must be 0
+        // Bit 1: Clean Session
+        if self.clean_session {
+            connect_flags |= 0x02;
+        }
+
+        // Bit 2: Will Flag
+        if self.will_flag {
+            connect_flags |= 0x04;
+        }
+
+        // Bits 3-4: Will QoS
+        connect_flags |= (self.will_qos as u8) << 3;
+
+        // Bit 5: Will Retain
+        if self.will_retain {
+            connect_flags |= 0x20;
+        }
+
+        // Bits 6-7: Reserved, must be 0
+
         if offset >= buffer.len() {
             return Err(Error::BufferTooSmall);
         }
@@ -579,6 +623,12 @@ impl PubAck {
             return Err(Error::IncompletePacket);
         }
         let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
+
+        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
+        if packet_id == 0 {
+            return Err(Error::MalformedPacket);
+        }
+
         Ok(Self { packet_id })
     }
 
@@ -613,6 +663,12 @@ impl<'a> Subscribe<'a> {
             return Err(Error::IncompletePacket);
         }
         let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
+
+        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
+        if packet_id == 0 {
+            return Err(Error::MalformedPacket);
+        }
+
         offset += 2;
         let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {
@@ -668,7 +724,7 @@ impl SubAck {
         }
         let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
         let qos_value = bytes[2];
-        let granted_qos = QoS::from_u8(qos_value).ok_or(Error::InvalidPublishQoS {
+        let granted_qos = QoS::from_u8(qos_value).ok_or(Error::InvalidSubAckQoS {
             invalid_qos: qos_value,
         })?;
         Ok(Self {
@@ -709,6 +765,12 @@ impl<'a> Unsubscribe<'a> {
             return Err(Error::IncompletePacket);
         }
         let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
+
+        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
+        if packet_id == 0 {
+            return Err(Error::MalformedPacket);
+        }
+
         offset += 2;
         let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {

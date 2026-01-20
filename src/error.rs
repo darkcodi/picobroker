@@ -15,6 +15,8 @@ pub enum Error {
     MaxClientsReached { max_clients: usize },
     /// Invalid QoS level in PUBLISH packet
     InvalidPublishQoS { invalid_qos: u8 },
+    /// Invalid QoS level in SUBACK packet
+    InvalidSubAckQoS { invalid_qos: u8 },
     /// Invalid fixed header flags for a packet type
     InvalidFixedHeaderFlags { expected: u8, actual: u8 },
     /// Malformed MQTT packet
@@ -73,6 +75,9 @@ impl core::fmt::Display for Error {
             }
             Error::InvalidPublishQoS { invalid_qos } => {
                 write!(f, "Invalid QoS level in PUBLISH packet: {}", invalid_qos)
+            }
+            Error::InvalidSubAckQoS { invalid_qos } => {
+                write!(f, "Invalid QoS level in SUBACK packet: {}", invalid_qos)
             }
             Error::InvalidFixedHeaderFlags { expected, actual } => {
                 write!(
@@ -140,6 +145,9 @@ impl defmt::Format for Error {
             }
             Error::InvalidPublishQoS { invalid_qos } => {
                 defmt::write!(f, "Invalid QoS level in PUBLISH packet: {}", invalid_qos)
+            }
+            Error::InvalidSubAckQoS { invalid_qos } => {
+                defmt::write!(f, "Invalid QoS level in SUBACK packet: {}", invalid_qos)
             }
             Error::InvalidFixedHeaderFlags { expected, actual } => {
                 defmt::write!(
