@@ -4,35 +4,21 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// I/O error from network stack
-    Io,
-    /// Invalid MQTT packet format
-    InvalidPacket,
-    /// Unsupported or unknown packet type
-    UnsupportedPacketType,
-    /// Buffer too small for operation
-    BufferTooSmall,
-    /// Malformed UTF-8 string
-    MalformedString,
-    /// Client keep-alive timeout
-    KeepAliveTimeout,
     /// Topic length exceeded maximum allowed length
     TopicLengthExceeded { max_length: usize, actual_length: usize },
     /// Maximum number of subscriptions reached for a client
     MaxSubscriptionsReached { max_subscriptions: usize },
     /// Maximum number of clients reached
     MaxClientsReached { max_clients: usize },
+    /// Invalid QoS level in PUBLISH packet
+    InvalidPublishQoS { invalid_qos: u8 },
+    /// Invalid fixed header flags for a packet type
+    InvalidFixedHeaderFlags { expected: u8, actual: u8 },
 }
 
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Io => write!(f, "I/O error"),
-            Error::InvalidPacket => write!(f, "Invalid MQTT packet"),
-            Error::UnsupportedPacketType => write!(f, "Unsupported packet type"),
-            Error::BufferTooSmall => write!(f, "Buffer too small"),
-            Error::MalformedString => write!(f, "Malformed UTF-8 string"),
-            Error::KeepAliveTimeout => write!(f, "Keep-alive timeout"),
             Error::TopicLengthExceeded { max_length, actual_length } => {
                 write!(f, "Topic length exceeded: max {}, actual {}", max_length, actual_length)
             },
@@ -42,6 +28,12 @@ impl core::fmt::Display for Error {
             Error::MaxClientsReached { max_clients } => {
                 write!(f, "Maximum number of clients reached: max {}", max_clients)
             },
+            Error::InvalidPublishQoS { invalid_qos} => {
+                write!(f, "Invalid QoS level in PUBLISH packet: {}", invalid_qos)
+            },
+            Error::InvalidFixedHeaderFlags { expected, actual } => {
+                write!(f, "Invalid fixed header flags: expected {:04b}, actual {:04b}", expected, actual)
+            },
         }
     }
 }
@@ -49,12 +41,6 @@ impl core::fmt::Display for Error {
 impl defmt::Format for Error {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            Error::Io => defmt::write!(f, "I/O error"),
-            Error::InvalidPacket => defmt::write!(f, "Invalid MQTT packet"),
-            Error::UnsupportedPacketType => defmt::write!(f, "Unsupported packet type"),
-            Error::BufferTooSmall => defmt::write!(f, "Buffer too small"),
-            Error::MalformedString => defmt::write!(f, "Malformed UTF-8 string"),
-            Error::KeepAliveTimeout => defmt::write!(f, "Keep-alive timeout"),
             Error::TopicLengthExceeded { max_length, actual_length } => {
                 defmt::write!(f, "Topic length exceeded: max {}, actual {}", max_length, actual_length)
             },
@@ -63,7 +49,13 @@ impl defmt::Format for Error {
             },
             Error::MaxClientsReached { max_clients } => {
                 defmt::write!(f, "Maximum number of clients reached: max {}", max_clients)
-            }
+            },
+            Error::InvalidPublishQoS { invalid_qos} => {
+                defmt::write!(f, "Invalid QoS level in PUBLISH packet: {}", invalid_qos)
+            },
+            Error::InvalidFixedHeaderFlags { expected, actual } => {
+                defmt::write!(f, "Invalid fixed header flags: expected {:04b}, actual {:04b}", expected, actual)
+            },
         }
     }
 }

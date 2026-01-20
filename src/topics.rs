@@ -66,16 +66,11 @@ impl<const MAX_TOPIC_LENGTH: usize> defmt::Format for TopicName<MAX_TOPIC_LENGTH
 
 /// Topic subscription filter
 /// Currently supports only exact topic matching.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub enum TopicSubscription {
+    #[default]
     Empty,
     Exact(TopicName),
-}
-
-impl Default for TopicSubscription {
-    fn default() -> Self {
-        TopicSubscription::Empty
-    }
 }
 
 impl TopicSubscription {
