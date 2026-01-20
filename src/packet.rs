@@ -219,6 +219,13 @@ pub const fn variable_length_length(value: usize) -> usize {
 }
 
 pub fn write_variable_length(value: usize, buffer: &mut [u8]) -> Result<usize, Error> {
+    // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
+    const MAX_VARIABLE_LENGTH: usize = 268_435_455;
+
+    if value > MAX_VARIABLE_LENGTH {
+        return Err(Error::InvalidLengthEncoding);
+    }
+
     let mut encoded = value;
     let mut bytes_written = 0;
 
@@ -579,7 +586,7 @@ impl<'a> Subscribe<'a> {
         if topic_filter.is_empty() {
             return Err(Error::EmptyTopic);
         }
-        if offset >= bytes.len() {
+        if offset + 1 > bytes.len() {
             return Err(Error::IncompletePacket);
         }
         // Read requested QoS byte (currently unused but must be read to validate packet structure)
