@@ -189,6 +189,9 @@ pub fn validate_flags(packet_type: PacketType, flags: u8) -> Result<(), Error> {
 }
 
 pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), Error> {
+    // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
+    const MAX_VARIABLE_LENGTH: usize = 268_435_455;
+
     let mut multiplier = 1;
     let mut value = 0usize;
     let mut bytes_read = 0usize;
@@ -200,10 +203,19 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), Error> {
         let byte = bytes[bytes_read] as usize;
         bytes_read += 1;
         value += (byte & 0x7F) * multiplier;
-        multiplier *= 128;
-        if multiplier > 128 * 128 * 128 {
+
+        // Check if value exceeds MQTT spec maximum BEFORE processing continuation
+        if value > MAX_VARIABLE_LENGTH {
             return Err(Error::InvalidLengthEncoding);
         }
+
+        multiplier *= 128;
+
+        // Check multiplier to prevent more than 4 bytes (spec limit)
+        if multiplier > 128 * 128 * 128 * 128 {
+            return Err(Error::InvalidLengthEncoding);
+        }
+
         if (byte & 0x80) == 0 {
             break;
         }
@@ -811,6 +823,12 @@ impl UnsubAck {
             return Err(Error::IncompletePacket);
         }
         let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
+
+        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
+        if packet_id == 0 {
+            return Err(Error::MalformedPacket);
+        }
+
         Ok(Self { packet_id })
     }
 
