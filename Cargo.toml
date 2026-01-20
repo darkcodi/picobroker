@@ -1,6 +1,16 @@
 [package]
 name = "picobroker"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+embassy-executor = { version = "0.6", features = ["defmt", "task-arena-size-32768"] }
+embassy-time = "0.3"
+embassy-net = { version = "0.5", features = ["defmt", "tcp", "udp", "dhcpv4"] }
+heapless = "0.8"
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io = "0.6"
+embedded-io-async = "0.6"
+defmt = { version = "0.3" }
+
