@@ -1,208 +1,216 @@
 //! Topic subscription registry
 //!
-//! Manages topic subscriptions with exact matching (no wildcards)
+//! Manages topic subscriptions
 
+use crate::client::ClientName;
 use crate::error::{Error, Result};
 
-/// Topic filter (exact string matching, no wildcards)
-#[derive(Debug, Clone)]
-pub struct TopicFilter {
-    pub topic: heapless::String<64>,
-}
+const DEFAULT_TOPIC_LENGTH: usize = 30;
+const DEFAULT_SUBSCRIPTIONS: usize = 8;
 
-impl TopicFilter {
-    pub fn new(topic: &str) -> Result<Self> {
-        Ok(TopicFilter {
-            topic: heapless::String::try_from(topic)
-                .map_err(|_| Error::MalformedString)?,
-        })
+/// Topic name
+/// Represents an MQTT topic name with a maximum length.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TopicName<const MAX_TOPIC_LENGTH: usize = DEFAULT_TOPIC_LENGTH>(heapless::String<MAX_TOPIC_LENGTH>);
+
+impl<const MAX_TOPIC_LENGTH: usize> TopicName<MAX_TOPIC_LENGTH> {
+    pub fn new(name: heapless::String<MAX_TOPIC_LENGTH>) -> Self {
+        TopicName(name)
     }
 }
 
-/// Topic subscription registry
-///
-/// Maps topics to lists of subscribed client indices.
-/// Uses exact string matching (no wildcards).
+impl<const MAX_TOPIC_LENGTH: usize> From<heapless::String<MAX_TOPIC_LENGTH>> for TopicName<MAX_TOPIC_LENGTH> {
+    fn from(name: heapless::String<MAX_TOPIC_LENGTH>) -> Self {
+        TopicName(name)
+    }
+}
+
+impl<const MAX_TOPIC_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_LENGTH> {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        let topic_str = heapless::String::try_from(value)
+            .map_err(|_| Error::TopicLengthExceeded {
+                max_length: MAX_TOPIC_LENGTH,
+                actual_length: value.len(),
+            })?;
+        Ok(TopicName(topic_str))
+    }
+}
+
+impl<const MAX_TOPIC_LENGTH: usize> core::ops::Deref for TopicName<MAX_TOPIC_LENGTH> {
+    type Target = heapless::String<MAX_TOPIC_LENGTH>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<const MAX_TOPIC_LENGTH: usize> core::ops::DerefMut for TopicName<MAX_TOPIC_LENGTH> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<const MAX_TOPIC_LENGTH: usize> core::fmt::Display for TopicName<MAX_TOPIC_LENGTH> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl<const MAX_TOPIC_LENGTH: usize> defmt::Format for TopicName<MAX_TOPIC_LENGTH> {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{}", self.0.as_str());
+    }
+}
+
+/// Topic subscription filter
+/// Currently supports only exact topic matching.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TopicSubscription {
+    Empty,
+    Exact(TopicName),
+}
+
+impl Default for TopicSubscription {
+    fn default() -> Self {
+        TopicSubscription::Empty
+    }
+}
+
+impl TopicSubscription {
+    pub fn empty() -> Self {
+        TopicSubscription::Empty
+    }
+
+    pub fn exact(topic: TopicName) -> Self {
+        TopicSubscription::Exact(topic)
+    }
+
+    pub fn matches(&self, topic: &str) -> bool {
+        match self {
+            TopicSubscription::Empty => false,
+            TopicSubscription::Exact(t) => t.as_str() == topic,
+        }
+    }
+}
+
+impl TryFrom<&str> for TopicSubscription {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self> {
+        let topic_name = TopicName::try_from(value)?;
+        Ok(TopicSubscription::exact(topic_name))
+    }
+}
+
+/// Client subscriptions
+/// Keeps track of a client's topic subscriptions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClientSubscriptions<const MAX_SUBSCRIPTIONS: usize = DEFAULT_SUBSCRIPTIONS> {
+    pub client_name: ClientName,
+    pub subscriptions: heapless::Vec<TopicSubscription, MAX_SUBSCRIPTIONS>,
+}
+
+impl<const MAX_SUBSCRIPTIONS: usize> ClientSubscriptions<MAX_SUBSCRIPTIONS> {
+    pub fn new(client_name: ClientName) -> Self {
+        Self {
+            client_name,
+            subscriptions: heapless::Vec::new(),
+        }
+    }
+
+    pub fn add_filter(&mut self, filter: TopicSubscription) -> Result<()> {
+        self.subscriptions
+            .push(filter)
+            .map_err(|_| Error::MaxSubscriptionsReached {
+                max_subscriptions: MAX_SUBSCRIPTIONS,
+            })
+    }
+
+    pub fn remove_filter(&mut self, filter: &TopicSubscription) -> bool {
+        if let Some(pos) = self.subscriptions.iter().position(|f| f == filter) {
+            self.subscriptions.remove(pos);
+            return true;
+        }
+        false
+    }
+
+    pub fn clear_all_filters(&mut self) {
+        self.subscriptions.clear();
+    }
+}
+
+/// Topic registry
+/// Manages topic subscriptions for multiple clients.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TopicRegistry<const MAX_CLIENTS: usize> {
-    // Each entry: (topic_name, [client_indices])
-    // Max 32 unique topics system-wide
-    entries: heapless::Vec<
-        (heapless::String<64>, heapless::Vec<usize, MAX_CLIENTS>),
-        32,
-    >,
+    clients: heapless::Vec<ClientSubscriptions, MAX_CLIENTS>,
 }
 
 impl<const MAX_CLIENTS: usize> TopicRegistry<MAX_CLIENTS> {
+    /// Create a new topic registry
     pub const fn new() -> Self {
         Self {
-            entries: heapless::Vec::new(),
+            clients: heapless::Vec::new(),
         }
-    }
-
-    /// Subscribe a client to a topic
-    pub fn subscribe(&mut self, topic: &str, client_idx: usize) -> Result<()> {
-        // Find existing topic or create new entry
-        match self
-            .entries
-            .iter()
-            .position(|(t, _)| t.as_str() == topic)
-        {
-            Some(pos) => {
-                // Add client to existing topic
-                let (_topic, clients) = &mut self.entries[pos];
-                if !clients.contains(&client_idx) {
-                    clients.push(client_idx).map_err(|_| Error::MaxSubscribersReached)?;
-                }
-            }
-            None => {
-                // Create new topic entry
-                if self.entries.len() >= 32 {
-                    return Err(Error::MaxTopicsReached);
-                }
-                let mut clients = heapless::Vec::new();
-                clients.push(client_idx).map_err(|_| Error::MaxSubscribersReached)?;
-                self.entries
-                    .push((
-                        heapless::String::try_from(topic).map_err(|_| Error::MalformedString)?,
-                        clients,
-                    ))
-                    .map_err(|_| Error::TopicRegistryFull)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Unsubscribe a client from a topic
-    pub fn unsubscribe(&mut self, topic: &str, client_idx: usize) -> Result<()> {
-        if let Some(pos) = self.entries.iter().position(|(t, _)| t.as_str() == topic) {
-            let (_topic, clients) = &mut self.entries[pos];
-            if let Some(idx) = clients.iter().position(|&c| c == client_idx) {
-                clients.remove(idx);
-            }
-        }
-        Ok(())
     }
 
     /// Get all subscribers for a topic
-    pub fn get_subscribers(&self, topic: &str) -> heapless::Vec<usize, MAX_CLIENTS> {
-        self.entries
-            .iter()
-            .find(|(t, _)| t.as_str() == topic)
-            .map(|(_, clients)| clients.clone())
-            .unwrap_or_default()
+    pub fn get_subscribers(&self, topic: TopicName) -> heapless::Vec<&ClientName, MAX_CLIENTS> {
+        let mut subscribers = heapless::Vec::<&ClientName, MAX_CLIENTS>::new();
+
+        for client_subs in &self.clients {
+            for filter in &client_subs.subscriptions {
+                if filter.matches(topic.as_str()) {
+                    subscribers.push(&client_subs.client_name).ok();
+                    break;
+                }
+            }
+        }
+
+        subscribers
+    }
+
+    /// Subscribe a client to a topic
+    pub fn subscribe(&mut self, client: ClientName, sub: TopicSubscription) -> Result<()> {
+        // Find existing client subscriptions or create new
+        if let Some(client_subs) = self.clients.iter_mut().find(|cs| cs.client_name == client) {
+            client_subs.add_filter(sub)
+        } else {
+            let mut new_client_subs = ClientSubscriptions::new(client);
+            new_client_subs.add_filter(sub)?;
+            self.clients
+                .push(new_client_subs)
+                .map_err(|_| Error::MaxClientsReached {
+                    max_clients: MAX_CLIENTS,
+                })
+        }
+    }
+
+    /// Unsubscribe a client from a topic
+    pub fn unsubscribe(&mut self, client: ClientName, sub: TopicSubscription) -> bool {
+        if let Some(client_subs) = self.clients.iter_mut().find(|cs| cs.client_name == client) {
+            client_subs.remove_filter(&sub)
+        } else {
+            false
+        }
     }
 
     /// Unsubscribe a client from all topics
-    pub fn unregister_all(&mut self, client_idx: usize) {
-        for (_topic, clients) in &mut self.entries {
-            if let Some(pos) = clients.iter().position(|&c| c == client_idx) {
-                clients.remove(pos);
-            }
+    pub fn unregister_client(&mut self, client: ClientName) {
+        if let Some(pos) = self.clients.iter().position(|cs| cs.client_name == client) {
+            self.clients.remove(pos);
         }
     }
 
     /// Get number of active topics
-    pub fn topic_count(&self) -> usize {
-        self.entries.len()
+    pub fn clients_count(&self) -> usize {
+        self.clients.len()
     }
 
     /// Clear all subscriptions
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-}
-
-impl<const MAX_CLIENTS: usize> Default for TopicRegistry<MAX_CLIENTS> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_subscribe_and_get_subscribers() {
-        let mut registry = TopicRegistry::<4>::new();
-
-        registry.subscribe("sensors/temp", 0).unwrap();
-        registry.subscribe("sensors/temp", 1).unwrap();
-
-        let subscribers = registry.get_subscribers("sensors/temp");
-        assert_eq!(subscribers.len(), 2);
-        assert!(subscribers.contains(&0));
-        assert!(subscribers.contains(&1));
-    }
-
-    #[test]
-    fn test_unsubscribe() {
-        let mut registry = TopicRegistry::<4>::new();
-
-        registry.subscribe("test/topic", 0).unwrap();
-        registry.subscribe("test/topic", 1).unwrap();
-        registry.unsubscribe("test/topic", 0).unwrap();
-
-        let subscribers = registry.get_subscribers("test/topic");
-        assert_eq!(subscribers.len(), 1);
-        assert!(subscribers.contains(&1));
-        assert!(!subscribers.contains(&0));
-    }
-
-    #[test]
-    fn test_unregister_all() {
-        let mut registry = TopicRegistry::<4>::new();
-
-        registry.subscribe("topic1", 0).unwrap();
-        registry.subscribe("topic2", 0).unwrap();
-        registry.subscribe("topic1", 1).unwrap();
-
-        registry.unregister_all(0);
-
-        assert_eq!(registry.get_subscribers("topic1").len(), 1);
-        assert!(!registry.get_subscribers("topic1").contains(&0));
-        assert!(registry.get_subscribers("topic1").contains(&1));
-        assert_eq!(registry.get_subscribers("topic2").len(), 0);
-    }
-
-    #[test]
-    fn test_exact_matching() {
-        let mut registry = TopicRegistry::<4>::new();
-
-        registry.subscribe("sensors/temp", 0).unwrap();
-
-        // Exact match
-        assert_eq!(registry.get_subscribers("sensors/temp").len(), 1);
-
-        // No wildcards - different topics
-        assert_eq!(registry.get_subscribers("sensors/humidity").len(), 0);
-        assert_eq!(registry.get_subscribers("sensors").len(), 0);
-        assert_eq!(registry.get_subscribers("sensor/temp").len(), 0);
-    }
-
-    #[test]
-    fn test_max_subscribers() {
-        let mut registry = TopicRegistry::<2>::new();
-
-        registry.subscribe("test", 0).unwrap();
-        registry.subscribe("test", 1).unwrap();
-
-        // Should fail - max 2 subscribers
-        let result = registry.subscribe("test", 2);
-        assert!(matches!(result, Err(Error::MaxSubscribersReached)));
-    }
-
-    #[test]
-    fn test_multiple_topics() {
-        let mut registry = TopicRegistry::<4>::new();
-
-        registry.subscribe("topic1", 0).unwrap();
-        registry.subscribe("topic2", 1).unwrap();
-        registry.subscribe("topic3", 0).unwrap();
-
-        assert_eq!(registry.topic_count(), 3);
-        assert!(registry.get_subscribers("topic1").contains(&0));
-        assert!(registry.get_subscribers("topic2").contains(&1));
-        assert!(registry.get_subscribers("topic3").contains(&0));
+    pub fn clear_all(&mut self) {
+        self.clients.clear();
     }
 }

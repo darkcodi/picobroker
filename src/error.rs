@@ -10,20 +10,18 @@ pub enum Error {
     InvalidPacket,
     /// Unsupported or unknown packet type
     UnsupportedPacketType,
-    /// Maximum number of clients reached
-    MaxClientsReached,
-    /// Maximum number of unique topics reached
-    MaxTopicsReached,
-    /// Maximum subscribers per topic reached
-    MaxSubscribersReached,
-    /// Topic registry is full
-    TopicRegistryFull,
     /// Buffer too small for operation
     BufferTooSmall,
     /// Malformed UTF-8 string
     MalformedString,
     /// Client keep-alive timeout
     KeepAliveTimeout,
+    /// Topic length exceeded maximum allowed length
+    TopicLengthExceeded { max_length: usize, actual_length: usize },
+    /// Maximum number of subscriptions reached for a client
+    MaxSubscriptionsReached { max_subscriptions: usize },
+    /// Maximum number of clients reached
+    MaxClientsReached { max_clients: usize },
 }
 
 impl core::fmt::Display for Error {
@@ -32,13 +30,18 @@ impl core::fmt::Display for Error {
             Error::Io => write!(f, "I/O error"),
             Error::InvalidPacket => write!(f, "Invalid MQTT packet"),
             Error::UnsupportedPacketType => write!(f, "Unsupported packet type"),
-            Error::MaxClientsReached => write!(f, "Maximum clients reached"),
-            Error::MaxTopicsReached => write!(f, "Maximum topics reached"),
-            Error::MaxSubscribersReached => write!(f, "Maximum subscribers per topic"),
-            Error::TopicRegistryFull => write!(f, "Topic registry full"),
             Error::BufferTooSmall => write!(f, "Buffer too small"),
             Error::MalformedString => write!(f, "Malformed UTF-8 string"),
             Error::KeepAliveTimeout => write!(f, "Keep-alive timeout"),
+            Error::TopicLengthExceeded { max_length, actual_length } => {
+                write!(f, "Topic length exceeded: max {}, actual {}", max_length, actual_length)
+            },
+            Error::MaxSubscriptionsReached { max_subscriptions: max_filters } => {
+                write!(f, "Maximum number of subscriptions reached for client: max {}", max_filters)
+            },
+            Error::MaxClientsReached { max_clients } => {
+                write!(f, "Maximum number of clients reached: max {}", max_clients)
+            },
         }
     }
 }
@@ -49,13 +52,18 @@ impl defmt::Format for Error {
             Error::Io => defmt::write!(f, "I/O error"),
             Error::InvalidPacket => defmt::write!(f, "Invalid MQTT packet"),
             Error::UnsupportedPacketType => defmt::write!(f, "Unsupported packet type"),
-            Error::MaxClientsReached => defmt::write!(f, "Maximum clients reached"),
-            Error::MaxTopicsReached => defmt::write!(f, "Maximum topics reached"),
-            Error::MaxSubscribersReached => defmt::write!(f, "Maximum subscribers per topic"),
-            Error::TopicRegistryFull => defmt::write!(f, "Topic registry full"),
             Error::BufferTooSmall => defmt::write!(f, "Buffer too small"),
             Error::MalformedString => defmt::write!(f, "Malformed UTF-8 string"),
             Error::KeepAliveTimeout => defmt::write!(f, "Keep-alive timeout"),
+            Error::TopicLengthExceeded { max_length, actual_length } => {
+                defmt::write!(f, "Topic length exceeded: max {}, actual {}", max_length, actual_length)
+            },
+            Error::MaxSubscriptionsReached { max_subscriptions: max_filters } => {
+                defmt::write!(f, "Maximum number of subscriptions reached for client: max {}", max_filters)
+            },
+            Error::MaxClientsReached { max_clients } => {
+                defmt::write!(f, "Maximum number of clients reached: max {}", max_clients)
+            }
         }
     }
 }

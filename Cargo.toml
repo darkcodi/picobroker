@@ -3,6 +3,9 @@ name = "picobroker"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 embassy-executor = { version = "0.6", features = ["defmt", "task-arena-size-32768"] }
 embassy-time = "0.3"
