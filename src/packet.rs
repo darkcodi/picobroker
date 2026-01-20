@@ -323,7 +323,7 @@ impl<'a> Connect<'a> {
             return Err(Error::InvalidClientIdLength { length: 0 });
         }
         Ok(Self {
-            protocol_name: "MQTT",
+            protocol_name,
             protocol_level,
             clean_session,
             keep_alive,
@@ -447,19 +447,22 @@ impl<'a> Publish<'a> {
         }
     }
 
-    pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &'a [u8], header_byte: u8) -> Result<Self, Error> {
         let mut offset = 0;
         let topic_name = read_string(bytes, &mut offset)?;
         if topic_name.is_empty() {
             return Err(Error::EmptyTopic);
         }
 
-        let qos_value = (bytes[0] >> 1) & 0b11;
-        let qos = QoS::from_u8(qos_value).ok_or(Error::InvalidPublishQoS {
-            invalid_qos: qos_value,
-        })?;
+        // Extract flags from the header byte
+        let flags = PublishFlags::from_nibble(header_byte & 0x0F).ok_or(
+            Error::InvalidFixedHeaderFlags {
+                actual: header_byte & 0x0F,
+                expected: 0,
+            },
+        )?;
 
-        let packet_id = if qos != QoS::AtMostOnce {
+        let packet_id = if flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
                 return Err(Error::IncompletePacket);
             }
@@ -476,12 +479,6 @@ impl<'a> Publish<'a> {
             .extend_from_slice(&bytes[offset..offset + payload_len])
             .map_err(|_| Error::BufferTooSmall)?;
 
-        let flags =
-            PublishFlags::from_nibble(bytes[0] & 0x0F).ok_or(Error::InvalidFixedHeaderFlags {
-                actual: bytes[0] & 0x0F,
-                expected: 0,
-            })?;
-
         Ok(Self {
             topic_name,
             packet_id,
@@ -496,8 +493,10 @@ impl<'a> Publish<'a> {
         let mut offset = 0;
         write_string(self.topic_name, buffer, &mut offset)?;
 
-        if self.qos != QoS::AtMostOnce {
-            if let Some(packet_id) = self.packet_id {
+        match self.qos {
+            QoS::AtMostOnce => { /* packet_id not required */ }
+            QoS::AtLeastOnce | QoS::ExactlyOnce => {
+                let packet_id = self.packet_id.ok_or(Error::MalformedPacket)?;
                 if offset + 2 > buffer.len() {
                     return Err(Error::BufferTooSmall);
                 }
@@ -580,6 +579,11 @@ impl<'a> Subscribe<'a> {
         if topic_filter.is_empty() {
             return Err(Error::EmptyTopic);
         }
+        if offset >= bytes.len() {
+            return Err(Error::IncompletePacket);
+        }
+        // Read requested QoS byte (currently unused but must be read to validate packet structure)
+        let _requested_qos = bytes[offset];
         Ok(Self {
             packet_id,
             topic_filter,
@@ -854,7 +858,7 @@ impl<'a> Packet<'a> {
                 Ok(Packet::ConnAck(connack))
             }
             PacketType::Publish => {
-                let publish = Publish::decode(payload)?;
+                let publish = Publish::decode(payload, header)?;
                 Ok(Packet::Publish(publish))
             }
             PacketType::PubAck => {
