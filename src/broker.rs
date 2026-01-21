@@ -2,7 +2,7 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
-use crate::client::{ClientName, ClientRegistry};
+use crate::client::{ClientId, ClientName, ClientRegistry};
 use crate::error::Result;
 use crate::network::TcpStream;
 use crate::protocol::packets::Packet;
@@ -10,24 +10,33 @@ use crate::protocol::packets::*;
 use crate::protocol::qos::QoS;
 use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
 
-pub type DefaultPicoBroker = PicoBroker<30, 30, 4, 8>;
+pub type DefaultPicoBroker = PicoBroker<30, 30, 4, 4, 4>;
 
 /// MQTT broker
 ///
-/// Main broker structure managing clients and topic subscriptions
+/// Main broker structure managing clients and topic subscriptions.
+///
+/// # Generic Parameters
+///
+/// - `MAX_CLIENT_NAME_LENGTH`: Maximum length of client identifiers
+/// - `MAX_TOPIC_NAME_LENGTH`: Maximum length of topic names
+/// - `MAX_CLIENTS`: Maximum number of concurrent clients
+/// - `MAX_TOPICS`: Maximum number of distinct topics
+/// - `MAX_SUBSCRIBERS_PER_TOPIC`: Maximum subscribers per topic
 #[derive(Debug, Default)]
 pub struct PicoBroker<
     const MAX_CLIENT_NAME_LENGTH: usize,
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_CLIENTS: usize,
-    const MAX_SUBSCRIPTIONS_PER_CLIENT: usize,
+    const MAX_TOPICS: usize,
+    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     clients: ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS>,
-    topics: TopicRegistry<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIPTIONS_PER_CLIENT, MAX_CLIENTS>,
+    topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_CLIENTS: usize, const MAX_SUBSCRIPTIONS_PER_CLIENT: usize>
-    PicoBroker<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_SUBSCRIPTIONS_PER_CLIENT>
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
+    PicoBroker<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new MQTT broker
     pub const fn new() -> Self {
@@ -38,20 +47,24 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
     }
 
     /// Register a new client
-    pub fn register_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive: u16) -> Result<()> {
+    ///
+    /// Returns the client ID that should be used for subsequent operations.
+    pub fn register_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive: u16) -> Result<ClientId> {
         let current_time = Self::get_current_time();
-        self.clients.register(name, keep_alive, current_time)?;
-        Ok(())
+        let client_id = self.clients.register(name.clone(), keep_alive, current_time)?;
+        Ok(client_id)
     }
 
     /// Unregister a client
-    pub fn unregister_client(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) {
-        self.clients.unregister(name);
-        self.topics.unregister_client(name.clone());
+    pub fn unregister_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>) {
+        let client_id = self.clients.unregister(&name);
+        if let Some(client_id) = client_id {
+            self.topics.unregister_client(client_id);
+        }
     }
 
     /// Disconnect a client
-    pub fn disconnect_client(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) {
+    pub fn disconnect_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>) {
         self.unregister_client(name);
     }
 
@@ -72,14 +85,14 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         let expired = self.clients.get_expired_clients(current_time);
 
         for client_name in expired {
-            self.disconnect_client(&client_name);
+            self.disconnect_client(client_name);
         }
     }
 
     /// Handle PUBLISH packet
     pub async fn handle_publish<S>(
         &self,
-        _client_name: &ClientName<MAX_CLIENT_NAME_LENGTH>,
+        _client_id: usize,
         publish: &Publish<'_>,
         _stream: &mut S,
     ) -> Result<()>
@@ -87,21 +100,20 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         S: TcpStream,
     {
         let topic_name = TopicName::try_from(publish.topic_name)?;
-        let subscribers = self.topics.get_subscribers(topic_name);
+        let subscriber_ids = self.topics.get_subscribers(&topic_name);
 
         // Route to all subscribers (fire-and-forget for QoS 0)
         // Note: In the single-threaded model, we can't directly access other client streams
         // This is a placeholder for the full implementation
-        let _ = subscribers;
+        let _ = subscriber_ids;
         let _ = _stream;
-
-        Ok(())
+        todo!("Route PUBLISH to subscribers: {:?}", subscriber_ids);
     }
 
     /// Handle SUBSCRIBE packet
     pub async fn handle_subscribe<S>(
         &mut self,
-        client_name: &ClientName<MAX_CLIENT_NAME_LENGTH>,
+        client_id: usize,
         subscribe: &Subscribe<'_>,
         stream: &mut S,
     ) -> Result<()>
@@ -109,7 +121,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         S: TcpStream,
     {
         let topic_filter = TopicSubscription::try_from(subscribe.topic_filter)?;
-        self.topics.subscribe(client_name.clone(), topic_filter)?;
+        self.topics.subscribe(ClientId::new(client_id), topic_filter)?;
 
         let suback = SubAck {
             packet_id: subscribe.packet_id,

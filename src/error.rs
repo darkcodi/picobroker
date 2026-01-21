@@ -4,8 +4,13 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// Topic length exceeded maximum allowed length
-    TopicLengthExceeded {
+    /// Client name length exceeded maximum allowed length
+    ClientNameLengthExceeded {
+        max_length: usize,
+        actual_length: usize,
+    },
+    /// Topic name length exceeded maximum allowed length
+    TopicNameLengthExceeded {
         max_length: usize,
         actual_length: usize,
     },
@@ -13,6 +18,10 @@ pub enum Error {
     MaxSubscriptionsReached { max_subscriptions: usize },
     /// Maximum number of clients reached
     MaxClientsReached { max_clients: usize },
+    /// Maximum number of topics reached
+    MaxTopicsReached { max_topics: usize },
+    /// Maximum number of subscribers per topic reached
+    MaxSubscribersPerTopicReached { max_subscribers: usize },
     /// Invalid QoS level in PUBLISH packet
     InvalidPublishQoS { invalid_qos: u8 },
     /// Invalid QoS level in SUBACK packet
@@ -60,13 +69,23 @@ pub enum Error {
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::TopicLengthExceeded {
+            Error::ClientNameLengthExceeded {
                 max_length,
                 actual_length,
             } => {
                 write!(
                     f,
-                    "Topic length exceeded: max {}, actual {}",
+                    "Client name length exceeded: max {}, actual {}",
+                    max_length, actual_length
+                )
+            }
+            Error::TopicNameLengthExceeded {
+                max_length,
+                actual_length,
+            } => {
+                write!(
+                    f,
+                    "Topic name length exceeded: max {}, actual {}",
                     max_length, actual_length
                 )
             }
@@ -81,6 +100,16 @@ impl core::fmt::Display for Error {
             }
             Error::MaxClientsReached { max_clients } => {
                 write!(f, "Maximum number of clients reached: max {}", max_clients)
+            }
+            Error::MaxTopicsReached { max_topics } => {
+                write!(f, "Maximum number of topics reached: max {}", max_topics)
+            }
+            Error::MaxSubscribersPerTopicReached { max_subscribers } => {
+                write!(
+                    f,
+                    "Maximum number of subscribers per topic reached: max {}",
+                    max_subscribers
+                )
             }
             Error::InvalidPublishQoS { invalid_qos } => {
                 write!(f, "Invalid QoS level in PUBLISH packet: {}", invalid_qos)

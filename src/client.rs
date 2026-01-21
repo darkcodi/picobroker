@@ -26,7 +26,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> TryFrom<&str> for ClientName<MAX_CLIEN
 
     fn try_from(value: &str) -> Result<Self> {
         let client_name_str =
-            heapless::String::try_from(value).map_err(|_| Error::TopicLengthExceeded {
+            heapless::String::try_from(value).map_err(|_| Error::ClientNameLengthExceeded {
                 max_length: MAX_CLIENT_NAME_LENGTH,
                 actual_length: value.len(),
             })?;
@@ -58,17 +58,37 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> core::fmt::Display
     }
 }
 
+/// Opaque client identifier
+///
+/// Decouples the topic registry from client name implementation details.
+/// This allows the topic registry to work with simple integer IDs instead
+/// of carrying the MAX_CLIENT_NAME_LENGTH parameter.
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ClientId(usize);
+
+impl ClientId {
+    /// Create a new ClientId
+    pub const fn new(id: usize) -> Self {
+        Self(id)
+    }
+
+    /// Get the underlying ID value
+    pub fn get(&self) -> usize {
+        self.0
+    }
+}
+
 /// Client connection state
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClientState<const MAX_CLIENT_NAME_LENGTH: usize> {
-    pub id: usize,
+    pub id: ClientId,
     pub name: ClientName<MAX_CLIENT_NAME_LENGTH>,
     pub keep_alive_secs: u16,
     pub last_activity: u64,
 }
 
 impl<const MAX_CLIENT_NAME_LENGTH: usize> ClientState<MAX_CLIENT_NAME_LENGTH> {
-    pub fn new(id: usize, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
+    pub fn new(id: ClientId, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
         Self {
             id,
             name,
@@ -114,7 +134,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
         name: ClientName<MAX_CLIENT_NAME_LENGTH>,
         keep_alive: u16,
         current_time: u64,
-    ) -> Result<usize> {
+    ) -> Result<ClientId> {
         // Check if client already exists
         if self.find_index(&name).is_some() {
             return Err(Error::ClientAlreadyConnected);
@@ -122,8 +142,9 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
 
         // Find empty slot or add new
         if let Some(slot) = self.clients.iter().position(|c| c.is_none()) {
-            self.clients[slot] = Some(ClientState::new(slot, name, keep_alive, current_time));
-            Ok(slot)
+            let id = ClientId::new(slot);
+            self.clients[slot] = Some(ClientState::new(id, name, keep_alive, current_time));
+            Ok(id)
         } else {
             // Add to end
             let slot = self.clients.len();
@@ -132,22 +153,24 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
                     max_clients: MAX_CLIENTS,
                 });
             }
+            let id = ClientId::new(slot);
             self.clients
-                .push(Some(ClientState::new(slot, name, keep_alive, current_time)))
+                .push(Some(ClientState::new(id, name, keep_alive, current_time)))
                 .map_err(|_| Error::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 })?;
-            Ok(slot)
+            Ok(id)
         }
     }
 
     /// Unregister a client
-    pub fn unregister(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> bool {
+    pub fn unregister(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> Option<ClientId> {
         if let Some(index) = self.find_index(name) {
+            let client_id = self.clients[index].as_ref().map(|c| c.id);
             self.clients[index] = None;
-            true
+            client_id
         } else {
-            false
+            None
         }
     }
 

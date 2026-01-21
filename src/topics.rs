@@ -2,7 +2,7 @@
 //!
 //! Manages topic subscriptions
 
-use crate::client::ClientName;
+pub(crate) use crate::client::ClientId;
 use crate::error::{Error, Result};
 
 /// Topic name
@@ -31,7 +31,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_N
 
     fn try_from(value: &str) -> Result<Self> {
         let topic_str =
-            heapless::String::try_from(value).map_err(|_| Error::TopicLengthExceeded {
+            heapless::String::try_from(value).map_err(|_| Error::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: value.len(),
             })?;
@@ -94,113 +94,235 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicSubscription<MAX
     }
 }
 
-/// Client subscriptions
-/// Keeps track of a client's topic subscriptions.
+/// Represents a single topic with its subscribers
+///
+/// This is the primary data structure in the topic-centric organization.
+/// Each topic maintains a list of clients subscribed to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientSubscriptions<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIPTIONS_PER_CLIENT: usize> {
-    pub client_name: ClientName<MAX_CLIENT_NAME_LENGTH>,
-    pub subscriptions: heapless::Vec<TopicSubscription<MAX_TOPIC_NAME_LENGTH>, MAX_SUBSCRIPTIONS_PER_CLIENT>,
+pub struct TopicEntry<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize> {
+    topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
+    subscribers: heapless::Vec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIPTIONS_PER_CLIENT: usize> ClientSubscriptions<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIPTIONS_PER_CLIENT> {
-    pub fn new(client_name: ClientName<MAX_CLIENT_NAME_LENGTH>) -> Self {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
+    TopicEntry<MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIBERS_PER_TOPIC>
+{
+    /// Create a new topic entry
+    pub fn new(topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>) -> Self {
         Self {
-            client_name,
-            subscriptions: heapless::Vec::new(),
+            topic_name,
+            subscribers: heapless::Vec::new(),
         }
     }
 
-    pub fn add_filter(&mut self, filter: TopicSubscription<MAX_TOPIC_NAME_LENGTH>) -> Result<()> {
-        self.subscriptions
-            .push(filter)
-            .map_err(|_| Error::MaxSubscriptionsReached {
-                max_subscriptions: MAX_SUBSCRIPTIONS_PER_CLIENT,
+    /// Add a subscriber to this topic
+    ///
+    /// Returns an error if MAX_SUBSCRIBERS_PER_TOPIC is reached.
+    /// Does nothing if the client is already subscribed (prevents duplicates).
+    pub fn add_subscriber(&mut self, client_id: ClientId) -> Result<()> {
+        // Check for duplicates first
+        if self.subscribers.iter().any(|&id| id == client_id) {
+            return Ok(()); // Already subscribed
+        }
+        self.subscribers
+            .push(client_id)
+            .map_err(|_| Error::MaxSubscribersPerTopicReached {
+                max_subscribers: MAX_SUBSCRIBERS_PER_TOPIC,
             })
     }
 
-    pub fn remove_filter(&mut self, filter: &TopicSubscription<MAX_TOPIC_NAME_LENGTH>) -> bool {
-        if let Some(pos) = self.subscriptions.iter().position(|f| f == filter) {
-            self.subscriptions.remove(pos);
-            return true;
-        }
-        false
-    }
-
-    pub fn clear_all_filters(&mut self) {
-        self.subscriptions.clear();
-    }
-}
-
-/// Topic registry
-/// Manages topic subscriptions for multiple clients.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct TopicRegistry<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIPTIONS_PER_CLIENT: usize, const MAX_CLIENTS: usize> {
-    clients: heapless::Vec<ClientSubscriptions<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIPTIONS_PER_CLIENT>, MAX_CLIENTS>,
-}
-
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIPTIONS_PER_CLIENT: usize, const MAX_CLIENTS: usize> TopicRegistry<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIPTIONS_PER_CLIENT, MAX_CLIENTS> {
-    /// Create a new topic registry
-    pub const fn new() -> Self {
-        Self {
-            clients: heapless::Vec::new(),
-        }
-    }
-
-    /// Get all subscribers for a topic
-    pub fn get_subscribers(&self, topic: TopicName<MAX_TOPIC_NAME_LENGTH>) -> heapless::Vec<&ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS> {
-        let mut subscribers = heapless::Vec::<&ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS>::new();
-
-        for client_subs in &self.clients {
-            for filter in &client_subs.subscriptions {
-                if filter.matches(topic.as_str()) {
-                    subscribers.push(&client_subs.client_name).ok();
-                    break;
-                }
-            }
-        }
-
-        subscribers
-    }
-
-    /// Subscribe a client to a topic
-    pub fn subscribe(&mut self, client: ClientName<MAX_CLIENT_NAME_LENGTH>, sub: TopicSubscription<MAX_TOPIC_NAME_LENGTH>) -> Result<()> {
-        // Find existing client subscriptions or create new
-        if let Some(client_subs) = self.clients.iter_mut().find(|cs| cs.client_name == client) {
-            client_subs.add_filter(sub)
-        } else {
-            let mut new_client_subs = ClientSubscriptions::new(client);
-            new_client_subs.add_filter(sub)?;
-            self.clients
-                .push(new_client_subs)
-                .map_err(|_| Error::MaxClientsReached {
-                    max_clients: MAX_CLIENTS,
-                })
-        }
-    }
-
-    /// Unsubscribe a client from a topic
-    pub fn unsubscribe(&mut self, client: ClientName<MAX_CLIENT_NAME_LENGTH>, sub: TopicSubscription<MAX_TOPIC_NAME_LENGTH>) -> bool {
-        if let Some(client_subs) = self.clients.iter_mut().find(|cs| cs.client_name == client) {
-            client_subs.remove_filter(&sub)
+    /// Remove a subscriber from this topic
+    ///
+    /// Returns true if the subscriber was removed, false if not found.
+    pub fn remove_subscriber(&mut self, client_id: ClientId) -> bool {
+        if let Some(pos) = self.subscribers.iter().position(|&id| id == client_id) {
+            self.subscribers.remove(pos);
+            true
         } else {
             false
         }
     }
 
-    /// Unsubscribe a client from all topics
-    pub fn unregister_client(&mut self, client: ClientName<MAX_CLIENT_NAME_LENGTH>) {
-        if let Some(pos) = self.clients.iter().position(|cs| cs.client_name == client) {
-            self.clients.remove(pos);
+    /// Check if this topic has no subscribers
+    pub fn is_empty(&self) -> bool {
+        self.subscribers.is_empty()
+    }
+
+    /// Get the topic name
+    pub fn topic_name(&self) -> &TopicName<MAX_TOPIC_NAME_LENGTH> {
+        &self.topic_name
+    }
+
+    /// Get the number of subscribers
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers.len()
+    }
+}
+
+/// Topic registry
+///
+/// Manages topic subscriptions using a topic-centric organization.
+/// This is optimized for MQTT workloads where publishes are frequent
+/// and client connections/disconnections are rare.
+///
+/// # Performance
+///
+/// - **get_subscribers()**: O(topics) - optimized for the publish path
+/// - **subscribe()**: O(topics) - find or create topic entry
+/// - **unregister_client()**: O(topics * subscribers) - acceptable for rare disconnects
+///
+/// # Design
+///
+/// The registry is organized by topics, not by clients. Each topic
+/// maintains its own list of subscribers (client IDs). This provides
+/// significantly better performance for the common publish operation
+/// at the cost of slightly more complex client disconnect handling.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TopicRegistry<
+    const MAX_TOPIC_NAME_LENGTH: usize,
+    const MAX_TOPICS: usize,
+    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+> {
+    topics: heapless::Vec<
+        TopicEntry<MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIBERS_PER_TOPIC>,
+        MAX_TOPICS,
+    >,
+}
+
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
+    TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+{
+    /// Create a new topic registry
+    pub const fn new() -> Self {
+        Self {
+            topics: heapless::Vec::new(),
         }
     }
 
-    /// Get number of active topics
-    pub fn clients_count(&self) -> usize {
-        self.clients.len()
+    /// Subscribe a client to a topic filter
+    ///
+    /// If the topic doesn't exist, it will be created. If it exists,
+    /// the client will be added to the subscriber list (unless already
+    /// subscribed, in which case this is a no-op).
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::MaxTopicsReached` if MAX_TOPICS is exceeded.
+    /// Returns `Error::MaxSubscribersPerTopicReached` if the topic has
+    /// reached MAX_SUBSCRIBERS_PER_TOPIC.
+    pub fn subscribe(
+        &mut self,
+        client_id: ClientId,
+        filter: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
+    ) -> Result<()> {
+        let topic_name = match filter {
+            TopicSubscription::Exact(name) => name,
+            TopicSubscription::Empty => {
+                return Ok(()); // Empty filter, nothing to subscribe to
+            }
+        };
+
+        // Find existing topic or create new
+        if let Some(topic_entry) = self.topics.iter_mut().find(|t| t.topic_name == topic_name)
+        {
+            topic_entry.add_subscriber(client_id)
+        } else {
+            // Check if we've reached the max topics limit
+            if self.topics.len() >= MAX_TOPICS {
+                return Err(Error::MaxTopicsReached { max_topics: MAX_TOPICS });
+            }
+
+            // Create new topic entry
+            let mut new_entry = TopicEntry::new(topic_name);
+            new_entry.add_subscriber(client_id)?;
+            self.topics
+                .push(new_entry)
+                .map_err(|_| Error::MaxTopicsReached { max_topics: MAX_TOPICS })
+        }
+    }
+
+    /// Get all subscribers for a topic
+    ///
+    /// Returns an empty vector if the topic doesn't exist or has no subscribers.
+    /// This is optimized for the publish path - O(topics) single pass.
+    pub fn get_subscribers(
+        &self,
+        topic: &TopicName<MAX_TOPIC_NAME_LENGTH>,
+    ) -> heapless::Vec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
+        self.topics
+            .iter()
+            .find(|entry| &entry.topic_name == topic)
+            .map(|entry| entry.subscribers.clone())
+            .unwrap_or_default()
+    }
+
+    /// Unsubscribe a client from a specific topic
+    ///
+    /// Returns true if the subscription was removed, false if not found.
+    /// Automatically cleans up empty topics.
+    pub fn unsubscribe(
+        &mut self,
+        client_id: ClientId,
+        filter: &TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
+    ) -> bool {
+        let topic_name = match filter {
+            TopicSubscription::Exact(name) => name,
+            TopicSubscription::Empty => return false, // Empty filter, nothing to unsubscribe
+        };
+
+        // Find the topic index first
+        let topic_idx = self.topics.iter().position(|e| e.topic_name == *topic_name);
+
+        if let Some(idx) = topic_idx {
+            let removed = self.topics[idx].remove_subscriber(client_id);
+
+            // Auto-cleanup empty topics
+            if self.topics[idx].is_empty() {
+                self.topics.remove(idx);
+            }
+
+            removed
+        } else {
+            false
+        }
+    }
+
+    /// Unsubscribe a client from ALL topics
+    ///
+    /// This is called when a client disconnects. Returns the number of
+    /// topics from which the client was removed.
+    ///
+    /// Automatically cleans up empty topics.
+    pub fn unregister_client(&mut self, client_id: ClientId) -> usize {
+        let mut removed_count = 0;
+
+        // Remove client from all topics
+        for entry in &mut self.topics {
+            if entry.remove_subscriber(client_id) {
+                removed_count += 1;
+            }
+        }
+
+        // Clean up empty topics
+        self.topics.retain(|entry| !entry.is_empty());
+
+        removed_count
+    }
+
+    /// Get the number of active topics
+    pub fn topic_count(&self) -> usize {
+        self.topics.len()
+    }
+
+    /// Get the total number of subscriptions across all topics
+    ///
+    /// This is useful for monitoring and debugging.
+    pub fn subscription_count(&self) -> usize {
+        self.topics.iter().map(|t| t.subscribers.len()).sum()
     }
 
     /// Clear all subscriptions
     pub fn clear_all(&mut self) {
-        self.clients.clear();
+        self.topics.clear();
     }
 }
