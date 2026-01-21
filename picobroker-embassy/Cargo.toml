@@ -1,0 +1,10 @@
+[package]
+name = "picobroker-embassy"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+picobroker-core = { path = "../picobroker-core" }
+async-trait = "0.1"
+embassy-net = { version = "0.8" }
+embassy-time = { version = "0.5" }

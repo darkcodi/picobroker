@@ -1,20 +1,19 @@
-//! Minimal MQTT Broker Example
+//! Minimal MQTT Broker Example (Tokio)
 //!
 //! This example demonstrates the basic structure of the picobroker MQTT broker.
 //! Note: This is a minimal example showing the broker API.
 //! Full server implementation with connection handling will be added in the future.
 
-use picobroker::broker::{DefaultPicoBroker, PicoBroker};
-use picobroker::client::ClientName;
-use picobroker::network::std::StdTcpListener;
+use picobroker_tokio::*;
+use picobroker_tokio::network::TokioTcpListener;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("PicoBroker - Minimal MQTT 3.1.1 Broker");
     println!("======================================\n");
 
     // Create a new broker with default limits
-    let mut broker = DefaultPicoBroker::new();
+    let mut broker = TokioPicoBroker::<30, 30, 4, 4, 4>::new_tokio();
     println!("Broker created successfully!");
 
     // Example: Register a client (normally done during CONNECT handling)

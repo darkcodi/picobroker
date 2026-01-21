@@ -1,17 +1,11 @@
-[package]
-name = "picobroker"
+[workspace]
+members = [
+    "picobroker-core",
+    "picobroker-tokio",
+    "picobroker-embassy",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-
-[lib]
-path = "src/lib.rs"
-
-[dependencies]
-heapless = "0.9"
-async-trait = { version = "0.1", optional = true }
-tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util"], optional = true }
-
-[features]
-default = ["std"]
-std = ["async-trait", "tokio"]
-embassy = []  # TODO: Add Embassy dependencies when ready
