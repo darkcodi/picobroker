@@ -78,16 +78,24 @@ impl ClientId {
     }
 }
 
-/// Client connection state
+/// Client state machine
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ClientState {
+    #[default]
+    Connecting,
+    Connected,
+    Disconnected,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClientState<const MAX_CLIENT_NAME_LENGTH: usize> {
+pub struct Client<const MAX_CLIENT_NAME_LENGTH: usize> {
     pub id: ClientId,
     pub name: ClientName<MAX_CLIENT_NAME_LENGTH>,
     pub keep_alive_secs: u16,
     pub last_activity: u64,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> ClientState<MAX_CLIENT_NAME_LENGTH> {
+impl<const MAX_CLIENT_NAME_LENGTH: usize> Client<MAX_CLIENT_NAME_LENGTH> {
     pub fn new(id: ClientId, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
         Self {
             id,
@@ -117,7 +125,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> ClientState<MAX_CLIENT_NAME_LENGTH> {
 /// Manages connected clients and their state
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClientRegistry<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> {
-    clients: heapless::Vec<Option<ClientState<MAX_CLIENT_NAME_LENGTH>>, MAX_CLIENTS>,
+    clients: heapless::Vec<Option<Client<MAX_CLIENT_NAME_LENGTH>>, MAX_CLIENTS>,
 }
 
 impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS> {
@@ -143,7 +151,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
         // Find empty slot or add new
         if let Some(slot) = self.clients.iter().position(|c| c.is_none()) {
             let id = ClientId::new(slot);
-            self.clients[slot] = Some(ClientState::new(id, name, keep_alive, current_time));
+            self.clients[slot] = Some(Client::new(id, name, keep_alive, current_time));
             Ok(id)
         } else {
             // Add to end
@@ -155,7 +163,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
             }
             let id = ClientId::new(slot);
             self.clients
-                .push(Some(ClientState::new(id, name, keep_alive, current_time)))
+                .push(Some(Client::new(id, name, keep_alive, current_time)))
                 .map_err(|_| Error::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 })?;
@@ -178,8 +186,8 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
     pub fn update_activity(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>, current_time: u64) -> bool {
         if let Some(index) = self.find_index(name) {
             if let Some(client) = self.clients.get_mut(index) {
-                if let Some(state) = client {
-                    state.update_activity(current_time);
+                if let Some(client) = client {
+                    client.update_activity(current_time);
                     return true;
                 }
             }
@@ -191,9 +199,9 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
     pub fn get_expired_clients(&self, current_time: u64) -> heapless::Vec<ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS> {
         let mut expired = heapless::Vec::new();
         for client in &self.clients {
-            if let Some(state) = client {
-                if state.is_expired(current_time) {
-                    let _ = expired.push(state.name.clone());
+            if let Some(client) = client {
+                if client.is_expired(current_time) {
+                    let _ = expired.push(client.name.clone());
                 }
             }
         }
@@ -203,8 +211,8 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
     /// Find client index by name
     pub fn find_index(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> Option<usize> {
         self.clients.iter().position(|c| {
-            if let Some(state) = c {
-                &state.name == name
+            if let Some(client) = c {
+                &client.name == name
             } else {
                 false
             }
