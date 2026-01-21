@@ -61,14 +61,16 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> core::fmt::Display
 /// Client connection state
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClientState<const MAX_CLIENT_NAME_LENGTH: usize> {
+    pub id: usize,
     pub name: ClientName<MAX_CLIENT_NAME_LENGTH>,
     pub keep_alive_secs: u16,
     pub last_activity: u64,
 }
 
 impl<const MAX_CLIENT_NAME_LENGTH: usize> ClientState<MAX_CLIENT_NAME_LENGTH> {
-    pub fn new(name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
+    pub fn new(id: usize, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
         Self {
+            id,
             name,
             keep_alive_secs,
             last_activity: current_time,
@@ -120,16 +122,22 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
 
         // Find empty slot or add new
         if let Some(slot) = self.clients.iter().position(|c| c.is_none()) {
-            self.clients[slot] = Some(ClientState::new(name, keep_alive, current_time));
+            self.clients[slot] = Some(ClientState::new(slot, name, keep_alive, current_time));
             Ok(slot)
         } else {
             // Add to end
+            let slot = self.clients.len();
+            if slot >= MAX_CLIENTS {
+                return Err(Error::MaxClientsReached {
+                    max_clients: MAX_CLIENTS,
+                });
+            }
             self.clients
-                .push(Some(ClientState::new(name, keep_alive, current_time)))
+                .push(Some(ClientState::new(slot, name, keep_alive, current_time)))
                 .map_err(|_| Error::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 })?;
-            Ok(self.clients.len() - 1)
+            Ok(slot)
         }
     }
 
