@@ -1,12 +1,7 @@
 //! Tokio async broker extensions
 
-use crate::network::TcpStream;
 use crate::time::StdTimeSource;
-use picobroker_core::{
-    PicoBroker, Result, TopicName, TopicSubscription, Packet, QoS,
-};
-use picobroker_core::client::ClientId;
-use picobroker_core::protocol::packets::*;
+use picobroker_core::*;
 
 /// Tokio broker with async methods
 ///
@@ -64,9 +59,27 @@ pub trait TokioBrokerExt<
         S: TcpStream;
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
-    TokioBrokerExt<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
-    for TokioPicoBroker<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+impl<
+        const MAX_CLIENT_NAME_LENGTH: usize,
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    >
+    TokioBrokerExt<
+        MAX_CLIENT_NAME_LENGTH,
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
+    for TokioPicoBroker<
+        MAX_CLIENT_NAME_LENGTH,
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     fn new_tokio() -> Self {
         Self::new(StdTimeSource)
@@ -102,7 +115,8 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         S: TcpStream,
     {
         let topic_filter = TopicSubscription::try_from(subscribe.topic_filter)?;
-        self.topics_mut().subscribe(ClientId::new(client_id), topic_filter)?;
+        self.topics_mut()
+            .subscribe(ClientId::new(client_id), topic_filter)?;
 
         let suback = SubAck {
             packet_id: subscribe.packet_id,

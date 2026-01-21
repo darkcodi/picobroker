@@ -1,31 +1,9 @@
 //! Tokio networking implementation
 
 use async_trait::async_trait;
+use picobroker_core::{TcpListener, TcpStream};
 use picobroker_core::{Error, Result, SocketAddr};
 use tokio::net::TcpStream as TokioTcpStreamInner;
-
-/// TCP stream trait for Tokio
-#[async_trait]
-pub trait TcpStream {
-    /// Read data from the stream into the buffer
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
-
-    /// Write data from the buffer to the stream
-    async fn write(&mut self, buf: &[u8]) -> Result<usize>;
-
-    /// Close the stream
-    async fn close(&mut self) -> Result<()>;
-}
-
-/// TCP listener trait for Tokio
-#[async_trait]
-pub trait TcpListener {
-    /// The stream type produced by this listener
-    type Stream: TcpStream;
-
-    /// Accept a new connection
-    async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr)>;
-}
 
 /// Tokio TCP stream wrapper
 ///

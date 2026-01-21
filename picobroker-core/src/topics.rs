@@ -8,9 +8,7 @@ use crate::error::{Error, Result};
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TopicName<const MAX_TOPIC_NAME_LENGTH: usize>(
-    heapless::String<MAX_TOPIC_NAME_LENGTH>,
-);
+pub struct TopicName<const MAX_TOPIC_NAME_LENGTH: usize>(heapless::String<MAX_TOPIC_NAME_LENGTH>);
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize> TopicName<MAX_TOPIC_NAME_LENGTH> {
     pub fn new(name: heapless::String<MAX_TOPIC_NAME_LENGTH>) -> Self {
@@ -85,7 +83,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TopicSubscription<MAX_TOPIC_NAME_LENGTH
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicSubscription<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str>
+    for TopicSubscription<MAX_TOPIC_NAME_LENGTH>
+{
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self> {
@@ -183,14 +183,14 @@ pub struct TopicRegistry<
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
-    topics: heapless::Vec<
-        TopicEntry<MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIBERS_PER_TOPIC>,
-        MAX_TOPICS,
-    >,
+    topics: heapless::Vec<TopicEntry<MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIBERS_PER_TOPIC>, MAX_TOPICS>,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
-    TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+impl<
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    > TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new topic registry
     pub const fn new() -> Self {
@@ -223,13 +223,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_TOPICS: usize, const MAX_SUBS
         };
 
         // Find existing topic or create new
-        if let Some(topic_entry) = self.topics.iter_mut().find(|t| t.topic_name == topic_name)
-        {
+        if let Some(topic_entry) = self.topics.iter_mut().find(|t| t.topic_name == topic_name) {
             topic_entry.add_subscriber(client_id)
         } else {
             // Check if we've reached the max topics limit
             if self.topics.len() >= MAX_TOPICS {
-                return Err(Error::MaxTopicsReached { max_topics: MAX_TOPICS });
+                return Err(Error::MaxTopicsReached {
+                    max_topics: MAX_TOPICS,
+                });
             }
 
             // Create new topic entry
@@ -237,7 +238,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_TOPICS: usize, const MAX_SUBS
             new_entry.add_subscriber(client_id)?;
             self.topics
                 .push(new_entry)
-                .map_err(|_| Error::MaxTopicsReached { max_topics: MAX_TOPICS })
+                .map_err(|_| Error::MaxTopicsReached {
+                    max_topics: MAX_TOPICS,
+                })
         }
     }
 

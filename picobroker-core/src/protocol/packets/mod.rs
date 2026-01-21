@@ -1,21 +1,3 @@
-pub use crate::protocol::packet_type::PacketType;
-pub use crate::protocol::packets::connack::ConnAck;
-pub use crate::protocol::packets::connect::Connect;
-pub use crate::protocol::packets::disconnect::Disconnect;
-pub use crate::protocol::packets::pingreq::PingReq;
-pub use crate::protocol::packets::pingresp::PingResp;
-pub use crate::protocol::packets::puback::PubAck;
-pub use crate::protocol::packets::pubcomp::PubComp;
-pub use crate::protocol::packets::publish::Publish;
-pub use crate::protocol::packets::pubrec::PubRec;
-pub use crate::protocol::packets::pubrel::PubRel;
-pub use crate::protocol::packets::suback::SubAck;
-pub use crate::protocol::packets::subscribe::Subscribe;
-pub use crate::protocol::packets::unsuback::UnsubAck;
-pub use crate::protocol::packets::unsubscribe::Unsubscribe;
-pub use crate::protocol::utils::{read_variable_length, write_variable_length};
-pub use crate::Error;
-
 mod connack;
 mod connect;
 mod disconnect;
@@ -30,6 +12,25 @@ mod suback;
 mod subscribe;
 mod unsuback;
 mod unsubscribe;
+
+pub use crate::protocol::packets::connack::ConnAck;
+pub use crate::protocol::packets::connect::Connect;
+pub use crate::protocol::packets::disconnect::Disconnect;
+pub use crate::protocol::packets::pingreq::PingReq;
+pub use crate::protocol::packets::pingresp::PingResp;
+pub use crate::protocol::packets::puback::PubAck;
+pub use crate::protocol::packets::pubcomp::PubComp;
+pub use crate::protocol::packets::publish::Publish;
+pub use crate::protocol::packets::pubrec::PubRec;
+pub use crate::protocol::packets::pubrel::PubRel;
+pub use crate::protocol::packets::suback::SubAck;
+pub use crate::protocol::packets::subscribe::Subscribe;
+pub use crate::protocol::packets::unsuback::UnsubAck;
+pub use crate::protocol::packets::unsubscribe::Unsubscribe;
+
+use crate::protocol::utils::{read_variable_length, write_variable_length};
+use crate::protocol::PacketType;
+use crate::Error;
 
 pub trait PacketEncoder<'a>: Sized {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error>;

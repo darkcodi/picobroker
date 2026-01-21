@@ -96,7 +96,12 @@ pub struct Client<const MAX_CLIENT_NAME_LENGTH: usize> {
 }
 
 impl<const MAX_CLIENT_NAME_LENGTH: usize> Client<MAX_CLIENT_NAME_LENGTH> {
-    pub fn new(id: ClientId, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
+    pub fn new(
+        id: ClientId,
+        name: ClientName<MAX_CLIENT_NAME_LENGTH>,
+        keep_alive_secs: u16,
+        current_time: u64,
+    ) -> Self {
         Self {
             id,
             name,
@@ -128,7 +133,9 @@ pub struct ClientRegistry<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS
     clients: heapless::Vec<Option<Client<MAX_CLIENT_NAME_LENGTH>>, MAX_CLIENTS>,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS> {
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
+    ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS>
+{
     /// Create a new client registry
     pub const fn new() -> Self {
         Self {
@@ -183,7 +190,11 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
     }
 
     /// Update client activity timestamp
-    pub fn update_activity(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>, current_time: u64) -> bool {
+    pub fn update_activity(
+        &mut self,
+        name: &ClientName<MAX_CLIENT_NAME_LENGTH>,
+        current_time: u64,
+    ) -> bool {
         if let Some(index) = self.find_index(name) {
             if let Some(client) = self.clients.get_mut(index) {
                 if let Some(client) = client {
@@ -196,7 +207,10 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegist
     }
 
     /// Get list of expired clients
-    pub fn get_expired_clients(&self, current_time: u64) -> heapless::Vec<ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS> {
+    pub fn get_expired_clients(
+        &self,
+        current_time: u64,
+    ) -> heapless::Vec<ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS> {
         let mut expired = heapless::Vec::new();
         for client in &self.clients {
             if let Some(client) = client {

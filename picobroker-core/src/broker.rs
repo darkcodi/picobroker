@@ -34,8 +34,22 @@ pub struct PicoBroker<
     topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
-impl<T: TimeSource, const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
-    PicoBroker<T, MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+impl<
+        T: TimeSource,
+        const MAX_CLIENT_NAME_LENGTH: usize,
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    >
+    PicoBroker<
+        T,
+        MAX_CLIENT_NAME_LENGTH,
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     /// Create a new MQTT broker with the given time source
     pub const fn new(time_source: T) -> Self {
@@ -49,9 +63,15 @@ impl<T: TimeSource, const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LE
     /// Register a new client
     ///
     /// Returns the client ID that should be used for subsequent operations.
-    pub fn register_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive: u16) -> Result<ClientId> {
+    pub fn register_client(
+        &mut self,
+        name: ClientName<MAX_CLIENT_NAME_LENGTH>,
+        keep_alive: u16,
+    ) -> Result<ClientId> {
         let current_time = self.time_source.now_secs();
-        let client_id = self.clients.register(name.clone(), keep_alive, current_time)?;
+        let client_id = self
+            .clients
+            .register(name.clone(), keep_alive, current_time)?;
         Ok(client_id)
     }
 
@@ -90,12 +110,16 @@ impl<T: TimeSource, const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LE
     }
 
     /// Get reference to the topics registry
-    pub fn topics(&self) -> &TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC> {
+    pub fn topics(
+        &self,
+    ) -> &TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC> {
         &self.topics
     }
 
     /// Get mutable reference to the topics registry
-    pub fn topics_mut(&mut self) -> &mut TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC> {
+    pub fn topics_mut(
+        &mut self,
+    ) -> &mut TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC> {
         &mut self.topics
     }
 

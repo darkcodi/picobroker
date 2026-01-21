@@ -1,6 +1,6 @@
 //! Std time implementation
 
-use picobroker_core::time::TimeSource;
+use picobroker_core::TimeSource;
 
 /// Standard library time source
 #[derive(Debug, Clone, Copy)]

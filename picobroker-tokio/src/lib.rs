@@ -32,8 +32,8 @@ pub mod time;
 pub use picobroker_core::*;
 
 // Tokio-specific types
-pub use broker::{TokioPicoBroker, TokioBrokerExt};
-pub use network::{TcpListener, TcpStream, TokioTcpListener, TokioTcpStream};
+pub use broker::{TokioBrokerExt, TokioPicoBroker};
+pub use network::{TokioTcpListener, TokioTcpStream};
 pub use time::StdTimeSource;
 
 /// Default broker type with common configuration

@@ -4,8 +4,8 @@
 //! Note: This is a minimal example showing the broker API.
 //! Full server implementation with connection handling will be added in the future.
 
-use picobroker_tokio::*;
 use picobroker_tokio::network::TokioTcpListener;
+use picobroker_tokio::*;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {

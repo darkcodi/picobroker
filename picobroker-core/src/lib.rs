@@ -25,23 +25,38 @@
 
 #![no_std]
 
-pub mod broker;
-pub mod client;
-pub mod error;
-pub mod network;
-pub mod protocol;
-pub mod time;
-pub mod topics;
+mod broker;
+mod client;
+mod error;
+mod network;
+mod protocol;
+mod time;
+mod topics;
 
-// Convenience re-exports
-pub use error::{Error, Result};
-pub use client::{ClientId, ClientName, Client, ClientRegistry};
-pub use topics::{TopicName, TopicSubscription, TopicRegistry, TopicEntry};
 pub use broker::PicoBroker;
-pub use time::{TimeSource, DummyTimeSource};
-pub use network::SocketAddr;
-
-// Protocol re-exports
-pub use protocol::packet_type::PacketType;
-pub use protocol::qos::QoS;
-pub use protocol::packets::{Packet, *};
+pub use client::{Client, ClientId, ClientName, ClientRegistry};
+pub use error::{Error, Result};
+pub use network::{SocketAddr, TcpListener, TcpStream};
+pub use protocol::ConnAck;
+pub use protocol::Connect;
+pub use protocol::Disconnect;
+pub use protocol::Packet;
+pub use protocol::PacketEncoder;
+pub use protocol::PacketType;
+pub use protocol::PingReq;
+pub use protocol::PingResp;
+pub use protocol::PubAck;
+pub use protocol::PubComp;
+pub use protocol::PubRec;
+pub use protocol::PubRel;
+pub use protocol::Publish;
+pub use protocol::QoS;
+pub use protocol::SubAck;
+pub use protocol::Subscribe;
+pub use protocol::UnsubAck;
+pub use protocol::Unsubscribe;
+pub use protocol::{
+    read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
+};
+pub use time::{DummyTimeSource, TimeSource};
+pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};
