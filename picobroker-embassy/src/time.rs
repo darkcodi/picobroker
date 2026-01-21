@@ -1,6 +1,6 @@
 //! Embassy time implementation
 
-use picobroker_core::time::TimeSource;
+use picobroker_core::TimeSource;
 
 /// Embassy time source
 #[derive(Debug, Clone, Copy)]

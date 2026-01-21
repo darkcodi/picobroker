@@ -1,6 +1,5 @@
 //! Embassy networking implementation (stubs)
 
-use async_trait::async_trait;
 use picobroker_core::{Error, Result, SocketAddr, TcpListener, TcpStream};
 
 /// Embassy TCP stream wrapper
@@ -18,21 +17,40 @@ impl<'a> EmbassyTcpStream<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> TcpStream for EmbassyTcpStream<'a> {
-    async fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
-        // TODO: Implement Embassy TCP read
-        Err(Error::IoError)
+    fn read<'life0, 'life1>(
+        &'life0 mut self,
+        _buf: &'life1 mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize>> + 'life0
+    where
+        'life1: 'life0,
+    {
+        async move {
+            // TODO: Implement Embassy TCP read
+            Err(Error::IoError)
+        }
     }
 
-    async fn write(&mut self, _buf: &[u8]) -> Result<usize> {
-        // TODO: Implement Embassy TCP write
-        Err(Error::IoError)
+    fn write<'life0, 'life1>(
+        &'life0 mut self,
+        _buf: &'life1 [u8],
+    ) -> impl core::future::Future<Output = Result<usize>> + 'life0
+    where
+        'life1: 'life0,
+    {
+        async move {
+            // TODO: Implement Embassy TCP write
+            Err(Error::IoError)
+        }
     }
 
-    async fn close(&mut self) -> Result<()> {
-        // TODO: Implement Embassy TCP close
-        Err(Error::IoError)
+    fn close<'life0>(
+        &'life0 mut self,
+    ) -> impl core::future::Future<Output = Result<()>> + 'life0 {
+        async move {
+            // TODO: Implement Embassy TCP close
+            Err(Error::IoError)
+        }
     }
 }
 
@@ -51,12 +69,15 @@ impl<'a> EmbassyTcpListener<'a> {
     }
 }
 
-#[async_trait]
 impl<'a> TcpListener for EmbassyTcpListener<'a> {
     type Stream = EmbassyTcpStream<'a>;
 
-    async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr)> {
-        // TODO: Implement Embassy TCP accept
-        Err(Error::AcceptError)
+    fn accept<'life0>(
+        &'life0 mut self,
+    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr)>> + 'life0 {
+        async move {
+            // TODO: Implement Embassy TCP accept
+            Err(Error::AcceptError)
+        }
     }
 }

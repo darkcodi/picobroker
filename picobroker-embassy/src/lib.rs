@@ -46,7 +46,7 @@ pub use picobroker_core::*;
 
 // Embassy-specific types
 pub use broker::{EmbassyBrokerExt, EmbassyPicoBroker};
-pub use network::{EmbassyTcpListener, EmbassyTcpStream, TcpListener, TcpStream};
+pub use network::{EmbassyTcpListener, EmbassyTcpStream};
 pub use time::EmbassyTimeSource;
 
 /// Default broker type with common configuration

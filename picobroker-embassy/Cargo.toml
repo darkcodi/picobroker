@@ -5,6 +5,5 @@ edition.workspace = true
 
 [dependencies]
 picobroker-core = { path = "../picobroker-core" }
-async-trait = "0.1"
-embassy-net = { version = "0.8" }
+embassy-net = { version = "0.8", features = ["proto-ipv4", "tcp", "udp", "medium-ethernet"] }
 embassy-time = { version = "0.5" }

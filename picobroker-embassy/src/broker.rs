@@ -1,10 +1,8 @@
 //! Embassy async broker extensions
 
-use crate::network::TcpStream;
+use picobroker_core::{TcpStream, ClientId, Packet, PicoBroker, QoS, Result, TopicName, TopicSubscription};
+use picobroker_core::{Publish, Subscribe, SubAck, PingResp};
 use crate::time::EmbassyTimeSource;
-use picobroker_core::client::ClientId;
-use picobroker_core::protocol::packets::*;
-use picobroker_core::{Packet, PicoBroker, QoS, Result, TopicName, TopicSubscription};
 
 /// Embassy broker with async methods
 ///

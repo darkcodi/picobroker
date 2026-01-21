@@ -1,7 +1,5 @@
 //! Networking types - pure data structures only
 
-#[allow(async_fn_in_trait)]
-
 /// Socket address (IPv4)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SocketAddr {
@@ -12,13 +10,25 @@ pub struct SocketAddr {
 /// TCP stream trait for Tokio
 pub trait TcpStream {
     /// Read data from the stream into the buffer
-    async fn read(&mut self, buf: &mut [u8]) -> crate::Result<usize>;
+    fn read<'a, 'b>(
+        &'a mut self,
+        buf: &'b mut [u8],
+    ) -> impl core::future::Future<Output = crate::Result<usize>> + 'a
+    where
+        'b: 'a;
 
     /// Write data from the buffer to the stream
-    async fn write(&mut self, buf: &[u8]) -> crate::Result<usize>;
+    fn write<'a, 'b>(
+        &'a mut self,
+        buf: &'b [u8],
+    ) -> impl core::future::Future<Output = crate::Result<usize>> + 'a
+    where
+        'b: 'a;
 
     /// Close the stream
-    async fn close(&mut self) -> crate::Result<()>;
+    fn close<'a>(
+        &'a mut self,
+    ) -> impl core::future::Future<Output = crate::Result<()>> + 'a;
 }
 
 /// TCP listener trait for Tokio
@@ -27,5 +37,7 @@ pub trait TcpListener {
     type Stream: TcpStream;
 
     /// Accept a new connection
-    async fn accept(&mut self) -> crate::Result<(Self::Stream, SocketAddr)>;
+    fn accept<'a>(
+        &'a mut self,
+    ) -> impl core::future::Future<Output = crate::Result<(Self::Stream, SocketAddr)>> + 'a;
 }

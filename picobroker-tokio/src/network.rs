@@ -1,6 +1,5 @@
 //! Tokio networking implementation
 
-use async_trait::async_trait;
 use picobroker_core::{TcpListener, TcpStream};
 use picobroker_core::{Error, Result, SocketAddr};
 use tokio::net::TcpStream as TokioTcpStreamInner;
@@ -29,21 +28,34 @@ impl TokioTcpStream {
     }
 }
 
-#[async_trait]
 impl TcpStream for TokioTcpStream {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+    fn read<'a, 'b>(
+        &'a mut self,
+        buf: &'b mut [u8],
+    ) -> impl core::future::Future<Output = Result<usize>> + 'a
+    where
+        'b: 'a,
+    {
         use tokio::io::AsyncReadExt;
-        self.inner.read(buf).await.map_err(|_| Error::IoError)
+        async move { self.inner.read(buf).await.map_err(|_| Error::IoError) }
     }
 
-    async fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn write<'a, 'b>(
+        &'a mut self,
+        buf: &'b [u8],
+    ) -> impl core::future::Future<Output = Result<usize>> + 'a
+    where
+        'b: 'a,
+    {
         use tokio::io::AsyncWriteExt;
-        self.inner.write(buf).await.map_err(|_| Error::IoError)
+        async move { self.inner.write(buf).await.map_err(|_| Error::IoError) }
     }
 
-    async fn close(&mut self) -> Result<()> {
+    fn close<'a>(
+        &'a mut self,
+    ) -> impl core::future::Future<Output = Result<()>> + 'a {
         use tokio::io::AsyncWriteExt;
-        self.inner.shutdown().await.map_err(|_| Error::IoError)
+        async move { self.inner.shutdown().await.map_err(|_| Error::IoError) }
     }
 }
 
@@ -65,23 +77,26 @@ impl TokioTcpListener {
     }
 }
 
-#[async_trait]
 impl TcpListener for TokioTcpListener {
     type Stream = TokioTcpStream;
 
-    async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr)> {
-        let (stream, addr) = self.inner.accept().await.map_err(|_| Error::AcceptError)?;
+    fn accept<'a>(
+        &'a mut self,
+    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr)>> + 'a {
+        async move {
+            let (stream, addr) = self.inner.accept().await.map_err(|_| Error::AcceptError)?;
 
-        let socket_addr = SocketAddr {
-            ip: match addr.ip() {
-                std::net::IpAddr::V4(ipv4) => ipv4.octets(),
-                std::net::IpAddr::V6(_) => [0, 0, 0, 0], // Ignore IPv6 for embedded
-            },
-            port: addr.port(),
-        };
+            let socket_addr = SocketAddr {
+                ip: match addr.ip() {
+                    std::net::IpAddr::V4(ipv4) => ipv4.octets(),
+                    std::net::IpAddr::V6(_) => [0, 0, 0, 0], // Ignore IPv6 for embedded
+                },
+                port: addr.port(),
+            };
 
-        let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
+            let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
 
-        Ok((tokio_stream, socket_addr))
+            Ok((tokio_stream, socket_addr))
+        }
     }
 }
