@@ -3,7 +3,7 @@ use crate::Error;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Disconnect<'a> {
-    _phantom: core::marker::PhantomData<&'a ()>,
+    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> PacketEncoder<'a> for Disconnect<'a> {

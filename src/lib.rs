@@ -20,11 +20,12 @@
 //! - No authentication/authorization
 //! - No TLS
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod broker;
 pub mod client;
 pub mod error;
+pub mod network;
 pub mod protocol;
 pub mod topics;
 

@@ -4,7 +4,7 @@ use crate::Error;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubRel<'a> {
     pub packet_id: u16,
-    _phantom: core::marker::PhantomData<&'a ()>,
+    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> PacketEncoder<'a> for PubRel<'a> {

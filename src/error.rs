@@ -43,6 +43,18 @@ pub enum Error {
     InvalidClientIdLength { length: u16 },
     /// Packet size exceeded maximum allowed size
     PacketTooLarge { max_size: usize, actual_size: usize },
+    /// Network I/O error
+    IoError,
+    /// Keep-alive timeout expired
+    KeepAliveTimeout,
+    /// Client already connected with this ID
+    ClientAlreadyConnected,
+    /// Client not found in registry
+    ClientNotFound,
+    /// Connection accept failed
+    AcceptError,
+    /// Failed to bind to address
+    BindError,
 }
 
 impl core::fmt::Display for Error {
@@ -110,6 +122,12 @@ impl core::fmt::Display for Error {
                     max_size, actual_size
                 )
             }
+            Error::IoError => write!(f, "Network I/O error"),
+            Error::KeepAliveTimeout => write!(f, "Keep-alive timeout expired"),
+            Error::ClientAlreadyConnected => write!(f, "Client already connected with this ID"),
+            Error::ClientNotFound => write!(f, "Client not found in registry"),
+            Error::AcceptError => write!(f, "Connection accept failed"),
+            Error::BindError => write!(f, "Failed to bind to address"),
         }
     }
 }

@@ -30,7 +30,7 @@ impl From<u8> for ConnectReturnCode {
 pub struct ConnAck<'a> {
     pub session_present: bool,
     pub return_code: ConnectReturnCode,
-    _phantom: core::marker::PhantomData<&'a ()>,
+    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> PacketEncoder<'a> for ConnAck<'a> {

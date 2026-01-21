@@ -6,7 +6,7 @@ use crate::Error;
 pub struct SubAck<'a> {
     pub packet_id: u16,
     pub granted_qos: QoS,
-    _phantom: core::marker::PhantomData<&'a ()>,
+    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> PacketEncoder<'a> for SubAck<'a> {
