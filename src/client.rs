@@ -1,11 +1,9 @@
 use crate::error::{Error, Result};
 
-const DEFAULT_CLIENT_NAME_LENGTH: usize = 32;
-
 /// Client name
 /// Represents an MQTT client name with a maximum length.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClientName<const MAX_CLIENT_NAME_LENGTH: usize = DEFAULT_CLIENT_NAME_LENGTH>(
+pub struct ClientName<const MAX_CLIENT_NAME_LENGTH: usize>(
     heapless::String<MAX_CLIENT_NAME_LENGTH>,
 );
 
@@ -61,14 +59,15 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> core::fmt::Display
 }
 
 /// Client connection state
-pub struct ClientState {
-    pub name: ClientName,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClientState<const MAX_CLIENT_NAME_LENGTH: usize> {
+    pub name: ClientName<MAX_CLIENT_NAME_LENGTH>,
     pub keep_alive_secs: u16,
     pub last_activity: u64,
 }
 
-impl ClientState {
-    pub fn new(name: ClientName, keep_alive_secs: u16, current_time: u64) -> Self {
+impl<const MAX_CLIENT_NAME_LENGTH: usize> ClientState<MAX_CLIENT_NAME_LENGTH> {
+    pub fn new(name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive_secs: u16, current_time: u64) -> Self {
         Self {
             name,
             keep_alive_secs,
@@ -94,11 +93,12 @@ impl ClientState {
 /// Client registry
 ///
 /// Manages connected clients and their state
-pub struct ClientRegistry<const MAX_CLIENTS: usize> {
-    clients: heapless::Vec<Option<ClientState>, MAX_CLIENTS>,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClientRegistry<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> {
+    clients: heapless::Vec<Option<ClientState<MAX_CLIENT_NAME_LENGTH>>, MAX_CLIENTS>,
 }
 
-impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS> {
     /// Create a new client registry
     pub const fn new() -> Self {
         Self {
@@ -109,7 +109,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     /// Register a new client
     pub fn register(
         &mut self,
-        name: ClientName,
+        name: ClientName<MAX_CLIENT_NAME_LENGTH>,
         keep_alive: u16,
         current_time: u64,
     ) -> Result<usize> {
@@ -134,7 +134,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     }
 
     /// Unregister a client
-    pub fn unregister(&mut self, name: &ClientName) -> bool {
+    pub fn unregister(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> bool {
         if let Some(index) = self.find_index(name) {
             self.clients[index] = None;
             true
@@ -144,7 +144,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     }
 
     /// Update client activity timestamp
-    pub fn update_activity(&mut self, name: &ClientName, current_time: u64) -> bool {
+    pub fn update_activity(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>, current_time: u64) -> bool {
         if let Some(index) = self.find_index(name) {
             if let Some(client) = self.clients.get_mut(index) {
                 if let Some(state) = client {
@@ -157,7 +157,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     }
 
     /// Get list of expired clients
-    pub fn get_expired_clients(&self, current_time: u64) -> heapless::Vec<ClientName, MAX_CLIENTS> {
+    pub fn get_expired_clients(&self, current_time: u64) -> heapless::Vec<ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS> {
         let mut expired = heapless::Vec::new();
         for client in &self.clients {
             if let Some(state) = client {
@@ -170,7 +170,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     }
 
     /// Find client index by name
-    pub fn find_index(&self, name: &ClientName) -> Option<usize> {
+    pub fn find_index(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> Option<usize> {
         self.clients.iter().position(|c| {
             if let Some(state) = c {
                 &state.name == name
@@ -181,18 +181,12 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     }
 
     /// Check if client is connected
-    pub fn is_connected(&self, name: &ClientName) -> bool {
+    pub fn is_connected(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> bool {
         self.find_index(name).is_some()
     }
 
     /// Get number of connected clients
     pub fn count(&self) -> usize {
         self.clients.iter().filter(|c| c.is_some()).count()
-    }
-}
-
-impl<const MAX_CLIENTS: usize> Default for ClientRegistry<MAX_CLIENTS> {
-    fn default() -> Self {
-        Self::new()
     }
 }

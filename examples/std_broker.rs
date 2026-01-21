@@ -4,7 +4,7 @@
 //! Note: This is a minimal example showing the broker API.
 //! Full server implementation with connection handling will be added in the future.
 
-use picobroker::broker::MqttBroker;
+use picobroker::broker::{DefaultPicoBroker, PicoBroker};
 use picobroker::client::ClientName;
 use picobroker::network::std::StdTcpListener;
 
@@ -13,14 +13,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("PicoBroker - Minimal MQTT 3.1.1 Broker");
     println!("======================================\n");
 
-    // Create a new broker with default limits (4 clients, 32 topics, 16 subscriptions per client)
-    let mut broker = MqttBroker::<4, 32, 16>::new();
-
+    // Create a new broker with default limits
+    let mut broker = DefaultPicoBroker::new();
     println!("Broker created successfully!");
-    println!("Max clients: 4");
-    println!("Max topics: 32");
-    println!("Max subscriptions per client: 16");
-    println!();
 
     // Example: Register a client (normally done during CONNECT handling)
     let client_name = ClientName::try_from("test_client")?;

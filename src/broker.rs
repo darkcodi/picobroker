@@ -10,20 +10,24 @@ use crate::protocol::packets::*;
 use crate::protocol::qos::QoS;
 use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
 
+pub type DefaultPicoBroker = PicoBroker<30, 30, 4, 8>;
+
 /// MQTT broker
 ///
 /// Main broker structure managing clients and topic subscriptions
-pub struct MqttBroker<
-    const MAX_CLIENTS: usize = 4,
-    const MAX_TOPICS: usize = 32,
-    const MAX_SUBSCRIPTIONS: usize = 16,
+#[derive(Debug, Default)]
+pub struct PicoBroker<
+    const MAX_CLIENT_NAME_LENGTH: usize,
+    const MAX_TOPIC_NAME_LENGTH: usize,
+    const MAX_CLIENTS: usize,
+    const MAX_SUBSCRIPTIONS_PER_CLIENT: usize,
 > {
-    clients: ClientRegistry<MAX_CLIENTS>,
-    topics: TopicRegistry<MAX_CLIENTS>,
+    clients: ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS>,
+    topics: TopicRegistry<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIPTIONS_PER_CLIENT, MAX_CLIENTS>,
 }
 
-impl<const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIPTIONS: usize>
-    MqttBroker<MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIPTIONS>
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_CLIENTS: usize, const MAX_SUBSCRIPTIONS_PER_CLIENT: usize>
+    PicoBroker<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_SUBSCRIPTIONS_PER_CLIENT>
 {
     /// Create a new MQTT broker
     pub const fn new() -> Self {
@@ -34,31 +38,31 @@ impl<const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIPTIONS:
     }
 
     /// Register a new client
-    pub fn register_client(&mut self, name: ClientName, keep_alive: u16) -> Result<()> {
+    pub fn register_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>, keep_alive: u16) -> Result<()> {
         let current_time = Self::get_current_time();
         self.clients.register(name, keep_alive, current_time)?;
         Ok(())
     }
 
     /// Unregister a client
-    pub fn unregister_client(&mut self, name: &ClientName) {
+    pub fn unregister_client(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) {
         self.clients.unregister(name);
         self.topics.unregister_client(name.clone());
     }
 
     /// Disconnect a client
-    pub fn disconnect_client(&mut self, name: &ClientName) {
+    pub fn disconnect_client(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) {
         self.unregister_client(name);
     }
 
     /// Update client activity
-    pub fn update_client_activity(&mut self, name: &ClientName) {
+    pub fn update_client_activity(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) {
         let current_time = Self::get_current_time();
         self.clients.update_activity(name, current_time);
     }
 
     /// Check if client is connected
-    pub fn is_client_connected(&self, name: &ClientName) -> bool {
+    pub fn is_client_connected(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> bool {
         self.clients.is_connected(name)
     }
 
@@ -75,7 +79,7 @@ impl<const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIPTIONS:
     /// Handle PUBLISH packet
     pub async fn handle_publish<S>(
         &self,
-        _client_name: &ClientName,
+        _client_name: &ClientName<MAX_CLIENT_NAME_LENGTH>,
         publish: &Publish<'_>,
         _stream: &mut S,
     ) -> Result<()>
@@ -97,7 +101,7 @@ impl<const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIPTIONS:
     /// Handle SUBSCRIBE packet
     pub async fn handle_subscribe<S>(
         &mut self,
-        client_name: &ClientName,
+        client_name: &ClientName<MAX_CLIENT_NAME_LENGTH>,
         subscribe: &Subscribe<'_>,
         stream: &mut S,
     ) -> Result<()>
@@ -149,13 +153,5 @@ impl<const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIPTIONS:
             // TODO: Implement Embassy time
             0
         }
-    }
-}
-
-impl<const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIPTIONS: usize> Default
-    for MqttBroker<MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIPTIONS>
-{
-    fn default() -> Self {
-        Self::new()
     }
 }
