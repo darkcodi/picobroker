@@ -59,9 +59,3 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> core::fmt::Display
         write!(f, "{}", self.0)
     }
 }
-
-impl<const MAX_CLIENT_NAME_LENGTH: usize> defmt::Format for ClientName<MAX_CLIENT_NAME_LENGTH> {
-    fn format(&self, f: defmt::Formatter) {
-        defmt::write!(f, "{}", self.0.as_str());
-    }
-}

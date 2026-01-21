@@ -62,12 +62,6 @@ impl<const MAX_TOPIC_LENGTH: usize> core::fmt::Display for TopicName<MAX_TOPIC_L
     }
 }
 
-impl<const MAX_TOPIC_LENGTH: usize> defmt::Format for TopicName<MAX_TOPIC_LENGTH> {
-    fn format(&self, f: defmt::Formatter) {
-        defmt::write!(f, "{}", self.0.as_str());
-    }
-}
-
 /// Topic subscription filter
 /// Currently supports only exact topic matching.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
