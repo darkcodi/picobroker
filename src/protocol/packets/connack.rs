@@ -1,3 +1,4 @@
+use crate::protocol::packets::PacketEncoder;
 use crate::Error;
 
 #[repr(u8)]
@@ -26,37 +27,32 @@ impl From<u8> for ConnectReturnCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnAck {
+pub struct ConnAck<'a> {
     pub session_present: bool,
     pub return_code: ConnectReturnCode,
+    _phantom: core::marker::PhantomData<&'a ()>,
 }
 
-impl ConnAck {
-    pub const fn new(session_present: bool, return_code: ConnectReturnCode) -> Self {
-        Self {
-            session_present,
-            return_code,
-        }
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.len() < 2 {
-            return Err(Error::IncompletePacket);
-        }
-        let session_present = (bytes[0] & 0x01) != 0;
-        let return_code = ConnectReturnCode::from(bytes[1]);
-        Ok(Self {
-            session_present,
-            return_code,
-        })
-    }
-
-    pub fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+impl<'a> PacketEncoder<'a> for ConnAck<'a> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);
         }
         buffer[0] = if self.session_present { 0x01 } else { 0x00 };
         buffer[1] = self.return_code as u8;
         Ok(2)
+    }
+
+    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
+        if payload.len() < 2 {
+            return Err(Error::IncompletePacket);
+        }
+        let session_present = (payload[0] & 0x01) != 0;
+        let return_code = ConnectReturnCode::from(payload[1]);
+        Ok(Self {
+            session_present,
+            return_code,
+            _phantom: Default::default(),
+        })
     }
 }

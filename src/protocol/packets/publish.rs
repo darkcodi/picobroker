@@ -1,4 +1,5 @@
 use crate::protocol::packet_type::PacketType;
+use crate::protocol::packets::PacketEncoder;
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
 use crate::Error;
@@ -43,25 +44,35 @@ pub struct Publish<'a> {
     pub retain: bool,
 }
 
-impl<'a> Default for Publish<'a> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl<'a> PacketEncoder<'a> for Publish<'a> {
+    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let mut offset = 0;
+        write_string(self.topic_name, buffer, &mut offset)?;
 
-impl<'a> Publish<'a> {
-    pub fn new() -> Self {
-        Self {
-            topic_name: "",
-            packet_id: None,
-            payload: heapless::Vec::new(),
-            qos: QoS::AtMostOnce,
-            dup: false,
-            retain: false,
+        match self.qos {
+            QoS::AtMostOnce => { /* packet_id not required */ }
+            QoS::AtLeastOnce | QoS::ExactlyOnce => {
+                let packet_id = self.packet_id.ok_or(Error::MalformedPacket)?;
+                if offset + 2 > buffer.len() {
+                    return Err(Error::BufferTooSmall);
+                }
+                let pid_bytes = packet_id.to_be_bytes();
+                buffer[offset] = pid_bytes[0];
+                buffer[offset + 1] = pid_bytes[1];
+                offset += 2;
+            }
         }
+
+        if offset + self.payload.len() > buffer.len() {
+            return Err(Error::BufferTooSmall);
+        }
+        buffer[offset..offset + self.payload.len()].copy_from_slice(&self.payload);
+        offset += self.payload.len();
+
+        Ok(offset)
     }
 
-    pub fn decode(bytes: &'a [u8], header_byte: u8) -> Result<Self, Error> {
+    fn decode(bytes: &'a [u8], header: u8) -> Result<Self, Error> {
         let mut offset = 0;
         let topic_name = read_string(bytes, &mut offset)?;
         if topic_name.is_empty() {
@@ -69,12 +80,11 @@ impl<'a> Publish<'a> {
         }
 
         // Extract flags from the header byte
-        let flags = PublishFlags::from_nibble(header_byte & 0x0F).ok_or(
-            Error::InvalidFixedHeaderFlags {
-                actual: header_byte & 0x0F,
+        let flags =
+            PublishFlags::from_nibble(header & 0x0F).ok_or(Error::InvalidFixedHeaderFlags {
+                actual: header & 0x0F,
                 expected: 0,
-            },
-        )?;
+            })?;
 
         let packet_id = if flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
@@ -108,34 +118,9 @@ impl<'a> Publish<'a> {
             retain: flags.retain,
         })
     }
+}
 
-    pub fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let mut offset = 0;
-        write_string(self.topic_name, buffer, &mut offset)?;
-
-        match self.qos {
-            QoS::AtMostOnce => { /* packet_id not required */ }
-            QoS::AtLeastOnce | QoS::ExactlyOnce => {
-                let packet_id = self.packet_id.ok_or(Error::MalformedPacket)?;
-                if offset + 2 > buffer.len() {
-                    return Err(Error::BufferTooSmall);
-                }
-                let pid_bytes = packet_id.to_be_bytes();
-                buffer[offset] = pid_bytes[0];
-                buffer[offset + 1] = pid_bytes[1];
-                offset += 2;
-            }
-        }
-
-        if offset + self.payload.len() > buffer.len() {
-            return Err(Error::BufferTooSmall);
-        }
-        buffer[offset..offset + self.payload.len()].copy_from_slice(&self.payload);
-        offset += self.payload.len();
-
-        Ok(offset)
-    }
-
+impl<'a> Publish<'a> {
     pub fn header_byte(&self) -> u8 {
         PublishFlags {
             dup: self.dup,

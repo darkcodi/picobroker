@@ -1,24 +1,17 @@
+use crate::protocol::packets::PacketEncoder;
 use crate::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Disconnect;
-
-impl Default for Disconnect {
-    fn default() -> Self {
-        Self::new()
-    }
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Disconnect<'a> {
+    _phantom: core::marker::PhantomData<&'a ()>,
 }
 
-impl Disconnect {
-    pub const fn new() -> Self {
-        Self
-    }
-
-    pub fn decode(_bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self)
-    }
-
-    pub fn encode(&self, _buffer: &mut [u8]) -> Result<usize, Error> {
+impl<'a> PacketEncoder<'a> for Disconnect<'a> {
+    fn encode(&'a self, _buffer: &mut [u8]) -> Result<usize, Error> {
         Ok(0)
+    }
+
+    fn decode(_payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+        Ok(Self::default())
     }
 }

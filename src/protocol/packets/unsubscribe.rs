@@ -1,3 +1,4 @@
+use crate::protocol::packets::PacketEncoder;
 use crate::protocol::utils::{read_string, write_string};
 use crate::Error;
 
@@ -7,38 +8,8 @@ pub struct Unsubscribe<'a> {
     pub topic_filter: &'a str,
 }
 
-impl<'a> Unsubscribe<'a> {
-    pub fn new(packet_id: u16) -> Self {
-        Self {
-            packet_id,
-            topic_filter: "",
-        }
-    }
-
-    pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
-        let mut offset = 0;
-        if offset + 2 > bytes.len() {
-            return Err(Error::IncompletePacket);
-        }
-        let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
-
-        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
-        if packet_id == 0 {
-            return Err(Error::MalformedPacket);
-        }
-
-        offset += 2;
-        let topic_filter = read_string(bytes, &mut offset)?;
-        if topic_filter.is_empty() {
-            return Err(Error::EmptyTopic);
-        }
-        Ok(Self {
-            packet_id,
-            topic_filter,
-        })
-    }
-
-    pub fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+impl<'a> PacketEncoder<'a> for Unsubscribe<'a> {
+    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
             return Err(Error::BufferTooSmall);
@@ -49,5 +20,28 @@ impl<'a> Unsubscribe<'a> {
         offset += 2;
         write_string(self.topic_filter, buffer, &mut offset)?;
         Ok(offset)
+    }
+
+    fn decode(payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+        let mut offset = 0;
+        if offset + 2 > payload.len() {
+            return Err(Error::IncompletePacket);
+        }
+        let packet_id = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
+
+        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
+        if packet_id == 0 {
+            return Err(Error::MalformedPacket);
+        }
+
+        offset += 2;
+        let topic_filter = read_string(payload, &mut offset)?;
+        if topic_filter.is_empty() {
+            return Err(Error::EmptyTopic);
+        }
+        Ok(Self {
+            packet_id,
+            topic_filter,
+        })
     }
 }
