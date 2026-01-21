@@ -5,7 +5,10 @@ use crate::protocol::packets::disconnect::Disconnect;
 use crate::protocol::packets::pingreq::PingReq;
 use crate::protocol::packets::pingresp::PingResp;
 use crate::protocol::packets::puback::PubAck;
+use crate::protocol::packets::pubcomp::PubComp;
 use crate::protocol::packets::publish::Publish;
+use crate::protocol::packets::pubrec::PubRec;
+use crate::protocol::packets::pubrel::PubRel;
 use crate::protocol::packets::suback::SubAck;
 use crate::protocol::packets::subscribe::Subscribe;
 use crate::protocol::packets::unsuback::UnsubAck;
@@ -19,7 +22,10 @@ mod disconnect;
 mod pingreq;
 mod pingresp;
 mod puback;
+mod pubcomp;
 mod publish;
+mod pubrec;
+mod pubrel;
 mod suback;
 mod subscribe;
 mod unsuback;
@@ -38,9 +44,9 @@ pub enum Packet<'a> {
     ConnAck(ConnAck<'a>),
     Publish(Publish<'a>),
     PubAck(PubAck<'a>),
-    PubRec(PubAck<'a>),
-    PubRel(PubAck<'a>),
-    PubComp(PubAck<'a>),
+    PubRec(PubRec<'a>),
+    PubRel(PubRel<'a>),
+    PubComp(PubComp<'a>),
     Subscribe(Subscribe<'a>),
     SubAck(SubAck<'a>),
     Unsubscribe(Unsubscribe<'a>),
@@ -140,15 +146,15 @@ impl<'a> Packet<'a> {
                 Ok(Packet::PubAck(puback))
             }
             PacketType::PubRec => {
-                let pubrec = PubAck::decode(payload, header)?;
+                let pubrec = PubRec::decode(payload, header)?;
                 Ok(Packet::PubRec(pubrec))
             }
             PacketType::PubRel => {
-                let pubrel = PubAck::decode(payload, header)?;
+                let pubrel = PubRel::decode(payload, header)?;
                 Ok(Packet::PubRel(pubrel))
             }
             PacketType::PubComp => {
-                let pubcomp = PubAck::decode(payload, header)?;
+                let pubcomp = PubComp::decode(payload, header)?;
                 Ok(Packet::PubComp(pubcomp))
             }
             PacketType::Subscribe => {
