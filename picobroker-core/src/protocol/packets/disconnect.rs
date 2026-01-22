@@ -13,3 +13,14 @@ impl<'a> PacketEncoder<'a> for Disconnect {
         Ok(Self::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default() {
+        let disconnect = Disconnect::default();
+        assert_eq!(disconnect, Disconnect);
+    }
+}
