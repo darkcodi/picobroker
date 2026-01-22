@@ -4,20 +4,20 @@ use crate::{Error, PacketType};
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PingRespPacket;
 
-impl<'a> PacketEncoder<'a> for PingRespPacket {
+impl PacketEncoder for PingRespPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::PingResp
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         0b0000
     }
 
-    fn encode(&'a self, _buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, _buffer: &mut [u8]) -> Result<usize, Error> {
         Ok(0)
     }
 
-    fn decode(_payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+    fn decode(_payload: &[u8], _header: u8) -> Result<Self, Error> {
         Ok(Self::default())
     }
 }

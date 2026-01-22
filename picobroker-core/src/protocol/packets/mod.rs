@@ -32,14 +32,14 @@ use crate::protocol::utils::{read_variable_length, write_variable_length};
 use crate::protocol::PacketType;
 use crate::Error;
 
-pub trait PacketEncoder<'a>: Sized {
+pub trait PacketEncoder: Sized {
     fn packet_type(&self) -> PacketType;
-    fn fixed_flags(&'a self) -> u8;
-    fn header_first_byte(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8;
+    fn header_first_byte(&self) -> u8 {
         (self.packet_type() as u8) << 4 | (self.fixed_flags() & 0x0F)
     }
-    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error>;
-    fn decode(payload: &'a [u8], header: u8) -> Result<Self, Error>;
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error>;
+    fn decode(payload: &[u8], header: u8) -> Result<Self, Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

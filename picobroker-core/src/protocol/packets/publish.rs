@@ -42,12 +42,12 @@ pub struct PublishPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub retain: bool,
 }
 
-impl<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder<'a> for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn packet_type(&self) -> PacketType {
         PacketType::Publish
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         PublishFlags {
             dup: self.dup,
             qos: self.qos,
@@ -55,7 +55,7 @@ impl<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> Pack
         }.publish_header_byte()
     }
 
-    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         write_string(self.topic_name.as_str(), buffer, &mut offset)?;
 
@@ -82,7 +82,7 @@ impl<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> Pack
         Ok(offset)
     }
 
-    fn decode(bytes: &'a [u8], header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8], header: u8) -> Result<Self, Error> {
         let mut offset = 0;
         let topic_name = read_string(bytes, &mut offset)?;
         if topic_name.is_empty() {

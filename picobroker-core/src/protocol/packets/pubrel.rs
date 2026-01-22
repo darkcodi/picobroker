@@ -6,16 +6,16 @@ pub struct PubRelPacket {
     pub packet_id: u16,
 }
 
-impl<'a> PacketEncoder<'a> for PubRelPacket {
+impl PacketEncoder for PubRelPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::PubRel
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         0b0010
     }
 
-    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);
         }
@@ -25,7 +25,7 @@ impl<'a> PacketEncoder<'a> for PubRelPacket {
         Ok(2)
     }
 
-    fn decode(payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
         if payload.len() < 2 {
             return Err(Error::IncompletePacket);
         }

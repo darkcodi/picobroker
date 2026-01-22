@@ -32,12 +32,12 @@ pub struct ConnAckPacket {
     pub return_code: ConnectReturnCode,
 }
 
-impl<'a> PacketEncoder<'a> for ConnAckPacket {
+impl PacketEncoder for ConnAckPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::ConnAck
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         0b0000
     }
 

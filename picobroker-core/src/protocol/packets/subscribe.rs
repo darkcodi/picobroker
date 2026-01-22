@@ -9,16 +9,16 @@ pub struct SubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
     pub requested_qos: QoS,
 }
 
-impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for SubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_TOPIC_NAME_LENGTH> {
     fn packet_type(&self) -> PacketType {
         PacketType::Subscribe
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         0b0010
     }
 
-    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
             return Err(Error::BufferTooSmall);
@@ -36,7 +36,7 @@ impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for SubscribePack
         Ok(offset)
     }
 
-    fn decode(payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
         let mut offset = 0;
         if offset + 2 > payload.len() {
             return Err(Error::IncompletePacket);

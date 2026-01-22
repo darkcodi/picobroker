@@ -8,16 +8,16 @@ pub struct SubAckPacket {
     pub granted_qos: QoS,
 }
 
-impl<'a> PacketEncoder<'a> for SubAckPacket {
+impl PacketEncoder for SubAckPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::SubAck
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         0b0000
     }
 
-    fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 3 {
             return Err(Error::BufferTooSmall);
         }
@@ -28,7 +28,7 @@ impl<'a> PacketEncoder<'a> for SubAckPacket {
         Ok(3)
     }
 
-    fn decode(payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
         if payload.len() < 3 {
             return Err(Error::IncompletePacket);
         }

@@ -19,12 +19,12 @@ pub struct ConnectPacket<const MAX_CLIENT_NAME_LENGTH: usize> {
     pub will_retain: bool,
 }
 
-impl<'a, const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder<'a> for ConnectPacket<MAX_CLIENT_NAME_LENGTH> {
+impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder for ConnectPacket<MAX_CLIENT_NAME_LENGTH> {
     fn packet_type(&self) -> PacketType {
         PacketType::Connect
     }
 
-    fn fixed_flags(&'a self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         0b0000
     }
 
@@ -77,7 +77,7 @@ impl<'a, const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder<'a> for ConnectPacke
         Ok(offset)
     }
 
-    fn decode(payload: &'a [u8], _header: u8) -> Result<Self, Error> {
+    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
         let mut offset = 0;
         let protocol_name = read_string(payload, &mut offset)?;
         if protocol_name != "MQTT" {
