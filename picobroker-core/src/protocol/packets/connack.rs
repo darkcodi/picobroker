@@ -1,5 +1,5 @@
-use crate::protocol::packets::PacketEncoder;
-use crate::{PacketEncodingError, PacketType};
+use crate::protocol::packets::{PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst};
+use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,41 +34,33 @@ pub struct ConnAckPacket {
     pub return_code: ConnectReturnCode,
 }
 
+impl PacketFixedSize for ConnAckPacket {
+    const PACKET_SIZE: usize = 4;
+}
+
+impl PacketTypeConst for ConnAckPacket {
+    const PACKET_TYPE: PacketType = PacketType::ConnAck;
+}
+
+impl PacketFlagsConst for ConnAckPacket {
+    const PACKET_FLAGS: u8 = 0b0000;
+}
+
 impl PacketEncoder for ConnAckPacket {
-    fn packet_type(&self) -> PacketType {
-        PacketType::ConnAck
-    }
-
-    fn fixed_flags(&self) -> u8 {
-        0b0000
-    }
-
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
-        let header_byte = self.header_first_byte();
-        let remaining_length = 2u8;
-        if buffer.len() < 4 {
-            return Err(PacketEncodingError::BufferTooSmall);
-        }
-        buffer[0] = header_byte;
-        buffer[1] = remaining_length;
+        Self::validate_buffer_size(buffer.len())?;
+        buffer[0] = self.header_first_byte();
+        buffer[1] = 2u8;
         buffer[2] = if self.session_present { 0b0000_0001 } else { 0b0000_0000 };
         buffer[3] = self.return_code as u8;
         Ok(4)
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
-        if bytes.len() < 4 {
-            return Err(PacketEncodingError::BufferTooSmall);
-        }
-        let type_byte = bytes[0] >> 4;
-        let packet_type = PacketType::from(type_byte);
-        if packet_type != PacketType::ConnAck {
-            return Err(PacketEncodingError::InvalidPacketType { packet_type: type_byte });
-        }
-        let remaining_length = bytes[1];
-        if remaining_length != 2 {
-            return Err(PacketEncodingError::InvalidPacketLength { actual: 2 + remaining_length as usize, expected: 4 });
-        }
+        Self::validate_buffer_size(bytes.len())?;
+        Self::validate_packet_type(bytes[0])?;
+        let (remaining_length, _) = read_variable_length(&bytes[1..])?;
+        Self::validate_remaining_length(remaining_length)?;
         let session_present_byte = bytes[2];
         let session_present = match session_present_byte {
             0b0000_0000 => false,

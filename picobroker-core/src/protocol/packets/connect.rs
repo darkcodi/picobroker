@@ -1,4 +1,4 @@
-use crate::protocol::packets::PacketEncoder;
+use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
 use crate::{ClientName, Error, PacketEncodingError, PacketType};
@@ -19,15 +19,15 @@ pub struct ConnectPacket<const MAX_CLIENT_NAME_LENGTH: usize> {
     pub will_retain: bool,
 }
 
+impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketTypeConst for ConnectPacket<MAX_CLIENT_NAME_LENGTH> {
+    const PACKET_TYPE: PacketType = PacketType::Connect;
+}
+
+impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketFlagsConst for ConnectPacket<MAX_CLIENT_NAME_LENGTH> {
+    const PACKET_FLAGS: u8 = 0b0000;
+}
+
 impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder for ConnectPacket<MAX_CLIENT_NAME_LENGTH> {
-    fn packet_type(&self) -> PacketType {
-        PacketType::Connect
-    }
-
-    fn fixed_flags(&self) -> u8 {
-        0b0000
-    }
-
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         write_string(self.protocol_name, buffer, &mut offset)?;

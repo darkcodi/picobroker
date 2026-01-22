@@ -1,4 +1,4 @@
-use crate::protocol::packets::PacketEncoder;
+use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::{Error, PacketEncodingError, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6,15 +6,15 @@ pub struct PubRecPacket {
     pub packet_id: u16,
 }
 
+impl PacketTypeConst for PubRecPacket {
+    const PACKET_TYPE: PacketType = PacketType::PubRec;
+}
+
+impl PacketFlagsConst for PubRecPacket {
+    const PACKET_FLAGS: u8 = 0b0000;
+}
+
 impl PacketEncoder for PubRecPacket {
-    fn packet_type(&self) -> PacketType {
-        PacketType::PubRec
-    }
-
-    fn fixed_flags(&self) -> u8 {
-        0b0000
-    }
-
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall.into());

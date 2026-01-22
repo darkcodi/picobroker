@@ -1,42 +1,34 @@
-use crate::protocol::packets::PacketEncoder;
-use crate::{PacketEncodingError, PacketType};
+use crate::protocol::packets::{PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst};
+use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct DisconnectPacket;
 
+impl PacketFixedSize for DisconnectPacket {
+    const PACKET_SIZE: usize = 2;
+}
+
+impl PacketTypeConst for DisconnectPacket {
+    const PACKET_TYPE: PacketType = PacketType::Disconnect;
+}
+
+impl PacketFlagsConst for DisconnectPacket {
+    const PACKET_FLAGS: u8 = 0b0000;
+}
+
 impl PacketEncoder for DisconnectPacket {
-    fn packet_type(&self) -> PacketType {
-        PacketType::Disconnect
-    }
-
-    fn fixed_flags(&self) -> u8 {
-        0b0000
-    }
-
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
-        let header_byte = self.header_first_byte();
-        let remaining_length = 0u8;
-        if buffer.len() < 2 {
-            return Err(PacketEncodingError::BufferTooSmall);
-        }
-        buffer[0] = header_byte;
-        buffer[1] = remaining_length;
+        Self::validate_buffer_size(buffer.len())?;
+        buffer[0] = self.header_first_byte();
+        buffer[1] = 0u8; // Remaining Length is 0
         Ok(2)
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
-        if bytes.len() < 2 {
-            return Err(PacketEncodingError::BufferTooSmall);
-        }
-        let type_byte = bytes[0] >> 4;
-        let packet_type = PacketType::from(type_byte);
-        if packet_type != PacketType::Disconnect {
-            return Err(PacketEncodingError::InvalidPacketType { packet_type: type_byte });
-        }
-        let remaining_length = bytes[1];
-        if remaining_length != 0 {
-            return Err(PacketEncodingError::Other);
-        }
+        Self::validate_buffer_size(bytes.len())?;
+        Self::validate_packet_type(bytes[0])?;
+        let (remaining_length, _) = read_variable_length(&bytes[1..])?;
+        Self::validate_remaining_length(remaining_length)?;
         Ok(DisconnectPacket)
     }
 }

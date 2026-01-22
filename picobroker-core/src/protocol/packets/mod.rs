@@ -13,7 +13,7 @@ mod subscribe;
 mod unsuback;
 mod unsubscribe;
 
-use crate::{PacketEncodingError, PacketType};
+use crate::{variable_length_length, PacketEncodingError, PacketType};
 pub use crate::protocol::packets::connack::ConnAckPacket;
 pub use crate::protocol::packets::connect::ConnectPacket;
 pub use crate::protocol::packets::disconnect::DisconnectPacket;
@@ -29,12 +29,77 @@ pub use crate::protocol::packets::subscribe::SubscribePacket;
 pub use crate::protocol::packets::unsuback::UnsubAckPacket;
 pub use crate::protocol::packets::unsubscribe::UnsubscribePacket;
 
-pub trait PacketEncoder: Sized {
-    fn packet_type(&self) -> PacketType;
-    fn fixed_flags(&self) -> u8;
-    fn header_first_byte(&self) -> u8 {
-        (self.packet_type() as u8) << 4 | (self.fixed_flags() & 0x0F)
+pub trait PacketTypeConst {
+    const PACKET_TYPE: PacketType;
+
+    fn validate_packet_type(header_first_byte: u8) -> Result<(), PacketEncodingError> {
+        let type_byte = header_first_byte >> 4;
+        let packet_type = PacketType::from(type_byte);
+        if packet_type != Self::PACKET_TYPE {
+            return Err(PacketEncodingError::InvalidPacketType { packet_type: type_byte });
+        }
+        Ok(())
     }
+}
+
+pub trait PacketTypeDynamic {
+    fn packet_type(&self) -> PacketType;
+}
+
+impl<T: PacketTypeConst> PacketTypeDynamic for T {
+    fn packet_type(&self) -> PacketType {
+        Self::PACKET_TYPE
+    }
+}
+
+pub trait PacketFlagsConst {
+    const PACKET_FLAGS: u8;
+}
+
+pub trait PacketFlagsDynamic {
+    fn flags(&self) -> u8;
+}
+
+impl <T: PacketFlagsConst> PacketFlagsDynamic for T {
+    fn flags(&self) -> u8 {
+        Self::PACKET_FLAGS
+    }
+}
+
+trait PacketFixedSize {
+    const PACKET_SIZE: usize;
+
+    fn validate_buffer_size(buffer_size: usize) -> Result<(), PacketEncodingError> {
+        if buffer_size < Self::PACKET_SIZE {
+            return Err(PacketEncodingError::BufferTooSmall);
+        }
+        Ok(())
+    }
+
+    fn validate_remaining_length(remaining_length: usize) -> Result<(), PacketEncodingError> {
+        let int_length = variable_length_length(remaining_length);
+        let expected_remaining_length = Self::PACKET_SIZE - int_length - 1;
+        if remaining_length != expected_remaining_length {
+            return Err(PacketEncodingError::InvalidPacketLength {
+                actual: remaining_length + int_length + 1,
+                expected: Self::PACKET_SIZE,
+            });
+        }
+        Ok(())
+    }
+}
+
+pub trait PacketHeader {
+    fn header_first_byte(&self) -> u8;
+}
+
+impl<T: PacketTypeDynamic + PacketFlagsDynamic> PacketHeader for T {
+    fn header_first_byte(&self) -> u8 {
+        (self.packet_type() as u8) << 4 | (self.flags() & 0x0F)
+    }
+}
+
+pub trait PacketEncoder: Sized {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError>;
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError>;
 }
@@ -57,7 +122,7 @@ pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH
     Disconnect(DisconnectPacket),
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeDynamic for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn packet_type(&self) -> PacketType {
         match self {
             Packet::Connect(_) => PacketType::Connect,
@@ -76,26 +141,30 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
             Packet::Disconnect(_) => PacketType::Disconnect,
         }
     }
+}
 
-    fn fixed_flags(&self) -> u8 {
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    fn flags(&self) -> u8 {
         match self {
-            Packet::Connect(packet) => packet.fixed_flags(),
-            Packet::ConnAck(packet) => packet.fixed_flags(),
-            Packet::Publish(packet) => packet.fixed_flags(),
-            Packet::PubAck(packet) => packet.fixed_flags(),
-            Packet::PubRec(packet) => packet.fixed_flags(),
-            Packet::PubRel(packet) => packet.fixed_flags(),
-            Packet::PubComp(packet) => packet.fixed_flags(),
-            Packet::Subscribe(packet) => packet.fixed_flags(),
-            Packet::SubAck(packet) => packet.fixed_flags(),
-            Packet::Unsubscribe(packet) => packet.fixed_flags(),
-            Packet::UnsubAck(packet) => packet.fixed_flags(),
-            Packet::PingReq(packet) => packet.fixed_flags(),
-            Packet::PingResp(packet) => packet.fixed_flags(),
-            Packet::Disconnect(packet) => packet.fixed_flags(),
+            Packet::Connect(packet) => packet.flags(),
+            Packet::ConnAck(packet) => packet.flags(),
+            Packet::Publish(packet) => packet.flags(),
+            Packet::PubAck(packet) => packet.flags(),
+            Packet::PubRec(packet) => packet.flags(),
+            Packet::PubRel(packet) => packet.flags(),
+            Packet::PubComp(packet) => packet.flags(),
+            Packet::Subscribe(packet) => packet.flags(),
+            Packet::SubAck(packet) => packet.flags(),
+            Packet::Unsubscribe(packet) => packet.flags(),
+            Packet::UnsubAck(packet) => packet.flags(),
+            Packet::PingReq(packet) => packet.flags(),
+            Packet::PingResp(packet) => packet.flags(),
+            Packet::Disconnect(packet) => packet.flags(),
         }
     }
+}
 
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         match self {
             Packet::Connect(packet) => packet.encode(buffer),

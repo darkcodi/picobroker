@@ -1,4 +1,4 @@
-use crate::protocol::packets::PacketEncoder;
+use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::{Error, PacketEncodingError, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6,15 +6,15 @@ pub struct UnsubAckPacket {
     pub packet_id: u16,
 }
 
+impl PacketTypeConst for UnsubAckPacket {
+    const PACKET_TYPE: PacketType = PacketType::UnsubAck;
+}
+
+impl PacketFlagsConst for UnsubAckPacket {
+    const PACKET_FLAGS: u8 = 0b0000;
+}
+
 impl PacketEncoder for UnsubAckPacket {
-    fn packet_type(&self) -> PacketType {
-        PacketType::UnsubAck
-    }
-
-    fn fixed_flags(&self) -> u8 {
-        0b0000
-    }
-
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall.into());

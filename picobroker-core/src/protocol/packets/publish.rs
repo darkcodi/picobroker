@@ -1,5 +1,5 @@
 use crate::protocol::packet_type::PacketType;
-use crate::protocol::packets::PacketEncoder;
+use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeConst};
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
 use crate::{Error, PacketEncodingError, TopicName};
@@ -42,19 +42,21 @@ pub struct PublishPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub retain: bool,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-    fn packet_type(&self) -> PacketType {
-        PacketType::Publish
-    }
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    const PACKET_TYPE: PacketType = PacketType::Publish;
+}
 
-    fn fixed_flags(&self) -> u8 {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    fn flags(&self) -> u8 {
         PublishFlags {
             dup: self.dup,
             qos: self.qos,
             retain: self.retain,
         }.publish_header_byte()
     }
+}
 
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         write_string(self.topic_name.as_str(), buffer, &mut offset)?;

@@ -1,4 +1,4 @@
-use crate::protocol::packets::PacketEncoder;
+use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::qos::QoS;
 use crate::{Error, PacketEncodingError, PacketType};
 
@@ -8,15 +8,15 @@ pub struct SubAckPacket {
     pub granted_qos: QoS,
 }
 
+impl PacketTypeConst for SubAckPacket {
+    const PACKET_TYPE: PacketType = PacketType::SubAck;
+}
+
+impl PacketFlagsConst for SubAckPacket {
+    const PACKET_FLAGS: u8 = 0b0000;
+}
+
 impl PacketEncoder for SubAckPacket {
-    fn packet_type(&self) -> PacketType {
-        PacketType::SubAck
-    }
-
-    fn fixed_flags(&self) -> u8 {
-        0b0000
-    }
-
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         if buffer.len() < 3 {
             return Err(Error::BufferTooSmall.into());
