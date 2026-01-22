@@ -1,6 +1,6 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::utils::{read_string, write_string};
-use crate::{Error, QoS, TopicName};
+use crate::{Error, PacketType, QoS, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Subscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
@@ -10,6 +10,14 @@ pub struct Subscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
 }
 
 impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for Subscribe<MAX_TOPIC_NAME_LENGTH> {
+    fn packet_type(&self) -> PacketType {
+        PacketType::Subscribe
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0010
+    }
+
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {

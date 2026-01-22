@@ -1,7 +1,7 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
-use crate::{ClientName, Error};
+use crate::{ClientName, Error, PacketType};
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
 pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
@@ -20,6 +20,14 @@ pub struct Connect<const MAX_CLIENT_NAME_LENGTH: usize> {
 }
 
 impl<'a, const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder<'a> for Connect<MAX_CLIENT_NAME_LENGTH> {
+    fn packet_type(&self) -> PacketType {
+        PacketType::Connect
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0000
+    }
+
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         write_string(self.protocol_name, buffer, &mut offset)?;

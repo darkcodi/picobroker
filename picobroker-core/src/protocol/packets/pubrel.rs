@@ -1,5 +1,5 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::Error;
+use crate::{Error, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubRel {
@@ -7,6 +7,14 @@ pub struct PubRel {
 }
 
 impl<'a> PacketEncoder<'a> for PubRel {
+    fn packet_type(&self) -> PacketType {
+        PacketType::PubRel
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0010
+    }
+
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);

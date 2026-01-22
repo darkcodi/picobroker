@@ -68,18 +68,6 @@ pub enum PacketType {
 }
 
 impl PacketType {
-    pub const fn fixed_flags(self) -> u8 {
-        match self {
-            PacketType::PubRel | PacketType::Subscribe | PacketType::Unsubscribe => 0b0010,
-            PacketType::Publish => 0,
-            _ => 0b0000,
-        }
-    }
-
-    pub const fn header_byte(self) -> u8 {
-        ((self as u8) << 4) | (self.fixed_flags() & 0x0F)
-    }
-
     pub const fn from_u8(byte: u8) -> Option<Self> {
         match byte >> 4 {
             0 => Some(PacketType::Reserved),

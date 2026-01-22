@@ -33,6 +33,11 @@ use crate::protocol::PacketType;
 use crate::Error;
 
 pub trait PacketEncoder<'a>: Sized {
+    fn packet_type(&self) -> PacketType;
+    fn fixed_flags(&'a self) -> u8;
+    fn header_first_byte(&'a self) -> u8 {
+        (self.packet_type() as u8) << 4 | (self.fixed_flags() & 0x0F)
+    }
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error>;
     fn decode(payload: &'a [u8], header: u8) -> Result<Self, Error>;
 }
@@ -75,27 +80,22 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         }
     }
 
-    fn validate_flags(packet_type: PacketType, flags: u8) -> Result<(), Error> {
-        let flags = flags & 0x0F;
-        match packet_type {
-            PacketType::Publish => {
-                let qos = (flags >> 1) & 0b11;
-                if qos == 0b11 {
-                    return Err(Error::InvalidPublishQoS { invalid_qos: qos });
-                }
-                Ok(())
-            }
-            _ => {
-                let expected = packet_type.fixed_flags();
-                if flags == expected {
-                    Ok(())
-                } else {
-                    Err(Error::InvalidFixedHeaderFlags {
-                        actual: flags,
-                        expected,
-                    })
-                }
-            }
+    pub fn header_first_byte(&self) -> u8 {
+        match self {
+            Packet::Connect(packet) => packet.header_first_byte(),
+            Packet::ConnAck(packet) => packet.header_first_byte(),
+            Packet::Publish(packet) => packet.header_first_byte(),
+            Packet::PubAck(packet) => packet.header_first_byte(),
+            Packet::PubRec(packet) => packet.header_first_byte(),
+            Packet::PubRel(packet) => packet.header_first_byte(),
+            Packet::PubComp(packet) => packet.header_first_byte(),
+            Packet::Subscribe(packet) => packet.header_first_byte(),
+            Packet::SubAck(packet) => packet.header_first_byte(),
+            Packet::Unsubscribe(packet) => packet.header_first_byte(),
+            Packet::UnsubAck(packet) => packet.header_first_byte(),
+            Packet::PingReq(packet) => packet.header_first_byte(),
+            Packet::PingResp(packet) => packet.header_first_byte(),
+            Packet::Disconnect(packet) => packet.header_first_byte(),
         }
     }
 
@@ -107,7 +107,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         let packet_type = PacketType::from_u8(header).ok_or(Error::InvalidPacketType {
             packet_type: header,
         })?;
-        Self::validate_flags(packet_type, header)?;
+        // Self::validate_flags(packet_type, header)?;
 
         let (remaining_length, len_bytes) = read_variable_length(&bytes[1..])?;
         let payload_start = 1 + len_bytes;
@@ -202,16 +202,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         }
 
         let packet_type = self.packet_type();
-        buffer[0] = match packet_type {
-            PacketType::Publish => {
-                if let Packet::Publish(publish) = self {
-                    publish.header_byte()
-                } else {
-                    packet_type.header_byte()
-                }
-            }
-            _ => packet_type.header_byte(),
-        };
+        buffer[0] = self.header_first_byte();
 
         let mut payload_buffer = [0u8; MAX_PAYLOAD_SIZE];
         let payload_len = match self {

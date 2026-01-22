@@ -1,6 +1,6 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::utils::{read_string, write_string};
-use crate::{Error, TopicName};
+use crate::{Error, PacketType, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unsubscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
@@ -9,6 +9,14 @@ pub struct Unsubscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
 }
 
 impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for Unsubscribe<MAX_TOPIC_NAME_LENGTH> {
+    fn packet_type(&self) -> PacketType {
+        PacketType::Unsubscribe
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0010
+    }
+
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {

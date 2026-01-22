@@ -1,10 +1,18 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::Error;
+use crate::{Error, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Disconnect;
 
 impl<'a> PacketEncoder<'a> for Disconnect {
+    fn packet_type(&self) -> PacketType {
+        PacketType::Disconnect
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0000
+    }
+
     fn encode(&'a self, _buffer: &mut [u8]) -> Result<usize, Error> {
         Ok(0)
     }

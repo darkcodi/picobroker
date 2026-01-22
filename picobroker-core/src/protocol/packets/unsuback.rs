@@ -1,5 +1,5 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::Error;
+use crate::{Error, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsubAck {
@@ -7,6 +7,14 @@ pub struct UnsubAck {
 }
 
 impl<'a> PacketEncoder<'a> for UnsubAck {
+    fn packet_type(&self) -> PacketType {
+        PacketType::UnsubAck
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0000
+    }
+
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);

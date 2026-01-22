@@ -1,5 +1,5 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::Error;
+use crate::{Error, PacketType};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +33,14 @@ pub struct ConnAck {
 }
 
 impl<'a> PacketEncoder<'a> for ConnAck {
+    fn packet_type(&self) -> PacketType {
+        PacketType::ConnAck
+    }
+
+    fn fixed_flags(&'a self) -> u8 {
+        0b0000
+    }
+
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);
