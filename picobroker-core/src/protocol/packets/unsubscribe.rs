@@ -30,12 +30,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX
         Ok(offset)
     }
 
-    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
         let mut offset = 0;
-        if offset + 2 > payload.len() {
+        if offset + 2 > bytes.len() {
             return Err(Error::IncompletePacket);
         }
-        let packet_id = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
+        let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
 
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {
@@ -43,7 +43,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX
         }
 
         offset += 2;
-        let topic_filter = read_string(payload, &mut offset)?;
+        let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {
             return Err(Error::EmptyTopic);
         }

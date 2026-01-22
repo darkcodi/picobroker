@@ -50,12 +50,12 @@ impl PacketEncoder for ConnAckPacket {
         Ok(2)
     }
 
-    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
-        if payload.len() < 2 {
+    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+        if bytes.len() < 2 {
             return Err(Error::IncompletePacket);
         }
-        let session_present = (payload[0] & 0x01) != 0;
-        let return_code = ConnectReturnCode::from(payload[1]);
+        let session_present = (bytes[0] & 0x01) != 0;
+        let return_code = ConnectReturnCode::from(bytes[1]);
         Ok(Self {
             session_present,
             return_code,

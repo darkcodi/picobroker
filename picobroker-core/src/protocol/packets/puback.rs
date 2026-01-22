@@ -25,11 +25,11 @@ impl PacketEncoder for PubAckPacket {
         Ok(2)
     }
 
-    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
-        if payload.len() < 2 {
+    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+        if bytes.len() < 2 {
             return Err(Error::IncompletePacket);
         }
-        let packet_id = u16::from_be_bytes([payload[0], payload[1]]);
+        let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
 
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {

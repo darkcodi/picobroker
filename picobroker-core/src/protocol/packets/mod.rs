@@ -39,7 +39,7 @@ pub trait PacketEncoder: Sized {
         (self.packet_type() as u8) << 4 | (self.fixed_flags() & 0x0F)
     }
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error>;
-    fn decode(payload: &[u8], header: u8) -> Result<Self, Error>;
+    fn decode(bytes: &[u8], header: u8) -> Result<Self, Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

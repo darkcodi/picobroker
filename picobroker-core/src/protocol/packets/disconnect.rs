@@ -17,7 +17,7 @@ impl PacketEncoder for DisconnectPacket {
         Ok(0)
     }
 
-    fn decode(_payload: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(_bytes: &[u8], _header: u8) -> Result<Self, Error> {
         Ok(Self::default())
     }
 }

@@ -28,12 +28,12 @@ impl PacketEncoder for SubAckPacket {
         Ok(3)
     }
 
-    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
-        if payload.len() < 3 {
+    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+        if bytes.len() < 3 {
             return Err(Error::IncompletePacket);
         }
-        let packet_id = u16::from_be_bytes([payload[0], payload[1]]);
-        let qos_value = payload[2];
+        let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let qos_value = bytes[2];
         let granted_qos = QoS::from_u8(qos_value).ok_or(Error::InvalidSubAckQoS {
             invalid_qos: qos_value,
         })?;

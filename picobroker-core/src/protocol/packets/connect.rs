@@ -77,17 +77,17 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder for ConnectPacket<MAX_CL
         Ok(offset)
     }
 
-    fn decode(payload: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
         let mut offset = 0;
-        let protocol_name = read_string(payload, &mut offset)?;
+        let protocol_name = read_string(bytes, &mut offset)?;
         if protocol_name != "MQTT" {
             return Err(Error::InvalidProtocolName);
         }
         let protocol_name: &'static str = MQTT_PROTOCOL_NAME;
-        if offset >= payload.len() {
+        if offset >= bytes.len() {
             return Err(Error::IncompletePacket);
         }
-        let protocol_level = payload[offset];
+        let protocol_level = bytes[offset];
         offset += 1;
         if protocol_level != MQTT_3_1_1_PROTOCOL_LEVEL {
             return if protocol_level == MQTT_5_0_PROTOCOL_LEVEL {
@@ -100,10 +100,10 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder for ConnectPacket<MAX_CL
                 })
             }
         }
-        if offset >= payload.len() {
+        if offset >= bytes.len() {
             return Err(Error::IncompletePacket);
         }
-        let connect_flags = payload[offset];
+        let connect_flags = bytes[offset];
         offset += 1;
 
         // Validate reserved bits per MQTT 3.1.1 spec
@@ -137,12 +137,12 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder for ConnectPacket<MAX_CL
 
         // Extract will retain (bit 5)
         let will_retain = (connect_flags & 0x20) != 0;
-        if offset + 2 > payload.len() {
+        if offset + 2 > bytes.len() {
             return Err(Error::IncompletePacket);
         }
-        let keep_alive = u16::from_be_bytes([payload[offset], payload[offset + 1]]);
+        let keep_alive = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
         offset += 2;
-        let client_id = read_string(payload, &mut offset)?;
+        let client_id = read_string(bytes, &mut offset)?;
         if client_id.is_empty() && !clean_session {
             return Err(Error::InvalidClientIdLength { length: 0 });
         }
