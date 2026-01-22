@@ -82,7 +82,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8], header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let mut offset = 0;
         let topic_name = read_string(bytes, &mut offset)?;
         if topic_name.is_empty() {
@@ -98,6 +98,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             })?;
 
         // Extract flags from the header byte
+        let header = bytes
+            .get(0)
+            .ok_or(Error::IncompletePacket)?
+            & 0xFF;
         let flags =
             PublishFlags::from_nibble(header & 0x0F).ok_or(Error::InvalidFixedHeaderFlags {
                 actual: header & 0x0F,

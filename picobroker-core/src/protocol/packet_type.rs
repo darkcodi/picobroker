@@ -67,26 +67,26 @@ pub enum PacketType {
     Reserved2 = 15,
 }
 
-impl PacketType {
-    pub const fn from_u8(byte: u8) -> Option<Self> {
-        match byte >> 4 {
-            0 => Some(PacketType::Reserved),
-            1 => Some(PacketType::Connect),
-            2 => Some(PacketType::ConnAck),
-            3 => Some(PacketType::Publish),
-            4 => Some(PacketType::PubAck),
-            5 => Some(PacketType::PubRec),
-            6 => Some(PacketType::PubRel),
-            7 => Some(PacketType::PubComp),
-            8 => Some(PacketType::Subscribe),
-            9 => Some(PacketType::SubAck),
-            10 => Some(PacketType::Unsubscribe),
-            11 => Some(PacketType::UnsubAck),
-            12 => Some(PacketType::PingReq),
-            13 => Some(PacketType::PingResp),
-            14 => Some(PacketType::Disconnect),
-            15 => Some(PacketType::Reserved2),
-            _ => None,
+impl From<u8> for PacketType {
+    fn from(byte: u8) -> Self {
+        match byte {
+            0 => PacketType::Reserved,
+            1 => PacketType::Connect,
+            2 => PacketType::ConnAck,
+            3 => PacketType::Publish,
+            4 => PacketType::PubAck,
+            5 => PacketType::PubRec,
+            6 => PacketType::PubRel,
+            7 => PacketType::PubComp,
+            8 => PacketType::Subscribe,
+            9 => PacketType::SubAck,
+            10 => PacketType::Unsubscribe,
+            11 => PacketType::UnsubAck,
+            12 => PacketType::PingReq,
+            13 => PacketType::PingResp,
+            14 => PacketType::Disconnect,
+            15 => PacketType::Reserved2,
+            _ => PacketType::Reserved2,
         }
     }
 }

@@ -25,7 +25,7 @@ impl PacketEncoder for PubRecPacket {
         Ok(2)
     }
 
-    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() < 2 {
             return Err(Error::IncompletePacket);
         }

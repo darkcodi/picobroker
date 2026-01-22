@@ -30,7 +30,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let mut offset = 0;
         if offset + 2 > bytes.len() {
             return Err(Error::IncompletePacket);

@@ -77,7 +77,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder for ConnectPacket<MAX_CL
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
         let mut offset = 0;
         let protocol_name = read_string(bytes, &mut offset)?;
         if protocol_name != "MQTT" {

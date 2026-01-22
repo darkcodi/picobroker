@@ -28,7 +28,7 @@ impl PacketEncoder for SubAckPacket {
         Ok(3)
     }
 
-    fn decode(bytes: &[u8], _header: u8) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() < 3 {
             return Err(Error::IncompletePacket);
         }

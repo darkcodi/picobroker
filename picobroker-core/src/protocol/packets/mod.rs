@@ -28,7 +28,6 @@ pub use crate::protocol::packets::subscribe::SubscribePacket;
 pub use crate::protocol::packets::unsuback::UnsubAckPacket;
 pub use crate::protocol::packets::unsubscribe::UnsubscribePacket;
 
-use crate::protocol::utils::{read_variable_length, write_variable_length};
 use crate::protocol::PacketType;
 use crate::Error;
 
@@ -39,7 +38,7 @@ pub trait PacketEncoder: Sized {
         (self.packet_type() as u8) << 4 | (self.fixed_flags() & 0x0F)
     }
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error>;
-    fn decode(bytes: &[u8], header: u8) -> Result<Self, Error>;
+    fn decode(bytes: &[u8]) -> Result<Self, Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,8 +59,8 @@ pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH
     Disconnect(DisconnectPacket),
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-    pub fn packet_type(&self) -> PacketType {
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    fn packet_type(&self) -> PacketType {
         match self {
             Packet::Connect(_) => PacketType::Connect,
             Packet::ConnAck(_) => PacketType::ConnAck,
@@ -80,161 +79,68 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         }
     }
 
-    pub fn header_first_byte(&self) -> u8 {
+    fn fixed_flags(&self) -> u8 {
         match self {
-            Packet::Connect(packet) => packet.header_first_byte(),
-            Packet::ConnAck(packet) => packet.header_first_byte(),
-            Packet::Publish(packet) => packet.header_first_byte(),
-            Packet::PubAck(packet) => packet.header_first_byte(),
-            Packet::PubRec(packet) => packet.header_first_byte(),
-            Packet::PubRel(packet) => packet.header_first_byte(),
-            Packet::PubComp(packet) => packet.header_first_byte(),
-            Packet::Subscribe(packet) => packet.header_first_byte(),
-            Packet::SubAck(packet) => packet.header_first_byte(),
-            Packet::Unsubscribe(packet) => packet.header_first_byte(),
-            Packet::UnsubAck(packet) => packet.header_first_byte(),
-            Packet::PingReq(packet) => packet.header_first_byte(),
-            Packet::PingResp(packet) => packet.header_first_byte(),
-            Packet::Disconnect(packet) => packet.header_first_byte(),
+            Packet::Connect(packet) => packet.fixed_flags(),
+            Packet::ConnAck(packet) => packet.fixed_flags(),
+            Packet::Publish(packet) => packet.fixed_flags(),
+            Packet::PubAck(packet) => packet.fixed_flags(),
+            Packet::PubRec(packet) => packet.fixed_flags(),
+            Packet::PubRel(packet) => packet.fixed_flags(),
+            Packet::PubComp(packet) => packet.fixed_flags(),
+            Packet::Subscribe(packet) => packet.fixed_flags(),
+            Packet::SubAck(packet) => packet.fixed_flags(),
+            Packet::Unsubscribe(packet) => packet.fixed_flags(),
+            Packet::UnsubAck(packet) => packet.fixed_flags(),
+            Packet::PingReq(packet) => packet.fixed_flags(),
+            Packet::PingResp(packet) => packet.fixed_flags(),
+            Packet::Disconnect(packet) => packet.fixed_flags(),
         }
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
-        if bytes.is_empty() {
-            return Err(Error::IncompletePacket);
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+        match self {
+            Packet::Connect(packet) => packet.encode(buffer),
+            Packet::ConnAck(packet) => packet.encode(buffer),
+            Packet::Publish(packet) => packet.encode(buffer),
+            Packet::PubAck(packet) => packet.encode(buffer),
+            Packet::PubRec(packet) => packet.encode(buffer),
+            Packet::PubRel(packet) => packet.encode(buffer),
+            Packet::PubComp(packet) => packet.encode(buffer),
+            Packet::Subscribe(packet) => packet.encode(buffer),
+            Packet::SubAck(packet) => packet.encode(buffer),
+            Packet::Unsubscribe(packet) => packet.encode(buffer),
+            Packet::UnsubAck(packet) => packet.encode(buffer),
+            Packet::PingReq(packet) => packet.encode(buffer),
+            Packet::PingResp(packet) => packet.encode(buffer),
+            Packet::Disconnect(packet) => packet.encode(buffer),
         }
-        let header = bytes[0];
-        let packet_type = PacketType::from_u8(header).ok_or(Error::InvalidPacketType {
-            packet_type: header,
-        })?;
-        // Self::validate_flags(packet_type, header)?;
+    }
 
-        let (remaining_length, len_bytes) = read_variable_length(&bytes[1..])?;
-        let payload_start = 1 + len_bytes;
-        if bytes.len() < payload_start + remaining_length {
-            return Err(Error::IncompletePacket);
-        }
-
-        // let total_packet_size = payload_start + remaining_length;
-        // if total_packet_size > MAX_PACKET_SIZE {
-        //     return Err(Error::PacketTooLarge {
-        //         max_size: MAX_PACKET_SIZE,
-        //         actual_size: total_packet_size,
-        //     });
-        // }
-
-        // validate payload length does not exceed maximums payload size
-        if remaining_length > MAX_PAYLOAD_SIZE {
-            return Err(Error::PacketTooLarge {
-                max_size: MAX_PAYLOAD_SIZE,
-                actual_size: remaining_length,
-            });
-        }
-
-        let payload = &bytes[payload_start..payload_start + remaining_length];
-
+    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+        let type_byte = bytes[0] >> 4;
+        let packet_type = PacketType::from(type_byte);
         match packet_type {
-            PacketType::Connect => {
-                let connect = ConnectPacket::decode(payload, header)?;
-                Ok(Packet::Connect(connect))
-            }
-            PacketType::ConnAck => {
-                let connack = ConnAckPacket::decode(payload, header)?;
-                Ok(Packet::ConnAck(connack))
-            }
-            PacketType::Publish => {
-                let publish = PublishPacket::decode(payload, header)?;
-                Ok(Packet::Publish(publish))
-            }
-            PacketType::PubAck => {
-                let puback = PubAckPacket::decode(payload, header)?;
-                Ok(Packet::PubAck(puback))
-            }
-            PacketType::PubRec => {
-                let pubrec = PubRecPacket::decode(payload, header)?;
-                Ok(Packet::PubRec(pubrec))
-            }
-            PacketType::PubRel => {
-                let pubrel = PubRelPacket::decode(payload, header)?;
-                Ok(Packet::PubRel(pubrel))
-            }
-            PacketType::PubComp => {
-                let pubcomp = PubCompPacket::decode(payload, header)?;
-                Ok(Packet::PubComp(pubcomp))
-            }
-            PacketType::Subscribe => {
-                let subscribe = SubscribePacket::decode(payload, header)?;
-                Ok(Packet::Subscribe(subscribe))
-            }
-            PacketType::SubAck => {
-                let suback = SubAckPacket::decode(payload, header)?;
-                Ok(Packet::SubAck(suback))
-            }
-            PacketType::Unsubscribe => {
-                let unsubscribe = UnsubscribePacket::decode(payload, header)?;
-                Ok(Packet::Unsubscribe(unsubscribe))
-            }
-            PacketType::UnsubAck => {
-                let unsuback = UnsubAckPacket::decode(payload, header)?;
-                Ok(Packet::UnsubAck(unsuback))
-            }
-            PacketType::PingReq => {
-                let pingreq = PingReqPacket::decode(payload, header)?;
-                Ok(Packet::PingReq(pingreq))
-            }
-            PacketType::PingResp => {
-                let pingresp = PingRespPacket::decode(payload, header)?;
-                Ok(Packet::PingResp(pingresp))
-            }
-            PacketType::Disconnect => {
-                let disconnect = DisconnectPacket::decode(payload, header)?;
-                Ok(Packet::Disconnect(disconnect))
-            }
-            _ => Err(Error::InvalidPacketType {
-                packet_type: header,
+            PacketType::Reserved => Err(Error::InvalidPacketType {
+                packet_type: type_byte,
+            }),
+            PacketType::Connect => Ok(Packet::Connect(ConnectPacket::decode(bytes)?)),
+            PacketType::ConnAck => Ok(Packet::ConnAck(ConnAckPacket::decode(bytes)?)),
+            PacketType::Publish => Ok(Packet::Publish(PublishPacket::decode(bytes)?)),
+            PacketType::PubAck => Ok(Packet::PubAck(PubAckPacket::decode(bytes)?)),
+            PacketType::PubRec => Ok(Packet::PubRec(PubRecPacket::decode(bytes)?)),
+            PacketType::PubRel => Ok(Packet::PubRel(PubRelPacket::decode(bytes)?)),
+            PacketType::PubComp => Ok(Packet::PubComp(PubCompPacket::decode(bytes)?)),
+            PacketType::Subscribe => Ok(Packet::Subscribe(SubscribePacket::decode(bytes)?)),
+            PacketType::SubAck => Ok(Packet::SubAck(SubAckPacket::decode(bytes)?)),
+            PacketType::Unsubscribe => Ok(Packet::Unsubscribe(UnsubscribePacket::decode(bytes)?)),
+            PacketType::UnsubAck => Ok(Packet::UnsubAck(UnsubAckPacket::decode(bytes)?)),
+            PacketType::PingReq => Ok(Packet::PingReq(PingReqPacket::decode(bytes)?)),
+            PacketType::PingResp => Ok(Packet::PingResp(PingRespPacket::decode(bytes)?)),
+            PacketType::Disconnect => Ok(Packet::Disconnect(DisconnectPacket::decode(bytes)?)),
+            PacketType::Reserved2 => Err(Error::InvalidPacketType {
+                packet_type: type_byte,
             }),
         }
-    }
-
-    pub fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.is_empty() {
-            return Err(Error::BufferTooSmall);
-        }
-
-        let packet_type = self.packet_type();
-        buffer[0] = self.header_first_byte();
-
-        let mut payload_buffer = [0u8; MAX_PAYLOAD_SIZE];
-        let payload_len = match self {
-            Packet::Connect(connect) => connect.encode(&mut payload_buffer)?,
-            Packet::ConnAck(connack) => connack.encode(&mut payload_buffer)?,
-            Packet::Publish(publish) => publish.encode(&mut payload_buffer)?,
-            Packet::PubAck(puback) => puback.encode(&mut payload_buffer)?,
-            Packet::PubRec(pubrec) => pubrec.encode(&mut payload_buffer)?,
-            Packet::PubRel(pubrel) => pubrel.encode(&mut payload_buffer)?,
-            Packet::PubComp(pubcomp) => pubcomp.encode(&mut payload_buffer)?,
-            Packet::Subscribe(subscribe) => subscribe.encode(&mut payload_buffer)?,
-            Packet::SubAck(suback) => suback.encode(&mut payload_buffer)?,
-            Packet::Unsubscribe(unsubscribe) => unsubscribe.encode(&mut payload_buffer)?,
-            Packet::UnsubAck(unsuback) => unsuback.encode(&mut payload_buffer)?,
-            Packet::PingReq(pingreq) => pingreq.encode(&mut payload_buffer)?,
-            Packet::PingResp(pingresp) => pingresp.encode(&mut payload_buffer)?,
-            Packet::Disconnect(disconnect) => disconnect.encode(&mut payload_buffer)?,
-        };
-
-        let mut length_buffer = [0u8; 4];
-        let len_bytes = write_variable_length(payload_len, &mut length_buffer)?;
-
-        let total_len = 1 + len_bytes + payload_len;
-        if buffer.len() < total_len {
-            return Err(Error::BufferTooSmall);
-        }
-
-        buffer[1..1 + len_bytes].copy_from_slice(&length_buffer[..len_bytes]);
-        if payload_len > 0 {
-            buffer[1 + len_bytes..total_len].copy_from_slice(&payload_buffer[..payload_len]);
-        }
-
-        Ok(total_len)
     }
 }
