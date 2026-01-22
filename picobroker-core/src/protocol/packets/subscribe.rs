@@ -3,13 +3,13 @@ use crate::protocol::utils::{read_string, write_string};
 use crate::{Error, PacketType, QoS, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Subscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
+pub struct SubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
     pub packet_id: u16,
     pub topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
     pub requested_qos: QoS,
 }
 
-impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for Subscribe<MAX_TOPIC_NAME_LENGTH> {
+impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for SubscribePacket<MAX_TOPIC_NAME_LENGTH> {
     fn packet_type(&self) -> PacketType {
         PacketType::Subscribe
     }

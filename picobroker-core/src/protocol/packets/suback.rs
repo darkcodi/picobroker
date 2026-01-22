@@ -3,12 +3,12 @@ use crate::protocol::qos::QoS;
 use crate::{Error, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubAck {
+pub struct SubAckPacket {
     pub packet_id: u16,
     pub granted_qos: QoS,
 }
 
-impl<'a> PacketEncoder<'a> for SubAck {
+impl<'a> PacketEncoder<'a> for SubAckPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::SubAck
     }

@@ -2,9 +2,9 @@ use crate::protocol::packets::PacketEncoder;
 use crate::{Error, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Disconnect;
+pub struct DisconnectPacket;
 
-impl<'a> PacketEncoder<'a> for Disconnect {
+impl<'a> PacketEncoder<'a> for DisconnectPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::Disconnect
     }
@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn test_default() {
-        let disconnect = Disconnect::default();
-        assert_eq!(disconnect, Disconnect);
+        let disconnect = DisconnectPacket::default();
+        assert_eq!(disconnect, DisconnectPacket);
     }
 }

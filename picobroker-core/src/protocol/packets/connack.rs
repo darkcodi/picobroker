@@ -27,12 +27,12 @@ impl From<u8> for ConnectReturnCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnAck {
+pub struct ConnAckPacket {
     pub session_present: bool,
     pub return_code: ConnectReturnCode,
 }
 
-impl<'a> PacketEncoder<'a> for ConnAck {
+impl<'a> PacketEncoder<'a> for ConnAckPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::ConnAck
     }

@@ -8,7 +8,7 @@ pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
 pub const MQTT_5_0_PROTOCOL_LEVEL: u8 = 5; // MQTT 5.0
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Connect<const MAX_CLIENT_NAME_LENGTH: usize> {
+pub struct ConnectPacket<const MAX_CLIENT_NAME_LENGTH: usize> {
     pub protocol_name: &'static str,
     pub protocol_level: u8,
     pub clean_session: bool,
@@ -19,7 +19,7 @@ pub struct Connect<const MAX_CLIENT_NAME_LENGTH: usize> {
     pub will_retain: bool,
 }
 
-impl<'a, const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder<'a> for Connect<MAX_CLIENT_NAME_LENGTH> {
+impl<'a, const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder<'a> for ConnectPacket<MAX_CLIENT_NAME_LENGTH> {
     fn packet_type(&self) -> PacketType {
         PacketType::Connect
     }

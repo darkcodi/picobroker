@@ -3,12 +3,12 @@ use crate::protocol::utils::{read_string, write_string};
 use crate::{Error, PacketType, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unsubscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
+pub struct UnsubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
     pub packet_id: u16,
     pub topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
 }
 
-impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for Unsubscribe<MAX_TOPIC_NAME_LENGTH> {
+impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
     fn packet_type(&self) -> PacketType {
         PacketType::Unsubscribe
     }

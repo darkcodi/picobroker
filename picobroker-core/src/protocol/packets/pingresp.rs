@@ -2,9 +2,9 @@ use crate::protocol::packets::PacketEncoder;
 use crate::{Error, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct PingResp;
+pub struct PingRespPacket;
 
-impl<'a> PacketEncoder<'a> for PingResp {
+impl<'a> PacketEncoder<'a> for PingRespPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::PingResp
     }

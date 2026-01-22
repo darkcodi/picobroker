@@ -2,11 +2,11 @@ use crate::protocol::packets::PacketEncoder;
 use crate::{Error, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PubRel {
+pub struct PubRelPacket {
     pub packet_id: u16,
 }
 
-impl<'a> PacketEncoder<'a> for PubRel {
+impl<'a> PacketEncoder<'a> for PubRelPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::PubRel
     }

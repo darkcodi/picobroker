@@ -33,7 +33,7 @@ impl PublishFlags {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Publish<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+pub struct PublishPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
     pub topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
     pub packet_id: Option<u16>,
     pub payload: heapless::Vec<u8, MAX_PAYLOAD_SIZE>,
@@ -42,7 +42,7 @@ pub struct Publish<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
     pub retain: bool,
 }
 
-impl<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder<'a> for Publish<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder<'a> for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn packet_type(&self) -> PacketType {
         PacketType::Publish
     }

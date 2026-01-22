@@ -13,20 +13,20 @@ mod subscribe;
 mod unsuback;
 mod unsubscribe;
 
-pub use crate::protocol::packets::connack::ConnAck;
-pub use crate::protocol::packets::connect::Connect;
-pub use crate::protocol::packets::disconnect::Disconnect;
-pub use crate::protocol::packets::pingreq::PingReq;
-pub use crate::protocol::packets::pingresp::PingResp;
-pub use crate::protocol::packets::puback::PubAck;
-pub use crate::protocol::packets::pubcomp::PubComp;
-pub use crate::protocol::packets::publish::Publish;
-pub use crate::protocol::packets::pubrec::PubRec;
-pub use crate::protocol::packets::pubrel::PubRel;
-pub use crate::protocol::packets::suback::SubAck;
-pub use crate::protocol::packets::subscribe::Subscribe;
-pub use crate::protocol::packets::unsuback::UnsubAck;
-pub use crate::protocol::packets::unsubscribe::Unsubscribe;
+pub use crate::protocol::packets::connack::ConnAckPacket;
+pub use crate::protocol::packets::connect::ConnectPacket;
+pub use crate::protocol::packets::disconnect::DisconnectPacket;
+pub use crate::protocol::packets::pingreq::PingReqPacket;
+pub use crate::protocol::packets::pingresp::PingRespPacket;
+pub use crate::protocol::packets::puback::PubAckPacket;
+pub use crate::protocol::packets::pubcomp::PubCompPacket;
+pub use crate::protocol::packets::publish::PublishPacket;
+pub use crate::protocol::packets::pubrec::PubRecPacket;
+pub use crate::protocol::packets::pubrel::PubRelPacket;
+pub use crate::protocol::packets::suback::SubAckPacket;
+pub use crate::protocol::packets::subscribe::SubscribePacket;
+pub use crate::protocol::packets::unsuback::UnsubAckPacket;
+pub use crate::protocol::packets::unsubscribe::UnsubscribePacket;
 
 use crate::protocol::utils::{read_variable_length, write_variable_length};
 use crate::protocol::PacketType;
@@ -44,20 +44,20 @@ pub trait PacketEncoder<'a>: Sized {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
-    Connect(Connect<MAX_CLIENT_NAME_LENGTH>),
-    ConnAck(ConnAck),
-    Publish(Publish<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
-    PubAck(PubAck),
-    PubRec(PubRec),
-    PubRel(PubRel),
-    PubComp(PubComp),
-    Subscribe(Subscribe<MAX_TOPIC_NAME_LENGTH>),
-    SubAck(SubAck),
-    Unsubscribe(Unsubscribe<MAX_TOPIC_NAME_LENGTH>),
-    UnsubAck(UnsubAck),
-    PingReq(PingReq),
-    PingResp(PingResp),
-    Disconnect(Disconnect),
+    Connect(ConnectPacket<MAX_CLIENT_NAME_LENGTH>),
+    ConnAck(ConnAckPacket),
+    Publish(PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
+    PubAck(PubAckPacket),
+    PubRec(PubRecPacket),
+    PubRel(PubRelPacket),
+    PubComp(PubCompPacket),
+    Subscribe(SubscribePacket<MAX_TOPIC_NAME_LENGTH>),
+    SubAck(SubAckPacket),
+    Unsubscribe(UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>),
+    UnsubAck(UnsubAckPacket),
+    PingReq(PingReqPacket),
+    PingResp(PingRespPacket),
+    Disconnect(DisconnectPacket),
 }
 
 impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
@@ -135,59 +135,59 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
 
         match packet_type {
             PacketType::Connect => {
-                let connect = Connect::decode(payload, header)?;
+                let connect = ConnectPacket::decode(payload, header)?;
                 Ok(Packet::Connect(connect))
             }
             PacketType::ConnAck => {
-                let connack = ConnAck::decode(payload, header)?;
+                let connack = ConnAckPacket::decode(payload, header)?;
                 Ok(Packet::ConnAck(connack))
             }
             PacketType::Publish => {
-                let publish = Publish::decode(payload, header)?;
+                let publish = PublishPacket::decode(payload, header)?;
                 Ok(Packet::Publish(publish))
             }
             PacketType::PubAck => {
-                let puback = PubAck::decode(payload, header)?;
+                let puback = PubAckPacket::decode(payload, header)?;
                 Ok(Packet::PubAck(puback))
             }
             PacketType::PubRec => {
-                let pubrec = PubRec::decode(payload, header)?;
+                let pubrec = PubRecPacket::decode(payload, header)?;
                 Ok(Packet::PubRec(pubrec))
             }
             PacketType::PubRel => {
-                let pubrel = PubRel::decode(payload, header)?;
+                let pubrel = PubRelPacket::decode(payload, header)?;
                 Ok(Packet::PubRel(pubrel))
             }
             PacketType::PubComp => {
-                let pubcomp = PubComp::decode(payload, header)?;
+                let pubcomp = PubCompPacket::decode(payload, header)?;
                 Ok(Packet::PubComp(pubcomp))
             }
             PacketType::Subscribe => {
-                let subscribe = Subscribe::decode(payload, header)?;
+                let subscribe = SubscribePacket::decode(payload, header)?;
                 Ok(Packet::Subscribe(subscribe))
             }
             PacketType::SubAck => {
-                let suback = SubAck::decode(payload, header)?;
+                let suback = SubAckPacket::decode(payload, header)?;
                 Ok(Packet::SubAck(suback))
             }
             PacketType::Unsubscribe => {
-                let unsubscribe = Unsubscribe::decode(payload, header)?;
+                let unsubscribe = UnsubscribePacket::decode(payload, header)?;
                 Ok(Packet::Unsubscribe(unsubscribe))
             }
             PacketType::UnsubAck => {
-                let unsuback = UnsubAck::decode(payload, header)?;
+                let unsuback = UnsubAckPacket::decode(payload, header)?;
                 Ok(Packet::UnsubAck(unsuback))
             }
             PacketType::PingReq => {
-                let pingreq = PingReq::decode(payload, header)?;
+                let pingreq = PingReqPacket::decode(payload, header)?;
                 Ok(Packet::PingReq(pingreq))
             }
             PacketType::PingResp => {
-                let pingresp = PingResp::decode(payload, header)?;
+                let pingresp = PingRespPacket::decode(payload, header)?;
                 Ok(Packet::PingResp(pingresp))
             }
             PacketType::Disconnect => {
-                let disconnect = Disconnect::decode(payload, header)?;
+                let disconnect = DisconnectPacket::decode(payload, header)?;
                 Ok(Packet::Disconnect(disconnect))
             }
             _ => Err(Error::InvalidPacketType {

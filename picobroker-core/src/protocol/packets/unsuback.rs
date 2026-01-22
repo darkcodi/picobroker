@@ -2,11 +2,11 @@ use crate::protocol::packets::PacketEncoder;
 use crate::{Error, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnsubAck {
+pub struct UnsubAckPacket {
     pub packet_id: u16,
 }
 
-impl<'a> PacketEncoder<'a> for UnsubAck {
+impl<'a> PacketEncoder<'a> for UnsubAckPacket {
     fn packet_type(&self) -> PacketType {
         PacketType::UnsubAck
     }
