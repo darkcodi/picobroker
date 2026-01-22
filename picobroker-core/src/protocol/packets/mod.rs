@@ -13,6 +13,7 @@ mod subscribe;
 mod unsuback;
 mod unsubscribe;
 
+use crate::{PacketEncodingError, PacketType};
 pub use crate::protocol::packets::connack::ConnAckPacket;
 pub use crate::protocol::packets::connect::ConnectPacket;
 pub use crate::protocol::packets::disconnect::DisconnectPacket;
@@ -28,17 +29,14 @@ pub use crate::protocol::packets::subscribe::SubscribePacket;
 pub use crate::protocol::packets::unsuback::UnsubAckPacket;
 pub use crate::protocol::packets::unsubscribe::UnsubscribePacket;
 
-use crate::protocol::PacketType;
-use crate::Error;
-
 pub trait PacketEncoder: Sized {
     fn packet_type(&self) -> PacketType;
     fn fixed_flags(&self) -> u8;
     fn header_first_byte(&self) -> u8 {
         (self.packet_type() as u8) << 4 | (self.fixed_flags() & 0x0F)
     }
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error>;
-    fn decode(bytes: &[u8]) -> Result<Self, Error>;
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError>;
+    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,7 +96,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         }
     }
 
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         match self {
             Packet::Connect(packet) => packet.encode(buffer),
             Packet::ConnAck(packet) => packet.encode(buffer),
@@ -117,11 +115,11 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         }
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         let type_byte = bytes[0] >> 4;
         let packet_type = PacketType::from(type_byte);
         match packet_type {
-            PacketType::Reserved => Err(Error::InvalidPacketType {
+            PacketType::Reserved => Err(PacketEncodingError::InvalidPacketType {
                 packet_type: type_byte,
             }),
             PacketType::Connect => Ok(Packet::Connect(ConnectPacket::decode(bytes)?)),
@@ -138,9 +136,39 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
             PacketType::PingReq => Ok(Packet::PingReq(PingReqPacket::decode(bytes)?)),
             PacketType::PingResp => Ok(Packet::PingResp(PingRespPacket::decode(bytes)?)),
             PacketType::Disconnect => Ok(Packet::Disconnect(DisconnectPacket::decode(bytes)?)),
-            PacketType::Reserved2 => Err(Error::InvalidPacketType {
+            PacketType::Reserved2 => Err(PacketEncodingError::InvalidPacketType {
                 packet_type: type_byte,
             }),
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MAX_CLIENT_NAME_LENGTH: usize = 30;
+    const MAX_TOPIC_NAME_LENGTH: usize = 30;
+    const MAX_PAYLOAD_SIZE: usize = 128;
+    type DefaultPacket = Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>;
+
+    #[test]
+    fn test_packet_disconnect() {
+        const DISCONNECT_PACKET_BYTES: [u8; 2] = [0xE0, 0x00];
+        let result = DefaultPacket::decode(&DISCONNECT_PACKET_BYTES);
+        assert!(result.is_ok(), "Failed to decode packet");
+        let packet = result.unwrap();
+        let disconnect_packet = match packet {
+            DefaultPacket::Disconnect(pkt) => pkt,
+            _ => panic!("Decoded packet is not Disconnect"),
+        };
+        assert_eq!(disconnect_packet, DisconnectPacket::default());
+        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+        let encode_result = disconnect_packet.encode(&mut buffer);
+        assert!(encode_result.is_ok(), "Failed to encode packet");
+        let encoded_size = encode_result.unwrap();
+        assert_eq!(encoded_size, DISCONNECT_PACKET_BYTES.len(), "Encoded size mismatch");
+        assert_eq!(&buffer[..encoded_size], &DISCONNECT_PACKET_BYTES, "Encoded bytes mismatch");
+    }
+}
+

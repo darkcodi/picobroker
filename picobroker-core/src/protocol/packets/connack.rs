@@ -1,5 +1,5 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::{Error, PacketType};
+use crate::{Error, PacketEncodingError, PacketType};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,18 +41,18 @@ impl PacketEncoder for ConnAckPacket {
         0b0000
     }
 
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         if buffer.len() < 2 {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall.into());
         }
         buffer[0] = if self.session_present { 0x01 } else { 0x00 };
         buffer[1] = self.return_code as u8;
         Ok(2)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         if bytes.len() < 2 {
-            return Err(Error::IncompletePacket);
+            return Err(Error::IncompletePacket.into());
         }
         let session_present = (bytes[0] & 0x01) != 0;
         let return_code = ConnectReturnCode::from(bytes[1]);

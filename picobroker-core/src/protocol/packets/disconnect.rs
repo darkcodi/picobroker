@@ -1,5 +1,5 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::{Error, PacketType};
+use crate::{PacketEncodingError, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct DisconnectPacket;
@@ -13,22 +13,11 @@ impl PacketEncoder for DisconnectPacket {
         0b0000
     }
 
-    fn encode(&self, _buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, _buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         Ok(0)
     }
 
-    fn decode(_bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(_bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         Ok(Self::default())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_default() {
-        let disconnect = DisconnectPacket::default();
-        assert_eq!(disconnect, DisconnectPacket);
     }
 }

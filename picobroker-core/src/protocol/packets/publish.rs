@@ -2,7 +2,7 @@ use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
-use crate::{Error, TopicName};
+use crate::{Error, PacketEncodingError, TopicName};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct PublishFlags {
@@ -55,7 +55,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }.publish_header_byte()
     }
 
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         write_string(self.topic_name.as_str(), buffer, &mut offset)?;
 
@@ -64,7 +64,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             QoS::AtLeastOnce | QoS::ExactlyOnce => {
                 let packet_id = self.packet_id.ok_or(Error::MalformedPacket)?;
                 if offset + 2 > buffer.len() {
-                    return Err(Error::BufferTooSmall);
+                    return Err(Error::BufferTooSmall.into());
                 }
                 let pid_bytes = packet_id.to_be_bytes();
                 buffer[offset] = pid_bytes[0];
@@ -74,7 +74,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }
 
         if offset + self.payload.len() > buffer.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall.into());
         }
         buffer[offset..offset + self.payload.len()].copy_from_slice(&self.payload);
         offset += self.payload.len();
@@ -82,11 +82,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         let mut offset = 0;
         let topic_name = read_string(bytes, &mut offset)?;
         if topic_name.is_empty() {
-            return Err(Error::EmptyTopic);
+            return Err(Error::EmptyTopic.into());
         }
         let topic_name = heapless::String::try_from(topic_name)
             .map(|s| TopicName::new(s))
@@ -110,13 +110,13 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         let packet_id = if flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
-                return Err(Error::IncompletePacket);
+                return Err(Error::IncompletePacket.into());
             }
             let pid = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
 
             // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
             if pid == 0 {
-                return Err(Error::MalformedPacket);
+                return Err(Error::MalformedPacket.into());
             }
 
             offset += 2;

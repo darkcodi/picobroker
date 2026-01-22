@@ -80,6 +80,7 @@ impl ClientId {
 
 /// Client state machine
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ClientState {
     #[default]
     Connecting,
@@ -87,6 +88,7 @@ pub enum ClientState {
     Disconnected,
 }
 
+#[allow(dead_code)]
 pub struct ClientChannel {
     pub packets_to_send: heapless::spsc::Queue<u8, 23>,
 }

@@ -1,6 +1,6 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::utils::{read_string, write_string};
-use crate::{Error, PacketType, QoS, TopicName};
+use crate::{Error, PacketEncodingError, PacketType, QoS, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
@@ -18,10 +18,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
         0b0010
     }
 
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall.into());
         }
         let pid_bytes = self.packet_id.to_be_bytes();
         buffer[offset] = pid_bytes[0];
@@ -29,32 +29,32 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
         offset += 2;
         write_string(self.topic_filter.as_str(), buffer, &mut offset)?;
         if offset >= buffer.len() {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall.into());
         }
         buffer[offset] = 0;
         offset += 1;
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > bytes.len() {
-            return Err(Error::IncompletePacket);
+            return Err(Error::IncompletePacket.into());
         }
         let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
 
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {
-            return Err(Error::MalformedPacket);
+            return Err(Error::MalformedPacket.into());
         }
 
         offset += 2;
         let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {
-            return Err(Error::EmptyTopic);
+            return Err(Error::EmptyTopic.into());
         }
         if offset + 1 > bytes.len() {
-            return Err(Error::IncompletePacket);
+            return Err(Error::IncompletePacket.into());
         }
         let topic_name = heapless::String::try_from(topic_filter)
             .map(|s| TopicName::new(s))
@@ -70,7 +70,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
             0 => QoS::AtMostOnce,
             1 => QoS::AtLeastOnce,
             2 => QoS::ExactlyOnce,
-            _ => return Err(Error::MalformedPacket),
+            _ => return Err(Error::MalformedPacket.into()),
         };
         Ok(Self {
             packet_id,

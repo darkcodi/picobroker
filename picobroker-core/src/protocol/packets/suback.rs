@@ -1,6 +1,6 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::qos::QoS;
-use crate::{Error, PacketType};
+use crate::{Error, PacketEncodingError, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubAckPacket {
@@ -17,9 +17,9 @@ impl PacketEncoder for SubAckPacket {
         0b0000
     }
 
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         if buffer.len() < 3 {
-            return Err(Error::BufferTooSmall);
+            return Err(Error::BufferTooSmall.into());
         }
         let pid_bytes = self.packet_id.to_be_bytes();
         buffer[0] = pid_bytes[0];
@@ -28,9 +28,9 @@ impl PacketEncoder for SubAckPacket {
         Ok(3)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, Error> {
+    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         if bytes.len() < 3 {
-            return Err(Error::IncompletePacket);
+            return Err(Error::IncompletePacket.into());
         }
         let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
         let qos_value = bytes[2];

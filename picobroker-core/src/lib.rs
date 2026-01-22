@@ -45,6 +45,7 @@ pub use protocol::DisconnectPacket;
 pub use protocol::Packet;
 pub use protocol::PacketEncoder;
 pub use protocol::PacketType;
+pub use protocol::PacketEncodingError;
 pub use protocol::PingReqPacket;
 pub use protocol::PingRespPacket;
 pub use protocol::PubAckPacket;
