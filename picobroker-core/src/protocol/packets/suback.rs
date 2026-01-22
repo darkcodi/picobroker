@@ -3,13 +3,12 @@ use crate::protocol::qos::QoS;
 use crate::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SubAck<'a> {
+pub struct SubAck {
     pub packet_id: u16,
     pub granted_qos: QoS,
-    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> PacketEncoder<'a> for SubAck<'a> {
+impl<'a> PacketEncoder<'a> for SubAck {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 3 {
             return Err(Error::BufferTooSmall);
@@ -33,7 +32,6 @@ impl<'a> PacketEncoder<'a> for SubAck<'a> {
         Ok(Self {
             packet_id,
             granted_qos,
-            _phantom: Default::default(),
         })
     }
 }

@@ -2,11 +2,9 @@ use crate::protocol::packets::PacketEncoder;
 use crate::Error;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct PingResp<'a> {
-    pub _phantom: core::marker::PhantomData<&'a ()>,
-}
+pub struct PingResp;
 
-impl<'a> PacketEncoder<'a> for PingResp<'a> {
+impl<'a> PacketEncoder<'a> for PingResp {
     fn encode(&'a self, _buffer: &mut [u8]) -> Result<usize, Error> {
         Ok(0)
     }

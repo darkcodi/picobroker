@@ -1,14 +1,14 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::utils::{read_string, write_string};
-use crate::Error;
+use crate::{Error, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Unsubscribe<'a> {
+pub struct Unsubscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
     pub packet_id: u16,
-    pub topic_filter: &'a str,
+    pub topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
 }
 
-impl<'a> PacketEncoder<'a> for Unsubscribe<'a> {
+impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for Unsubscribe<MAX_TOPIC_NAME_LENGTH> {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
@@ -18,7 +18,7 @@ impl<'a> PacketEncoder<'a> for Unsubscribe<'a> {
         buffer[offset] = pid_bytes[0];
         buffer[offset + 1] = pid_bytes[1];
         offset += 2;
-        write_string(self.topic_filter, buffer, &mut offset)?;
+        write_string(self.topic_filter.as_str(), buffer, &mut offset)?;
         Ok(offset)
     }
 
@@ -39,9 +39,17 @@ impl<'a> PacketEncoder<'a> for Unsubscribe<'a> {
         if topic_filter.is_empty() {
             return Err(Error::EmptyTopic);
         }
+        let topic_name = heapless::String::try_from(topic_filter)
+            .map(|s| TopicName::new(s))
+            .map_err(|_| {
+                Error::TopicNameLengthExceeded {
+                    max_length: MAX_TOPIC_NAME_LENGTH,
+                    actual_length: topic_filter.len(),
+                }
+            })?;
         Ok(Self {
             packet_id,
-            topic_filter,
+            topic_filter: topic_name,
         })
     }
 }

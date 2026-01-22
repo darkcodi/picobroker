@@ -2,11 +2,9 @@ use crate::protocol::packets::PacketEncoder;
 use crate::Error;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Disconnect<'a> {
-    pub _phantom: core::marker::PhantomData<&'a ()>,
-}
+pub struct Disconnect;
 
-impl<'a> PacketEncoder<'a> for Disconnect<'a> {
+impl<'a> PacketEncoder<'a> for Disconnect {
     fn encode(&'a self, _buffer: &mut [u8]) -> Result<usize, Error> {
         Ok(0)
     }

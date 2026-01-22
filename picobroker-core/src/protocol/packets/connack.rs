@@ -27,13 +27,12 @@ impl From<u8> for ConnectReturnCode {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnAck<'a> {
+pub struct ConnAck {
     pub session_present: bool,
     pub return_code: ConnectReturnCode,
-    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> PacketEncoder<'a> for ConnAck<'a> {
+impl<'a> PacketEncoder<'a> for ConnAck {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);
@@ -52,7 +51,6 @@ impl<'a> PacketEncoder<'a> for ConnAck<'a> {
         Ok(Self {
             session_present,
             return_code,
-            _phantom: Default::default(),
         })
     }
 }

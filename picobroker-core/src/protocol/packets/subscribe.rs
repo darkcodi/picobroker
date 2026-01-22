@@ -1,14 +1,15 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::utils::{read_string, write_string};
-use crate::Error;
+use crate::{Error, QoS, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Subscribe<'a> {
+pub struct Subscribe<const MAX_TOPIC_NAME_LENGTH: usize> {
     pub packet_id: u16,
-    pub topic_filter: &'a str,
+    pub topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
+    pub requested_qos: QoS,
 }
 
-impl<'a> PacketEncoder<'a> for Subscribe<'a> {
+impl<'a, const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder<'a> for Subscribe<MAX_TOPIC_NAME_LENGTH> {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
@@ -18,7 +19,7 @@ impl<'a> PacketEncoder<'a> for Subscribe<'a> {
         buffer[offset] = pid_bytes[0];
         buffer[offset + 1] = pid_bytes[1];
         offset += 2;
-        write_string(self.topic_filter, buffer, &mut offset)?;
+        write_string(self.topic_filter.as_str(), buffer, &mut offset)?;
         if offset >= buffer.len() {
             return Err(Error::BufferTooSmall);
         }
@@ -47,11 +48,26 @@ impl<'a> PacketEncoder<'a> for Subscribe<'a> {
         if offset + 1 > payload.len() {
             return Err(Error::IncompletePacket);
         }
+        let topic_name = heapless::String::try_from(topic_filter)
+            .map(|s| TopicName::new(s))
+            .map_err(|_| {
+                Error::TopicNameLengthExceeded {
+                    max_length: MAX_TOPIC_NAME_LENGTH,
+                    actual_length: topic_filter.len(),
+                }
+            })?;
         // Read requested QoS byte (currently unused but must be read to validate packet structure)
-        let _requested_qos = payload[offset];
+        let requested_qos = payload[offset];
+        let requested_qos = match requested_qos {
+            0 => QoS::AtMostOnce,
+            1 => QoS::AtLeastOnce,
+            2 => QoS::ExactlyOnce,
+            _ => return Err(Error::MalformedPacket),
+        };
         Ok(Self {
             packet_id,
-            topic_filter,
+            topic_filter: topic_name,
+            requested_qos,
         })
     }
 }

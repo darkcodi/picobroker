@@ -45,7 +45,7 @@ pub mod time;
 pub use picobroker_core::*;
 
 // Embassy-specific types
-pub use broker::{EmbassyBrokerExt, EmbassyPicoBroker};
+pub use broker::{EmbassyPicoBroker};
 pub use network::{EmbassyTcpListener, EmbassyTcpStream};
 pub use time::EmbassyTimeSource;
 

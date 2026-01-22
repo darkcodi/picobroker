@@ -87,6 +87,10 @@ pub enum ClientState {
     Disconnected,
 }
 
+pub struct ClientChannel {
+    pub packets_to_send: heapless::spsc::Queue<u8, 23>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Client<const MAX_CLIENT_NAME_LENGTH: usize> {
     pub id: ClientId,

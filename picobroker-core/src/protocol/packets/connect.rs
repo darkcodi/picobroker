@@ -1,21 +1,25 @@
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
-use crate::Error;
+use crate::{ClientName, Error};
+
+pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
+pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
+pub const MQTT_5_0_PROTOCOL_LEVEL: u8 = 5; // MQTT 5.0
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Connect<'a> {
-    pub protocol_name: &'a str,
+pub struct Connect<const MAX_CLIENT_NAME_LENGTH: usize> {
+    pub protocol_name: &'static str,
     pub protocol_level: u8,
     pub clean_session: bool,
     pub keep_alive: u16,
-    pub client_id: &'a str,
+    pub client_id: ClientName<MAX_CLIENT_NAME_LENGTH>,
     pub will_flag: bool,
     pub will_qos: QoS,
     pub will_retain: bool,
 }
 
-impl<'a> PacketEncoder<'a> for Connect<'a> {
+impl<'a, const MAX_CLIENT_NAME_LENGTH: usize> PacketEncoder<'a> for Connect<MAX_CLIENT_NAME_LENGTH> {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
         write_string(self.protocol_name, buffer, &mut offset)?;
@@ -61,7 +65,7 @@ impl<'a> PacketEncoder<'a> for Connect<'a> {
         buffer[offset] = keep_alive_bytes[0];
         buffer[offset + 1] = keep_alive_bytes[1];
         offset += 2;
-        write_string(self.client_id, buffer, &mut offset)?;
+        write_string(self.client_id.as_str(), buffer, &mut offset)?;
         Ok(offset)
     }
 
@@ -71,15 +75,22 @@ impl<'a> PacketEncoder<'a> for Connect<'a> {
         if protocol_name != "MQTT" {
             return Err(Error::InvalidProtocolName);
         }
+        let protocol_name: &'static str = MQTT_PROTOCOL_NAME;
         if offset >= payload.len() {
             return Err(Error::IncompletePacket);
         }
         let protocol_level = payload[offset];
         offset += 1;
-        if protocol_level != 4 {
-            return Err(Error::InvalidProtocolLevel {
-                level: protocol_level,
-            });
+        if protocol_level != MQTT_3_1_1_PROTOCOL_LEVEL {
+            return if protocol_level == MQTT_5_0_PROTOCOL_LEVEL {
+                Err(Error::UnsupportedProtocolLevel {
+                    level: protocol_level,
+                })
+            } else {
+                Err(Error::InvalidProtocolLevel {
+                    level: protocol_level,
+                })
+            }
         }
         if offset >= payload.len() {
             return Err(Error::IncompletePacket);
@@ -127,6 +138,20 @@ impl<'a> PacketEncoder<'a> for Connect<'a> {
         if client_id.is_empty() && !clean_session {
             return Err(Error::InvalidClientIdLength { length: 0 });
         }
+        if client_id.len() > MAX_CLIENT_NAME_LENGTH {
+            return Err(Error::ClientIdLengthExceeded {
+                max_length: MAX_CLIENT_NAME_LENGTH,
+                actual_length: client_id.len(),
+            });
+        }
+        let client_id = heapless::String::try_from(client_id)
+            .map(|s| ClientName::new(s))
+            .map_err(|_| {
+                Error::ClientIdLengthExceeded {
+                    max_length: MAX_CLIENT_NAME_LENGTH,
+                    actual_length: client_id.len(),
+                }
+        })?;
         Ok(Self {
             protocol_name,
             protocol_level,

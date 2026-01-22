@@ -42,6 +42,8 @@ pub enum Error {
     IncompletePacket,
     /// Invalid protocol name in CONNECT
     InvalidProtocolName,
+    /// Unsupported protocol level in CONNECT
+    UnsupportedProtocolLevel { level: u8 },
     /// Invalid protocol level in CONNECT
     InvalidProtocolLevel { level: u8 },
     /// Connect flags invalid
@@ -50,6 +52,8 @@ pub enum Error {
     EmptyTopic,
     /// Invalid client ID length
     InvalidClientIdLength { length: u16 },
+    /// Client ID length exceeded maximum allowed length
+    ClientIdLengthExceeded { max_length: usize, actual_length: usize },
     /// Packet size exceeded maximum allowed size
     PacketTooLarge { max_size: usize, actual_size: usize },
     /// Network I/O error
@@ -135,6 +139,9 @@ impl core::fmt::Display for Error {
             Error::InvalidUtf8 => write!(f, "Invalid UTF-8 in string field"),
             Error::IncompletePacket => write!(f, "Incomplete packet (not enough data)"),
             Error::InvalidProtocolName => write!(f, "Invalid protocol name in CONNECT"),
+            Error::UnsupportedProtocolLevel { level } => {
+                write!(f, "Unsupported protocol level in CONNECT: {}", level)
+            }
             Error::InvalidProtocolLevel { level } => {
                 write!(f, "Invalid protocol level in CONNECT: {}", level)
             }
@@ -142,6 +149,16 @@ impl core::fmt::Display for Error {
             Error::EmptyTopic => write!(f, "Topic name cannot be empty"),
             Error::InvalidClientIdLength { length } => {
                 write!(f, "Invalid client ID length: {}", length)
+            }
+            Error::ClientIdLengthExceeded {
+                max_length,
+                actual_length,
+            } => {
+                write!(
+                    f,
+                    "Client ID length exceeded: max {}, actual {}",
+                    max_length, actual_length
+                )
             }
             Error::PacketTooLarge {
                 max_size,

@@ -2,12 +2,11 @@ use crate::protocol::packets::PacketEncoder;
 use crate::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PubRel<'a> {
+pub struct PubRel {
     pub packet_id: u16,
-    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> PacketEncoder<'a> for PubRel<'a> {
+impl<'a> PacketEncoder<'a> for PubRel {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);
@@ -23,12 +22,14 @@ impl<'a> PacketEncoder<'a> for PubRel<'a> {
             return Err(Error::IncompletePacket);
         }
         let packet_id = u16::from_be_bytes([payload[0], payload[1]]);
+
+        // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {
             return Err(Error::MalformedPacket);
         }
+
         Ok(Self {
             packet_id,
-            _phantom: Default::default(),
         })
     }
 }

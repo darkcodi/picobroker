@@ -37,27 +37,25 @@ pub trait PacketEncoder<'a>: Sized {
     fn decode(payload: &'a [u8], header: u8) -> Result<Self, Error>;
 }
 
-const DEFAULT_PACKET_SIZE: usize = 256;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Packet<'a> {
-    Connect(Connect<'a>),
-    ConnAck(ConnAck<'a>),
-    Publish(Publish<'a>),
-    PubAck(PubAck<'a>),
-    PubRec(PubRec<'a>),
-    PubRel(PubRel<'a>),
-    PubComp(PubComp<'a>),
-    Subscribe(Subscribe<'a>),
-    SubAck(SubAck<'a>),
-    Unsubscribe(Unsubscribe<'a>),
-    UnsubAck(UnsubAck<'a>),
-    PingReq(PingReq<'a>),
-    PingResp(PingResp<'a>),
-    Disconnect(Disconnect<'a>),
+pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+    Connect(Connect<MAX_CLIENT_NAME_LENGTH>),
+    ConnAck(ConnAck),
+    Publish(Publish<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
+    PubAck(PubAck),
+    PubRec(PubRec),
+    PubRel(PubRel),
+    PubComp(PubComp),
+    Subscribe(Subscribe<MAX_TOPIC_NAME_LENGTH>),
+    SubAck(SubAck),
+    Unsubscribe(Unsubscribe<MAX_TOPIC_NAME_LENGTH>),
+    UnsubAck(UnsubAck),
+    PingReq(PingReq),
+    PingResp(PingResp),
+    Disconnect(Disconnect),
 }
 
-impl<'a> Packet<'a> {
+impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     pub fn packet_type(&self) -> PacketType {
         match self {
             Packet::Connect(_) => PacketType::Connect,
@@ -101,7 +99,7 @@ impl<'a> Packet<'a> {
         }
     }
 
-    pub fn decode(bytes: &'a [u8]) -> Result<Self, Error> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.is_empty() {
             return Err(Error::IncompletePacket);
         }
@@ -117,13 +115,19 @@ impl<'a> Packet<'a> {
             return Err(Error::IncompletePacket);
         }
 
-        // Validate packet size against maximum (DEFAULT_PACKET_SIZE)
-        const MAX_PACKET_SIZE: usize = DEFAULT_PACKET_SIZE;
-        let total_packet_size = payload_start + remaining_length;
-        if total_packet_size > MAX_PACKET_SIZE {
+        // let total_packet_size = payload_start + remaining_length;
+        // if total_packet_size > MAX_PACKET_SIZE {
+        //     return Err(Error::PacketTooLarge {
+        //         max_size: MAX_PACKET_SIZE,
+        //         actual_size: total_packet_size,
+        //     });
+        // }
+
+        // validate payload length does not exceed maximums payload size
+        if remaining_length > MAX_PAYLOAD_SIZE {
             return Err(Error::PacketTooLarge {
-                max_size: MAX_PACKET_SIZE,
-                actual_size: total_packet_size,
+                max_size: MAX_PAYLOAD_SIZE,
+                actual_size: remaining_length,
             });
         }
 
@@ -209,7 +213,7 @@ impl<'a> Packet<'a> {
             _ => packet_type.header_byte(),
         };
 
-        let mut payload_buffer = [0u8; DEFAULT_PACKET_SIZE];
+        let mut payload_buffer = [0u8; MAX_PAYLOAD_SIZE];
         let payload_len = match self {
             Packet::Connect(connect) => connect.encode(&mut payload_buffer)?,
             Packet::ConnAck(connack) => connack.encode(&mut payload_buffer)?,

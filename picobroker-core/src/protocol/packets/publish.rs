@@ -2,9 +2,7 @@ use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::PacketEncoder;
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
-use crate::Error;
-
-const DEFAULT_PAYLOAD_SIZE: usize = 128;
+use crate::{Error, TopicName};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct PublishFlags {
@@ -35,19 +33,19 @@ impl PublishFlags {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Publish<'a> {
-    pub topic_name: &'a str,
+pub struct Publish<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+    pub topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
     pub packet_id: Option<u16>,
-    pub payload: heapless::Vec<u8, DEFAULT_PAYLOAD_SIZE>,
+    pub payload: heapless::Vec<u8, MAX_PAYLOAD_SIZE>,
     pub qos: QoS,
     pub dup: bool,
     pub retain: bool,
 }
 
-impl<'a> PacketEncoder<'a> for Publish<'a> {
+impl<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder<'a> for Publish<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         let mut offset = 0;
-        write_string(self.topic_name, buffer, &mut offset)?;
+        write_string(self.topic_name.as_str(), buffer, &mut offset)?;
 
         match self.qos {
             QoS::AtMostOnce => { /* packet_id not required */ }
@@ -78,6 +76,14 @@ impl<'a> PacketEncoder<'a> for Publish<'a> {
         if topic_name.is_empty() {
             return Err(Error::EmptyTopic);
         }
+        let topic_name = heapless::String::try_from(topic_name)
+            .map(|s| TopicName::new(s))
+            .map_err(|_| {
+                Error::TopicNameLengthExceeded {
+                    max_length: MAX_TOPIC_NAME_LENGTH,
+                    actual_length: topic_name.len(),
+                }
+            })?;
 
         // Extract flags from the header byte
         let flags =
@@ -120,7 +126,7 @@ impl<'a> PacketEncoder<'a> for Publish<'a> {
     }
 }
 
-impl<'a> Publish<'a> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> Publish<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     pub fn header_byte(&self) -> u8 {
         PublishFlags {
             dup: self.dup,

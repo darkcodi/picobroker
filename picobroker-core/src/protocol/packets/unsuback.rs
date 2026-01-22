@@ -2,12 +2,11 @@ use crate::protocol::packets::PacketEncoder;
 use crate::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnsubAck<'a> {
+pub struct UnsubAck {
     pub packet_id: u16,
-    pub _phantom: core::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> PacketEncoder<'a> for UnsubAck<'a> {
+impl<'a> PacketEncoder<'a> for UnsubAck {
     fn encode(&'a self, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < 2 {
             return Err(Error::BufferTooSmall);
@@ -31,7 +30,6 @@ impl<'a> PacketEncoder<'a> for UnsubAck<'a> {
 
         Ok(Self {
             packet_id,
-            _phantom: Default::default(),
         })
     }
 }
