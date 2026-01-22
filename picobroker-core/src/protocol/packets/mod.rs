@@ -145,6 +145,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
 
 #[cfg(test)]
 mod tests {
+    use core::any::TypeId;
     use super::*;
 
     const MAX_CLIENT_NAME_LENGTH: usize = 30;
@@ -154,21 +155,130 @@ mod tests {
 
     #[test]
     fn test_packet_disconnect() {
-        const DISCONNECT_PACKET_BYTES: [u8; 2] = [0xE0, 0x00];
-        let result = DefaultPacket::decode(&DISCONNECT_PACKET_BYTES);
+        let packet = roundtrip_test::<DisconnectPacket>(&[0xE0, 0x00]);
+        assert_eq!(packet, DisconnectPacket);
+    }
+
+    fn roundtrip_test<P: PacketEncoder + PartialEq + core::fmt::Debug + 'static>(bytes: &[u8]) -> P {
+        let result = DefaultPacket::decode(&bytes);
         assert!(result.is_ok(), "Failed to decode packet");
         let packet = result.unwrap();
-        let disconnect_packet = match packet {
-            DefaultPacket::Disconnect(pkt) => pkt,
-            _ => panic!("Decoded packet is not Disconnect"),
-        };
-        assert_eq!(disconnect_packet, DisconnectPacket::default());
+        let casted_packet = extract_packet_unsafe::<P>(packet);
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
-        let encode_result = disconnect_packet.encode(&mut buffer);
+        let encode_result = casted_packet.encode(&mut buffer);
         assert!(encode_result.is_ok(), "Failed to encode packet");
         let encoded_size = encode_result.unwrap();
-        assert_eq!(encoded_size, DISCONNECT_PACKET_BYTES.len(), "Encoded size mismatch");
-        assert_eq!(&buffer[..encoded_size], &DISCONNECT_PACKET_BYTES, "Encoded bytes mismatch");
+        assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
+        assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
+        casted_packet
+    }
+
+    fn extract_packet_unsafe<P: PacketEncoder + Sized + 'static>(packet: DefaultPacket) -> P {
+        // Get the expected TypeId once
+        let expected_type_id = TypeId::of::<P>();
+
+        // Use unsafe to manually handle the conversion after TypeId check
+        match packet {
+            DefaultPacket::Connect(packet) if TypeId::of::<ConnectPacket<MAX_CLIENT_NAME_LENGTH>>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const ConnectPacket<MAX_CLIENT_NAME_LENGTH> as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::ConnAck(packet) if TypeId::of::<ConnAckPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const ConnAckPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::Publish(packet) if TypeId::of::<PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::PubAck(packet) if TypeId::of::<PubAckPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PubAckPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::PubRec(packet) if TypeId::of::<PubRecPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PubRecPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::PubRel(packet) if TypeId::of::<PubRelPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PubRelPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::PubComp(packet) if TypeId::of::<PubCompPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PubCompPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::Subscribe(packet) if TypeId::of::<SubscribePacket<MAX_TOPIC_NAME_LENGTH>>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const SubscribePacket<MAX_TOPIC_NAME_LENGTH> as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::SubAck(packet) if TypeId::of::<SubAckPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const SubAckPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::Unsubscribe(packet) if TypeId::of::<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::UnsubAck(packet) if TypeId::of::<UnsubAckPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const UnsubAckPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::PingReq(packet) if TypeId::of::<PingReqPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PingReqPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::PingResp(packet) if TypeId::of::<PingRespPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const PingRespPacket as *const P;
+                    ptr.read()
+                }
+            },
+            DefaultPacket::Disconnect(packet) if TypeId::of::<DisconnectPacket>() == expected_type_id => {
+                unsafe {
+                    // SAFETY: We've verified the TypeId matches, so the types are compatible
+                    let ptr = &packet as *const DisconnectPacket as *const P;
+                    ptr.read()
+                }
+            },
+            _ => panic!("Packet type mismatch or type ID check failed"),
+        }
     }
 }
 
