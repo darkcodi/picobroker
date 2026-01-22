@@ -64,6 +64,8 @@ pub enum Error {
     AcceptError,
     /// Failed to bind to address
     BindError,
+    /// Message queue is full (QoS 0: message dropped)
+    QueueFull,
 }
 
 impl core::fmt::Display for Error {
@@ -157,6 +159,7 @@ impl core::fmt::Display for Error {
             Error::ClientNotFound => write!(f, "Client not found in registry"),
             Error::AcceptError => write!(f, "Connection accept failed"),
             Error::BindError => write!(f, "Failed to bind to address"),
+            Error::QueueFull => write!(f, "Message queue is full"),
         }
     }
 }

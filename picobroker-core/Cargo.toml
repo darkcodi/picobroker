@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-heapless = "0.9"
+heapless = { version = "0.9", features = ["portable-atomic"] }

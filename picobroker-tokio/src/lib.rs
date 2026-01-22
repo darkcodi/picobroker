@@ -24,17 +24,15 @@
 //! }
 //! ```
 
-pub mod broker;
 pub mod network;
+pub mod task;
 pub mod time;
 
 // Re-export core for convenience
 pub use picobroker_core::*;
 
 // Tokio-specific types
-pub use broker::{TokioBrokerExt, TokioPicoBroker};
 pub use network::{TokioTcpListener, TokioTcpStream};
+pub use task::TokioTaskSpawner;
 pub use time::StdTimeSource;
 
-/// Default broker type with common configuration
-pub type DefaultPicoBroker = TokioPicoBroker<30, 30, 4, 4, 4>;

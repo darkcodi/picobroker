@@ -30,12 +30,18 @@ mod client;
 mod error;
 mod network;
 mod protocol;
+mod queue;
+mod server;
+mod task;
 mod time;
 mod topics;
 
 pub use broker::PicoBroker;
 pub use client::{Client, ClientId, ClientName, ClientRegistry};
 pub use error::{Error, Result};
+pub use queue::{MessageQueue, MessageReceiver, MessageSender, QueuedMessage};
+pub use server::{ClientHandler, MqttServer, QueuedPublish, SenderRegistry};
+pub use task::{SpawnError, TaskSpawner};
 pub use network::{SocketAddr, TcpListener, TcpStream};
 pub use protocol::ConnAck;
 pub use protocol::Connect;
