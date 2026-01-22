@@ -1,5 +1,5 @@
 use crate::protocol::packets::PacketEncoder;
-use crate::{Error, PacketEncodingError, PacketType};
+use crate::{PacketEncodingError, PacketType};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,16 +12,18 @@ pub enum ConnectReturnCode {
     NotAuthorized = 5,
 }
 
-impl From<u8> for ConnectReturnCode {
-    fn from(code: u8) -> Self {
+impl TryFrom<u8> for ConnectReturnCode {
+    type Error = PacketEncodingError;
+
+    fn try_from(code: u8) -> Result<Self, Self::Error> {
         match code {
-            0 => ConnectReturnCode::Accepted,
-            1 => ConnectReturnCode::UnacceptableProtocolVersion,
-            2 => ConnectReturnCode::IdentifierRejected,
-            3 => ConnectReturnCode::ServerUnavailable,
-            4 => ConnectReturnCode::BadUserNameOrPassword,
-            5 => ConnectReturnCode::NotAuthorized,
-            _ => ConnectReturnCode::ServerUnavailable, // Default case for unknown codes
+            0 => Ok(ConnectReturnCode::Accepted),
+            1 => Ok(ConnectReturnCode::UnacceptableProtocolVersion),
+            2 => Ok(ConnectReturnCode::IdentifierRejected),
+            3 => Ok(ConnectReturnCode::ServerUnavailable),
+            4 => Ok(ConnectReturnCode::BadUserNameOrPassword),
+            5 => Ok(ConnectReturnCode::NotAuthorized),
+            _ => Err(PacketEncodingError::MalformedPacket),
         }
     }
 }
@@ -42,21 +44,39 @@ impl PacketEncoder for ConnAckPacket {
     }
 
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
-        if buffer.len() < 2 {
-            return Err(Error::BufferTooSmall.into());
+        let header_byte = self.header_first_byte();
+        let remaining_length = 2u8;
+        if buffer.len() < 4 {
+            return Err(PacketEncodingError::BufferTooSmall);
         }
-        buffer[0] = if self.session_present { 0x01 } else { 0x00 };
-        buffer[1] = self.return_code as u8;
-        Ok(2)
+        buffer[0] = header_byte;
+        buffer[1] = remaining_length;
+        buffer[2] = if self.session_present { 0b0000_0001 } else { 0b0000_0000 };
+        buffer[3] = self.return_code as u8;
+        Ok(4)
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
-        if bytes.len() < 2 {
-            return Err(Error::IncompletePacket.into());
+        if bytes.len() < 4 {
+            return Err(PacketEncodingError::BufferTooSmall);
         }
-        let session_present = (bytes[0] & 0x01) != 0;
-        let return_code = ConnectReturnCode::from(bytes[1]);
-        Ok(Self {
+        let type_byte = bytes[0] >> 4;
+        let packet_type = PacketType::from(type_byte);
+        if packet_type != PacketType::ConnAck {
+            return Err(PacketEncodingError::InvalidPacketType { packet_type: type_byte });
+        }
+        let remaining_length = bytes[1];
+        if remaining_length != 2 {
+            return Err(PacketEncodingError::InvalidPacketLength { actual: 2 + remaining_length as usize, expected: 4 });
+        }
+        let session_present_byte = bytes[2];
+        let session_present = match session_present_byte {
+            0b0000_0000 => false,
+            0b0000_0001 => true,
+            _ => return Err(PacketEncodingError::MalformedPacket),
+        };
+        let return_code = ConnectReturnCode::try_from(bytes[3])?;
+        Ok(ConnAckPacket {
             session_present,
             return_code,
         })

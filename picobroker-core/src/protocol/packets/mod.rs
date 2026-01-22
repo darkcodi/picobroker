@@ -146,6 +146,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
 #[cfg(test)]
 mod tests {
     use core::any::TypeId;
+    use crate::protocol::packets::connack::ConnectReturnCode;
     use super::*;
 
     const MAX_CLIENT_NAME_LENGTH: usize = 30;
@@ -154,9 +155,20 @@ mod tests {
     type DefaultPacket = Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>;
 
     #[test]
-    fn test_packet_disconnect() {
-        let packet = roundtrip_test::<DisconnectPacket>(&[0xE0, 0x00]);
-        assert_eq!(packet, DisconnectPacket);
+    fn test_connack_packet_roundtrip() {
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x00]).session_present, false);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x01, 0x00]).session_present, true);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x00]).return_code, ConnectReturnCode::Accepted);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x01]).return_code, ConnectReturnCode::UnacceptableProtocolVersion);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x02]).return_code, ConnectReturnCode::IdentifierRejected);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x03]).return_code, ConnectReturnCode::ServerUnavailable);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x04]).return_code, ConnectReturnCode::BadUserNameOrPassword);
+        assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x05]).return_code, ConnectReturnCode::NotAuthorized);
+    }
+
+    #[test]
+    fn test_disconnect_packet_roundtrip() {
+        assert_eq!(roundtrip_test::<DisconnectPacket>(&[0xE0, 0x00]), DisconnectPacket);
     }
 
     fn roundtrip_test<P: PacketEncoder + PartialEq + core::fmt::Debug + 'static>(bytes: &[u8]) -> P {

@@ -40,3 +40,13 @@ impl PacketEncoder for DisconnectPacket {
         Ok(DisconnectPacket)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::DisconnectPacket;
+
+    #[test]
+    fn test_disconnect_packet_struct_size() {
+        assert_eq!(size_of::<DisconnectPacket>(), 0);
+    }
+}

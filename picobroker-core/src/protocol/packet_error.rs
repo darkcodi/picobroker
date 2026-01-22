@@ -6,6 +6,10 @@ pub enum PacketEncodingError {
     InvalidPacketType { packet_type: u8 },
     /// Buffer too small for packet
     BufferTooSmall,
+    /// Packet length does not match expected length
+    InvalidPacketLength { expected: usize, actual: usize },
+    /// Packet is malformed
+    MalformedPacket,
     Other,
 }
 
@@ -16,6 +20,10 @@ impl core::fmt::Display for PacketEncodingError {
                 write!(f, "Invalid packet type: {}", packet_type)
             },
             PacketEncodingError::BufferTooSmall => write!(f, "Buffer too small for packet"),
+            PacketEncodingError::InvalidPacketLength { expected, actual } => {
+                write!(f, "Invalid packet length: expected {}, got {}", expected, actual)
+            },
+            PacketEncodingError::MalformedPacket => write!(f, "Malformed packet"),
             PacketEncodingError::Other => write!(f, "An unspecified packet encoding error occurred"),
         }
     }
