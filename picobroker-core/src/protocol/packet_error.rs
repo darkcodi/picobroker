@@ -4,6 +4,8 @@ use crate::Error;
 pub enum PacketEncodingError {
     /// Invalid packet type
     InvalidPacketType { packet_type: u8 },
+    /// Buffer too small for packet
+    BufferTooSmall,
     Other,
 }
 
@@ -13,9 +15,8 @@ impl core::fmt::Display for PacketEncodingError {
             PacketEncodingError::InvalidPacketType { packet_type } => {
                 write!(f, "Invalid packet type: {}", packet_type)
             },
-            PacketEncodingError::Other => {
-                write!(f, "An unspecified packet encoding error occurred")
-            },
+            PacketEncodingError::BufferTooSmall => write!(f, "Buffer too small for packet"),
+            PacketEncodingError::Other => write!(f, "An unspecified packet encoding error occurred"),
         }
     }
 }

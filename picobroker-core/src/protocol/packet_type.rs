@@ -86,7 +86,7 @@ impl From<u8> for PacketType {
             13 => PacketType::PingResp,
             14 => PacketType::Disconnect,
             15 => PacketType::Reserved2,
-            _ => PacketType::Reserved2,
+            big_byte => PacketType::from(big_byte >> 4),
         }
     }
 }
