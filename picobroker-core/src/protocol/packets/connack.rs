@@ -74,3 +74,13 @@ impl PacketEncoder for ConnAckPacket {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ConnAckPacket;
+
+    #[test]
+    fn test_disconnect_packet_struct_size() {
+        assert_eq!(size_of::<ConnAckPacket>(), 2);
+    }
+}

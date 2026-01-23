@@ -107,3 +107,31 @@ pub fn write_string(s: &str, buffer: &mut [u8], offset: &mut usize) -> Result<()
     *offset += len;
     Ok(())
 }
+
+pub fn read_binary<'a>(bytes: &'a [u8], offset: &'_ mut usize) -> Result<&'a [u8], Error> {
+    if *offset + 2 > bytes.len() {
+        return Err(Error::IncompletePacket);
+    }
+    let len = u16::from_be_bytes([bytes[*offset], bytes[*offset + 1]]) as usize;
+    *offset += 2;
+    if *offset + len > bytes.len() {
+        return Err(Error::IncompletePacket);
+    }
+    let bin_bytes = &bytes[*offset..*offset + len];
+    *offset += len;
+    Ok(bin_bytes)
+}
+
+pub fn write_binary(data: &[u8], buffer: &mut [u8], offset: &mut usize) -> Result<(), Error> {
+    let len = data.len();
+    if *offset + 2 + len > buffer.len() {
+        return Err(Error::BufferTooSmall);
+    }
+    let len_bytes = (len as u16).to_be_bytes();
+    buffer[*offset] = len_bytes[0];
+    buffer[*offset + 1] = len_bytes[1];
+    *offset += 2;
+    buffer[*offset..*offset + len].copy_from_slice(data);
+    *offset += len;
+    Ok(())
+}

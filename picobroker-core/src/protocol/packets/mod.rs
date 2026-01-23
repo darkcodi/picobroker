@@ -106,7 +106,7 @@ pub trait PacketEncoder: Sized {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
-    Connect(ConnectPacket<MAX_CLIENT_NAME_LENGTH>),
+    Connect(ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
     ConnAck(ConnAckPacket),
     Publish(PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
     PubAck(PubAckPacket),
@@ -216,6 +216,8 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
 mod tests {
     use core::any::TypeId;
     use crate::protocol::packets::connack::ConnectReturnCode;
+    use crate::protocol::packets::connect::ConnectFlags;
+    use crate::protocol::packet_error::PacketEncodingError;
     use super::*;
 
     const MAX_CLIENT_NAME_LENGTH: usize = 30;
@@ -233,6 +235,48 @@ mod tests {
         assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x03]).return_code, ConnectReturnCode::ServerUnavailable);
         assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x04]).return_code, ConnectReturnCode::BadUserNameOrPassword);
         assert_eq!(roundtrip_test::<ConnAckPacket>(&[0x20, 0x02, 0x00, 0x05]).return_code, ConnectReturnCode::NotAuthorized);
+    }
+
+    #[test]
+    fn test_connect_packet_roundtrip() {
+        let connect_bytes: [u8; 17] = [
+            0x10, 0x0F, // Fixed header (remaining length = 15)
+            0x00, 0x04, // Protocol Name Length
+            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
+            0x04, // Protocol Level
+            0b0000_0010, // Connect Flags (Clean Session)
+            0x00, 0x3C, // Keep Alive (60 seconds)
+            0x00, 0x03, // Client ID Length
+            0x61, 0x62, 0x63, // Client ID "abc"
+        ];
+        let packet = roundtrip_test::<ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>(&connect_bytes);
+        assert_eq!(packet.client_id.as_str(), "abc");
+        assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
+        assert_eq!(packet.keep_alive, 60);
+    }
+
+    #[test]
+    fn test_connect_packet_invalid_remaining_length() {
+        // Test with incorrect remaining length (should be 0x0F but we use 0x0C)
+        let connect_bytes: [u8; 17] = [
+            0x10, 0x0C, // Fixed header (WRONG remaining length = 12 instead of 15)
+            0x00, 0x04, // Protocol Name Length
+            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
+            0x04, // Protocol Level
+            0b0000_0010, // Connect Flags (Clean Session)
+            0x00, 0x3C, // Keep Alive (60 seconds)
+            0x00, 0x03, // Client ID Length
+            0x61, 0x62, 0x63, // Client ID "abc"
+        ];
+        let result = ConnectPacket::<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+        assert!(result.is_err(), "Should fail with invalid remaining length");
+        match result {
+            Err(PacketEncodingError::InvalidPacketLength { expected, actual }) => {
+                assert_eq!(expected, 12);
+                assert_eq!(actual, 15);
+            },
+            _ => panic!("Expected InvalidPacketLength error"),
+        }
     }
 
     #[test]
@@ -260,10 +304,10 @@ mod tests {
 
         // Use unsafe to manually handle the conversion after TypeId check
         match packet {
-            DefaultPacket::Connect(packet) if TypeId::of::<ConnectPacket<MAX_CLIENT_NAME_LENGTH>>() == expected_type_id => {
+            DefaultPacket::Connect(packet) if TypeId::of::<ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>() == expected_type_id => {
                 unsafe {
                     // SAFETY: We've verified the TypeId matches, so the types are compatible
-                    let ptr = &packet as *const ConnectPacket<MAX_CLIENT_NAME_LENGTH> as *const P;
+                    let ptr = &packet as *const ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> as *const P;
                     ptr.read()
                 }
             },
