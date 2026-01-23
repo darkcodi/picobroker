@@ -2,7 +2,7 @@
 //!
 //! Manages topic subscriptions
 
-use crate::ClientName;
+use crate::ClientId;
 use crate::error::{Error, Result};
 
 /// Topic name
@@ -101,7 +101,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str>
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopicEntry<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize> {
     topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
-    subscribers: heapless::Vec<ClientName, MAX_SUBSCRIBERS_PER_TOPIC>,
+    subscribers: heapless::Vec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
@@ -119,13 +119,13 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     ///
     /// Returns an error if MAX_SUBSCRIBERS_PER_TOPIC is reached.
     /// Does nothing if the client is already subscribed (prevents duplicates).
-    pub fn add_subscriber(&mut self, name: ClientName) -> Result<()> {
+    pub fn add_subscriber(&mut self, id: ClientId) -> Result<()> {
         // Check for duplicates first
-        if self.subscribers.iter().any(|c| c == &name) {
+        if self.subscribers.iter().any(|c| c == &id) {
             return Ok(()); // Already subscribed
         }
         self.subscribers
-            .push(name)
+            .push(id)
             .map_err(|_| Error::MaxSubscribersPerTopicReached {
                 max_subscribers: MAX_SUBSCRIBERS_PER_TOPIC,
             })
@@ -134,8 +134,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     /// Remove a subscriber from this topic
     ///
     /// Returns true if the subscriber was removed, false if not found.
-    pub fn remove_subscriber(&mut self, name: &ClientName) -> bool {
-        if let Some(pos) = self.subscribers.iter().position(|c| c == name) {
+    pub fn remove_subscriber(&mut self, id: &ClientId) -> bool {
+        if let Some(pos) = self.subscribers.iter().position(|c| c == id) {
             self.subscribers.remove(pos);
             true
         } else {
@@ -212,7 +212,7 @@ impl<
     /// reached MAX_SUBSCRIBERS_PER_TOPIC.
     pub fn subscribe(
         &mut self,
-        name: ClientName,
+        id: ClientId,
         filter: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<()> {
         let topic_name = match filter {
@@ -224,7 +224,7 @@ impl<
 
         // Find existing topic or create new
         if let Some(topic_entry) = self.topics.iter_mut().find(|t| t.topic_name == topic_name) {
-            topic_entry.add_subscriber(name)
+            topic_entry.add_subscriber(id)
         } else {
             // Check if we've reached the max topics limit
             if self.topics.len() >= MAX_TOPICS {
@@ -235,7 +235,7 @@ impl<
 
             // Create new topic entry
             let mut new_entry = TopicEntry::new(topic_name);
-            new_entry.add_subscriber(name)?;
+            new_entry.add_subscriber(id)?;
             self.topics
                 .push(new_entry)
                 .map_err(|_| Error::MaxTopicsReached {
@@ -251,7 +251,7 @@ impl<
     pub fn get_subscribers(
         &self,
         topic: &TopicName<MAX_TOPIC_NAME_LENGTH>,
-    ) -> heapless::Vec<ClientName, MAX_SUBSCRIBERS_PER_TOPIC> {
+    ) -> heapless::Vec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
         self.topics
             .iter()
             .find(|entry| &entry.topic_name == topic)
@@ -265,7 +265,7 @@ impl<
     /// Automatically cleans up empty topics.
     pub fn unsubscribe(
         &mut self,
-        name: ClientName,
+        id: ClientId,
         filter: &TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
     ) -> bool {
         let topic_name = match filter {
@@ -277,7 +277,7 @@ impl<
         let topic_idx = self.topics.iter().position(|e| e.topic_name == *topic_name);
 
         if let Some(idx) = topic_idx {
-            let removed = self.topics[idx].remove_subscriber(&name);
+            let removed = self.topics[idx].remove_subscriber(&id);
 
             // Auto-cleanup empty topics
             if self.topics[idx].is_empty() {
@@ -296,12 +296,12 @@ impl<
     /// topics from which the client was removed.
     ///
     /// Automatically cleans up empty topics.
-    pub fn unregister_client(&mut self, name: ClientName) -> usize {
+    pub fn unregister_client(&mut self, id: ClientId) -> usize {
         let mut removed_count = 0;
 
         // Remove client from all topics
         for entry in &mut self.topics {
-            if entry.remove_subscriber(&name) {
+            if entry.remove_subscriber(&id) {
                 removed_count += 1;
             }
         }

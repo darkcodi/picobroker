@@ -4,11 +4,6 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
-    /// Client name length exceeded maximum allowed length
-    ClientNameLengthExceeded {
-        max_length: usize,
-        actual_length: usize,
-    },
     /// Topic name length exceeded maximum allowed length
     TopicNameLengthExceeded {
         max_length: usize,
@@ -75,16 +70,6 @@ pub enum Error {
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::ClientNameLengthExceeded {
-                max_length,
-                actual_length,
-            } => {
-                write!(
-                    f,
-                    "Client name length exceeded: max {}, actual {}",
-                    max_length, actual_length
-                )
-            }
             Error::TopicNameLengthExceeded {
                 max_length,
                 actual_length,

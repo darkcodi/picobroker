@@ -2,7 +2,7 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
-use crate::client::{ClientName, ClientRegistry};
+use crate::client::{ClientId, ClientRegistry};
 use crate::error::Result;
 use crate::time::TimeSource;
 use crate::topics::TopicRegistry;
@@ -61,36 +61,36 @@ impl<
     /// Returns the client ID that should be used for subsequent operations.
     pub fn register_client(
         &mut self,
-        name: ClientName,
+        id: ClientId,
         keep_alive: u16,
     ) -> Result<()> {
         let current_time = self.time_source.now_secs();
         self
             .clients
-            .register(name.clone(), keep_alive, current_time)?;
+            .register(id, keep_alive, current_time)?;
         Ok(())
     }
 
     /// Unregister a client
-    pub fn unregister_client(&mut self, name: ClientName) {
-        self.clients.unregister(&name);
-        self.topics.unregister_client(name);
+    pub fn unregister_client(&mut self, id: ClientId) {
+        self.clients.unregister(&id);
+        self.topics.unregister_client(id);
     }
 
     /// Disconnect a client
-    pub fn disconnect_client(&mut self, name: ClientName) {
-        self.unregister_client(name);
+    pub fn disconnect_client(&mut self, id: ClientId) {
+        self.unregister_client(id);
     }
 
     /// Update client activity
-    pub fn update_client_activity(&mut self, name: &ClientName) {
+    pub fn update_client_activity(&mut self, id: &ClientId) {
         let current_time = self.time_source.now_secs();
-        self.clients.update_activity(name, current_time);
+        self.clients.update_activity(id, current_time);
     }
 
     /// Check if client is connected
-    pub fn is_client_connected(&self, name: &ClientName) -> bool {
-        self.clients.is_connected(name)
+    pub fn is_client_connected(&self, id: &ClientId) -> bool {
+        self.clients.is_connected(id)
     }
 
     /// Process expired clients

@@ -1,7 +1,7 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_binary, read_string, write_binary, write_string};
-use crate::{read_variable_length, write_variable_length, ClientName, Error, PacketEncodingError, PacketType, TopicName};
+use crate::{read_variable_length, write_variable_length, ClientId, Error, PacketEncodingError, PacketType, TopicName};
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
 pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
@@ -50,7 +50,7 @@ pub struct ConnectPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub protocol_level: u8,
     pub connect_flags: ConnectFlags,
     pub keep_alive: u16,
-    pub client_id: ClientName,
+    pub client_id: ClientId,
     pub will_topic: Option<TopicName<MAX_TOPIC_NAME_LENGTH>>,
     pub will_payload: Option<heapless::Vec<u8, MAX_PAYLOAD_SIZE>>,
     pub username: Option<heapless::String<MAX_TOPIC_NAME_LENGTH>>,
@@ -187,7 +187,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             }.into());
         }
         let client_id = heapless::String::try_from(client_id)
-            .map(|s| ClientName::from(s))
+            .map(|s| ClientId::from(s))
             .map_err(|_| {
                 Error::ClientIdLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,

@@ -35,7 +35,7 @@ mod time;
 mod topics;
 
 pub use broker::PicoBroker;
-pub use client::{Client, ClientName, ClientRegistry};
+pub use client::{Client, ClientId, ClientRegistry};
 pub use error::{Error, Result};
 pub use task::{SpawnError, TaskSpawner};
 pub use network::{SocketAddr, TcpListener, TcpStream};

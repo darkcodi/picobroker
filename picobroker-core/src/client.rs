@@ -1,49 +1,49 @@
 use crate::error::{Error, Result};
 
-const MAX_CLIENT_NAME_LENGTH: usize = 23;
+const MAX_CLIENT_ID_LENGTH: usize = 23;
 
-/// Client name
+/// Client identifier
 /// The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
 /// "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClientName(heapless::String<MAX_CLIENT_NAME_LENGTH>);
+pub struct ClientId(heapless::String<MAX_CLIENT_ID_LENGTH>);
 
-impl From<heapless::String<MAX_CLIENT_NAME_LENGTH>> for ClientName
+impl From<heapless::String<MAX_CLIENT_ID_LENGTH>> for ClientId
 {
-    fn from(name: heapless::String<MAX_CLIENT_NAME_LENGTH>) -> Self {
-        ClientName(name)
+    fn from(value: heapless::String<MAX_CLIENT_ID_LENGTH>) -> Self {
+        ClientId(value)
     }
 }
 
-impl TryFrom<&str> for ClientName {
+impl TryFrom<&str> for ClientId {
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self> {
-        let client_name_str =
-            heapless::String::try_from(value).map_err(|_| Error::ClientNameLengthExceeded {
-                max_length: MAX_CLIENT_NAME_LENGTH,
+        let client_id_str =
+            heapless::String::try_from(value).map_err(|_| Error::ClientIdLengthExceeded {
+                max_length: MAX_CLIENT_ID_LENGTH,
                 actual_length: value.len(),
             })?;
-        Ok(ClientName(client_name_str))
+        Ok(ClientId(client_id_str))
     }
 }
 
-impl core::ops::Deref for ClientName {
-    type Target = heapless::String<MAX_CLIENT_NAME_LENGTH>;
+impl core::ops::Deref for ClientId {
+    type Target = heapless::String<MAX_CLIENT_ID_LENGTH>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl core::ops::DerefMut for ClientName
+impl core::ops::DerefMut for ClientId
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl core::fmt::Display for ClientName
+impl core::fmt::Display for ClientId
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
@@ -67,19 +67,19 @@ pub struct ClientChannel {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Client {
-    pub name: ClientName,
+    pub id: ClientId,
     pub keep_alive_secs: u16,
     pub last_activity: u64,
 }
 
 impl Client {
     pub fn new(
-        name: ClientName,
+        id: ClientId,
         keep_alive_secs: u16,
         current_time: u64,
     ) -> Self {
         Self {
-            name,
+            id,
             keep_alive_secs,
             last_activity: current_time,
         }
@@ -120,18 +120,18 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     /// Register a new client
     pub fn register(
         &mut self,
-        name: ClientName,
+        id: ClientId,
         keep_alive: u16,
         current_time: u64,
     ) -> Result<()> {
         // Check if client already exists
-        if self.find_index(&name).is_some() {
+        if self.find_index(&id).is_some() {
             return Err(Error::ClientAlreadyConnected);
         }
 
         // Find empty slot or add new
         if let Some(slot) = self.clients.iter().position(|c| c.is_none()) {
-            self.clients[slot] = Some(Client::new(name, keep_alive, current_time));
+            self.clients[slot] = Some(Client::new(id, keep_alive, current_time));
             Ok(())
         } else {
             // Add to end
@@ -142,7 +142,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
                 });
             }
             self.clients
-                .push(Some(Client::new(name, keep_alive, current_time)))
+                .push(Some(Client::new(id, keep_alive, current_time)))
                 .map_err(|_| Error::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 })?;
@@ -151,8 +151,8 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     }
 
     /// Unregister a client
-    pub fn unregister(&mut self, name: &ClientName) {
-        if let Some(index) = self.find_index(name) {
+    pub fn unregister(&mut self, id: &ClientId) {
+        if let Some(index) = self.find_index(id) {
             self.clients[index] = None;
         }
     }
@@ -160,10 +160,10 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     /// Update client activity timestamp
     pub fn update_activity(
         &mut self,
-        name: &ClientName,
+        id: &ClientId,
         current_time: u64,
     ) -> bool {
-        if let Some(index) = self.find_index(name) {
+        if let Some(index) = self.find_index(id) {
             if let Some(client) = self.clients.get_mut(index) {
                 if let Some(client) = client {
                     client.update_activity(current_time);
@@ -178,23 +178,23 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     pub fn get_expired_clients(
         &self,
         current_time: u64,
-    ) -> heapless::Vec<ClientName, MAX_CLIENTS> {
+    ) -> heapless::Vec<ClientId, MAX_CLIENTS> {
         let mut expired = heapless::Vec::new();
         for client in &self.clients {
             if let Some(client) = client {
                 if client.is_expired(current_time) {
-                    let _ = expired.push(client.name.clone());
+                    let _ = expired.push(client.id.clone());
                 }
             }
         }
         expired
     }
 
-    /// Find client index by name
-    pub fn find_index(&self, name: &ClientName) -> Option<usize> {
+    /// Find client index by id
+    pub fn find_index(&self, id: &ClientId) -> Option<usize> {
         self.clients.iter().position(|c| {
             if let Some(client) = c {
-                &client.name == name
+                &client.id == id
             } else {
                 false
             }
@@ -202,8 +202,8 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     }
 
     /// Check if client is connected
-    pub fn is_connected(&self, name: &ClientName) -> bool {
-        self.find_index(name).is_some()
+    pub fn is_connected(&self, id: &ClientId) -> bool {
+        self.find_index(id).is_some()
     }
 
     /// Get number of connected clients
