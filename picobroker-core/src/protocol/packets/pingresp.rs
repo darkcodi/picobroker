@@ -35,10 +35,32 @@ impl PacketEncoder for PingRespPacket {
 
 #[cfg(test)]
 mod tests {
+    use core::mem::size_of;
     use crate::PingRespPacket;
+    use super::*;
+
+    const MAX_PAYLOAD_SIZE: usize = 128;
 
     #[test]
-    fn test_disconnect_packet_struct_size() {
+    fn test_pingresp_packet_struct_size() {
         assert_eq!(size_of::<PingRespPacket>(), 0);
+    }
+
+    #[test]
+    fn test_pingresp_packet_roundtrip() {
+        assert_eq!(roundtrip_test(&[0xD0, 0x00]), PingRespPacket);
+    }
+
+    fn roundtrip_test(bytes: &[u8]) -> PingRespPacket {
+        let result = PingRespPacket::decode(&bytes);
+        assert!(result.is_ok(), "Failed to decode packet");
+        let packet = result.unwrap();
+        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+        let encode_result = packet.encode(&mut buffer);
+        assert!(encode_result.is_ok(), "Failed to encode packet");
+        let encoded_size = encode_result.unwrap();
+        assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
+        assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
+        packet
     }
 }

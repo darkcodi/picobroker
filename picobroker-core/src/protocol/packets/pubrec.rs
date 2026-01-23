@@ -38,3 +38,34 @@ impl PacketEncoder for PubRecPacket {
         Ok(Self { packet_id })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MAX_PAYLOAD_SIZE: usize = 128;
+
+    #[test]
+    fn test_pubrec_packet_struct_size() {
+        assert_eq!(size_of::<PubRecPacket>(), 2);
+    }
+
+    #[test]
+    fn test_pubrec_packet_roundtrip() {
+        let packet = roundtrip_test(&[0x50, 0x02, 0xAB, 0xCD]);
+        assert_eq!(packet.packet_id, 0xABCD);
+    }
+
+    fn roundtrip_test(bytes: &[u8]) -> PubRecPacket {
+        let result = PubRecPacket::decode(&bytes);
+        assert!(result.is_ok(), "Failed to decode packet");
+        let packet = result.unwrap();
+        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+        let encode_result = packet.encode(&mut buffer);
+        assert!(encode_result.is_ok(), "Failed to encode packet");
+        let encoded_size = encode_result.unwrap();
+        assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
+        assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
+        packet
+    }
+}

@@ -77,10 +77,39 @@ impl PacketEncoder for ConnAckPacket {
 
 #[cfg(test)]
 mod tests {
+    use core::mem::size_of;
     use crate::ConnAckPacket;
+    use super::*;
+
+    const MAX_PAYLOAD_SIZE: usize = 128;
 
     #[test]
-    fn test_disconnect_packet_struct_size() {
+    fn test_connack_packet_struct_size() {
         assert_eq!(size_of::<ConnAckPacket>(), 2);
+    }
+
+    #[test]
+    fn test_connack_packet_roundtrip() {
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).session_present, false);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x01, 0x00]).session_present, true);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).return_code, ConnectReturnCode::Accepted);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x01]).return_code, ConnectReturnCode::UnacceptableProtocolVersion);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x02]).return_code, ConnectReturnCode::IdentifierRejected);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x03]).return_code, ConnectReturnCode::ServerUnavailable);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x04]).return_code, ConnectReturnCode::BadUserNameOrPassword);
+        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x05]).return_code, ConnectReturnCode::NotAuthorized);
+    }
+
+    fn roundtrip_test(bytes: &[u8]) -> ConnAckPacket {
+        let result = ConnAckPacket::decode(&bytes);
+        assert!(result.is_ok(), "Failed to decode packet");
+        let packet = result.unwrap();
+        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+        let encode_result = packet.encode(&mut buffer);
+        assert!(encode_result.is_ok(), "Failed to encode packet");
+        let encoded_size = encode_result.unwrap();
+        assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
+        assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
+        packet
     }
 }

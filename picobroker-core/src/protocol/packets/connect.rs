@@ -299,3 +299,67 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::packet_error::PacketEncodingError;
+
+    const MAX_TOPIC_NAME_LENGTH: usize = 30;
+    const MAX_PAYLOAD_SIZE: usize = 128;
+
+    #[test]
+    fn test_connect_packet_roundtrip() {
+        let connect_bytes: [u8; 17] = [
+            0x10, 0x0F, // Fixed header (remaining length = 15)
+            0x00, 0x04, // Protocol Name Length
+            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
+            0x04, // Protocol Level
+            0b0000_0010, // Connect Flags (Clean Session)
+            0x00, 0x3C, // Keep Alive (60 seconds)
+            0x00, 0x03, // Client ID Length
+            0x61, 0x62, 0x63, // Client ID "abc"
+        ];
+        let packet = roundtrip_test(&connect_bytes);
+        assert_eq!(packet.client_id.as_str(), "abc");
+        assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
+        assert_eq!(packet.keep_alive, 60);
+    }
+
+    #[test]
+    fn test_connect_packet_invalid_remaining_length() {
+        // Test with incorrect remaining length (should be 0x0F but we use 0x0C)
+        let connect_bytes: [u8; 17] = [
+            0x10, 0x0C, // Fixed header (WRONG remaining length = 12 instead of 15)
+            0x00, 0x04, // Protocol Name Length
+            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
+            0x04, // Protocol Level
+            0b0000_0010, // Connect Flags (Clean Session)
+            0x00, 0x3C, // Keep Alive (60 seconds)
+            0x00, 0x03, // Client ID Length
+            0x61, 0x62, 0x63, // Client ID "abc"
+        ];
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+        assert!(result.is_err(), "Should fail with invalid remaining length");
+        match result {
+            Err(PacketEncodingError::InvalidPacketLength { expected, actual }) => {
+                assert_eq!(expected, 12);
+                assert_eq!(actual, 15);
+            },
+            _ => panic!("Expected InvalidPacketLength error"),
+        }
+    }
+
+    fn roundtrip_test(bytes: &[u8]) -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
+        assert!(result.is_ok(), "Failed to decode packet");
+        let packet = result.unwrap();
+        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+        let encode_result = packet.encode(&mut buffer);
+        assert!(encode_result.is_ok(), "Failed to encode packet");
+        let encoded_size = encode_result.unwrap();
+        assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
+        assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
+        packet
+    }
+}
