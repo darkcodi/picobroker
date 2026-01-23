@@ -2,7 +2,7 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
-use crate::client::{ClientId, ClientName, ClientRegistry};
+use crate::client::{ClientName, ClientRegistry};
 use crate::error::Result;
 use crate::time::TimeSource;
 use crate::topics::TopicRegistry;
@@ -63,20 +63,18 @@ impl<
         &mut self,
         name: ClientName,
         keep_alive: u16,
-    ) -> Result<ClientId> {
+    ) -> Result<()> {
         let current_time = self.time_source.now_secs();
-        let client_id = self
+        self
             .clients
             .register(name.clone(), keep_alive, current_time)?;
-        Ok(client_id)
+        Ok(())
     }
 
     /// Unregister a client
     pub fn unregister_client(&mut self, name: ClientName) {
-        let client_id = self.clients.unregister(&name);
-        if let Some(client_id) = client_id {
-            self.topics.unregister_client(client_id);
-        }
+        self.clients.unregister(&name);
+        self.topics.unregister_client(name);
     }
 
     /// Disconnect a client
