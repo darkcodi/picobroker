@@ -293,6 +293,36 @@ mod tests {
         assert_eq!(roundtrip_test::<PingRespPacket>(&[0xD0, 0x00]), PingRespPacket);
     }
 
+    #[test]
+    fn test_puback_packet_roundtrip() {
+        let packet = roundtrip_test::<PubAckPacket>(&[0x40, 0x02, 0x12, 0x34]);
+        assert_eq!(packet.packet_id, 0x1234);
+    }
+
+    #[test]
+    fn test_pubrec_packet_roundtrip() {
+        let packet = roundtrip_test::<PubRecPacket>(&[0x50, 0x02, 0xAB, 0xCD]);
+        assert_eq!(packet.packet_id, 0xABCD);
+    }
+
+    #[test]
+    fn test_pubrel_packet_roundtrip() {
+        let packet = roundtrip_test::<PubRelPacket>(&[0x62, 0x02, 0x00, 0x01]);
+        assert_eq!(packet.packet_id, 0x0001);
+    }
+
+    #[test]
+    fn test_pubcomp_packet_roundtrip() {
+        let packet = roundtrip_test::<PubCompPacket>(&[0x70, 0x02, 0xFF, 0xFF]);
+        assert_eq!(packet.packet_id, 0xFFFF);
+    }
+
+    #[test]
+    fn test_unsuback_packet_roundtrip() {
+        let packet = roundtrip_test::<UnsubAckPacket>(&[0xB0, 0x02, 0x12, 0x34]);
+        assert_eq!(packet.packet_id, 0x1234);
+    }
+
     fn roundtrip_test<P: PacketEncoder + PartialEq + core::fmt::Debug + 'static>(bytes: &[u8]) -> P {
         let result = DefaultPacket::decode(&bytes);
         assert!(result.is_ok(), "Failed to decode packet");
