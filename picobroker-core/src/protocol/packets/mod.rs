@@ -284,6 +284,11 @@ mod tests {
         assert_eq!(roundtrip_test::<DisconnectPacket>(&[0xE0, 0x00]), DisconnectPacket);
     }
 
+    #[test]
+    fn test_pingreq_packet_roundtrip() {
+        assert_eq!(roundtrip_test::<PingReqPacket>(&[0xC0, 0x00]), PingReqPacket);
+    }
+
     fn roundtrip_test<P: PacketEncoder + PartialEq + core::fmt::Debug + 'static>(bytes: &[u8]) -> P {
         let result = DefaultPacket::decode(&bytes);
         assert!(result.is_ok(), "Failed to decode packet");
