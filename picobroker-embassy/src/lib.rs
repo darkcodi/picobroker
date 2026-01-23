@@ -50,4 +50,4 @@ pub use network::{EmbassyTcpListener, EmbassyTcpStream};
 pub use time::EmbassyTimeSource;
 
 /// Default broker type with common configuration
-pub type DefaultPicoBroker = EmbassyPicoBroker<30, 30, 4, 4, 4>;
+pub type DefaultPicoBroker = EmbassyPicoBroker<30, 4, 4, 4>;

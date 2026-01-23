@@ -15,7 +15,6 @@ use crate::topics::TopicRegistry;
 /// # Generic Parameters
 ///
 /// - `T`: Time source for tracking keep-alives
-/// - `MAX_CLIENT_NAME_LENGTH`: Maximum length of client identifiers
 /// - `MAX_TOPIC_NAME_LENGTH`: Maximum length of topic names
 /// - `MAX_CLIENTS`: Maximum number of concurrent clients
 /// - `MAX_TOPICS`: Maximum number of distinct topics
@@ -23,20 +22,18 @@ use crate::topics::TopicRegistry;
 #[derive(Debug)]
 pub struct PicoBroker<
     T: TimeSource,
-    const MAX_CLIENT_NAME_LENGTH: usize,
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     time_source: T,
-    clients: ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS>,
+    clients: ClientRegistry<MAX_CLIENTS>,
     topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
 impl<
         T: TimeSource,
-        const MAX_CLIENT_NAME_LENGTH: usize,
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_CLIENTS: usize,
         const MAX_TOPICS: usize,
@@ -44,7 +41,6 @@ impl<
     >
     PicoBroker<
         T,
-        MAX_CLIENT_NAME_LENGTH,
         MAX_TOPIC_NAME_LENGTH,
         MAX_CLIENTS,
         MAX_TOPICS,
@@ -65,7 +61,7 @@ impl<
     /// Returns the client ID that should be used for subsequent operations.
     pub fn register_client(
         &mut self,
-        name: ClientName<MAX_CLIENT_NAME_LENGTH>,
+        name: ClientName,
         keep_alive: u16,
     ) -> Result<ClientId> {
         let current_time = self.time_source.now_secs();
@@ -76,7 +72,7 @@ impl<
     }
 
     /// Unregister a client
-    pub fn unregister_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>) {
+    pub fn unregister_client(&mut self, name: ClientName) {
         let client_id = self.clients.unregister(&name);
         if let Some(client_id) = client_id {
             self.topics.unregister_client(client_id);
@@ -84,18 +80,18 @@ impl<
     }
 
     /// Disconnect a client
-    pub fn disconnect_client(&mut self, name: ClientName<MAX_CLIENT_NAME_LENGTH>) {
+    pub fn disconnect_client(&mut self, name: ClientName) {
         self.unregister_client(name);
     }
 
     /// Update client activity
-    pub fn update_client_activity(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) {
+    pub fn update_client_activity(&mut self, name: &ClientName) {
         let current_time = self.time_source.now_secs();
         self.clients.update_activity(name, current_time);
     }
 
     /// Check if client is connected
-    pub fn is_client_connected(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> bool {
+    pub fn is_client_connected(&self, name: &ClientName) -> bool {
         self.clients.is_connected(name)
     }
 
@@ -124,7 +120,7 @@ impl<
     }
 
     /// Get reference to the clients registry
-    pub fn clients(&self) -> &ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS> {
+    pub fn clients(&self) -> &ClientRegistry<MAX_CLIENTS> {
         &self.clients
     }
 }

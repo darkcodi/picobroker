@@ -1,27 +1,21 @@
 use crate::error::{Error, Result};
 
+const MAX_CLIENT_NAME_LENGTH: usize = 23;
+
 /// Client name
-/// Represents an MQTT client name with a maximum length.
+/// The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
+/// "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClientName<const MAX_CLIENT_NAME_LENGTH: usize>(
-    heapless::String<MAX_CLIENT_NAME_LENGTH>,
-);
+pub struct ClientName(heapless::String<MAX_CLIENT_NAME_LENGTH>);
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> ClientName<MAX_CLIENT_NAME_LENGTH> {
-    pub fn new(name: heapless::String<MAX_CLIENT_NAME_LENGTH>) -> Self {
-        ClientName(name)
-    }
-}
-
-impl<const MAX_CLIENT_NAME_LENGTH: usize> From<heapless::String<MAX_CLIENT_NAME_LENGTH>>
-    for ClientName<MAX_CLIENT_NAME_LENGTH>
+impl From<heapless::String<MAX_CLIENT_NAME_LENGTH>> for ClientName
 {
     fn from(name: heapless::String<MAX_CLIENT_NAME_LENGTH>) -> Self {
         ClientName(name)
     }
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> TryFrom<&str> for ClientName<MAX_CLIENT_NAME_LENGTH> {
+impl TryFrom<&str> for ClientName {
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self> {
@@ -34,7 +28,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> TryFrom<&str> for ClientName<MAX_CLIEN
     }
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> core::ops::Deref for ClientName<MAX_CLIENT_NAME_LENGTH> {
+impl core::ops::Deref for ClientName {
     type Target = heapless::String<MAX_CLIENT_NAME_LENGTH>;
 
     fn deref(&self) -> &Self::Target {
@@ -42,16 +36,14 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> core::ops::Deref for ClientName<MAX_CL
     }
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> core::ops::DerefMut
-    for ClientName<MAX_CLIENT_NAME_LENGTH>
+impl core::ops::DerefMut for ClientName
 {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> core::fmt::Display
-    for ClientName<MAX_CLIENT_NAME_LENGTH>
+impl core::fmt::Display for ClientName
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
@@ -94,17 +86,17 @@ pub struct ClientChannel {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Client<const MAX_CLIENT_NAME_LENGTH: usize> {
+pub struct Client {
     pub id: ClientId,
-    pub name: ClientName<MAX_CLIENT_NAME_LENGTH>,
+    pub name: ClientName,
     pub keep_alive_secs: u16,
     pub last_activity: u64,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize> Client<MAX_CLIENT_NAME_LENGTH> {
+impl Client {
     pub fn new(
         id: ClientId,
-        name: ClientName<MAX_CLIENT_NAME_LENGTH>,
+        name: ClientName,
         keep_alive_secs: u16,
         current_time: u64,
     ) -> Self {
@@ -135,12 +127,11 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize> Client<MAX_CLIENT_NAME_LENGTH> {
 ///
 /// Manages connected clients and their state
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClientRegistry<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize> {
-    clients: heapless::Vec<Option<Client<MAX_CLIENT_NAME_LENGTH>>, MAX_CLIENTS>,
+pub struct ClientRegistry<const MAX_CLIENTS: usize> {
+    clients: heapless::Vec<Option<Client>, MAX_CLIENTS>,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
-    ClientRegistry<MAX_CLIENT_NAME_LENGTH, MAX_CLIENTS>
+impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
 {
     /// Create a new client registry
     pub const fn new() -> Self {
@@ -152,7 +143,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
     /// Register a new client
     pub fn register(
         &mut self,
-        name: ClientName<MAX_CLIENT_NAME_LENGTH>,
+        name: ClientName,
         keep_alive: u16,
         current_time: u64,
     ) -> Result<ClientId> {
@@ -185,7 +176,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
     }
 
     /// Unregister a client
-    pub fn unregister(&mut self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> Option<ClientId> {
+    pub fn unregister(&mut self, name: &ClientName) -> Option<ClientId> {
         if let Some(index) = self.find_index(name) {
             let client_id = self.clients[index].as_ref().map(|c| c.id);
             self.clients[index] = None;
@@ -198,7 +189,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
     /// Update client activity timestamp
     pub fn update_activity(
         &mut self,
-        name: &ClientName<MAX_CLIENT_NAME_LENGTH>,
+        name: &ClientName,
         current_time: u64,
     ) -> bool {
         if let Some(index) = self.find_index(name) {
@@ -216,7 +207,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
     pub fn get_expired_clients(
         &self,
         current_time: u64,
-    ) -> heapless::Vec<ClientName<MAX_CLIENT_NAME_LENGTH>, MAX_CLIENTS> {
+    ) -> heapless::Vec<ClientName, MAX_CLIENTS> {
         let mut expired = heapless::Vec::new();
         for client in &self.clients {
             if let Some(client) = client {
@@ -229,7 +220,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
     }
 
     /// Find client index by name
-    pub fn find_index(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> Option<usize> {
+    pub fn find_index(&self, name: &ClientName) -> Option<usize> {
         self.clients.iter().position(|c| {
             if let Some(client) = c {
                 &client.name == name
@@ -240,7 +231,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_CLIENTS: usize>
     }
 
     /// Check if client is connected
-    pub fn is_connected(&self, name: &ClientName<MAX_CLIENT_NAME_LENGTH>) -> bool {
+    pub fn is_connected(&self, name: &ClientName) -> bool {
         self.find_index(name).is_some()
     }
 

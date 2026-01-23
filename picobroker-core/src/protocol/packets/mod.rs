@@ -105,8 +105,8 @@ pub trait PacketEncoder: Sized {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
-    Connect(ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
+pub enum Packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+    Connect(ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
     ConnAck(ConnAckPacket),
     Publish(PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
     PubAck(PubAckPacket),
@@ -122,7 +122,7 @@ pub enum Packet<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH
     Disconnect(DisconnectPacket),
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeDynamic for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeDynamic for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn packet_type(&self) -> PacketType {
         match self {
             Packet::Connect(_) => PacketType::Connect,
@@ -143,7 +143,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
     }
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn flags(&self) -> u8 {
         match self {
             Packet::Connect(packet) => packet.flags(),
@@ -164,7 +164,7 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
     }
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         match self {
             Packet::Connect(packet) => packet.encode(buffer),
@@ -220,10 +220,9 @@ mod tests {
     use crate::protocol::packet_error::PacketEncodingError;
     use super::*;
 
-    const MAX_CLIENT_NAME_LENGTH: usize = 30;
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
     const MAX_PAYLOAD_SIZE: usize = 128;
-    type DefaultPacket = Packet<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>;
+    type DefaultPacket = Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>;
 
     #[test]
     fn test_connack_packet_roundtrip() {
@@ -249,7 +248,7 @@ mod tests {
             0x00, 0x03, // Client ID Length
             0x61, 0x62, 0x63, // Client ID "abc"
         ];
-        let packet = roundtrip_test::<ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>(&connect_bytes);
+        let packet = roundtrip_test::<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>(&connect_bytes);
         assert_eq!(packet.client_id.as_str(), "abc");
         assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
         assert_eq!(packet.keep_alive, 60);
@@ -268,7 +267,7 @@ mod tests {
             0x00, 0x03, // Client ID Length
             0x61, 0x62, 0x63, // Client ID "abc"
         ];
-        let result = ConnectPacket::<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
         assert!(result.is_err(), "Should fail with invalid remaining length");
         match result {
             Err(PacketEncodingError::InvalidPacketLength { expected, actual }) => {
@@ -314,10 +313,10 @@ mod tests {
 
         // Use unsafe to manually handle the conversion after TypeId check
         match packet {
-            DefaultPacket::Connect(packet) if TypeId::of::<ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>() == expected_type_id => {
+            DefaultPacket::Connect(packet) if TypeId::of::<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>() == expected_type_id => {
                 unsafe {
                     // SAFETY: We've verified the TypeId matches, so the types are compatible
-                    let ptr = &packet as *const ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> as *const P;
+                    let ptr = &packet as *const ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> as *const P;
                     ptr.read()
                 }
             },

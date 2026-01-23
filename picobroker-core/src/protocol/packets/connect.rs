@@ -45,27 +45,27 @@ impl ConnectFlags {
 ///   User Name          (UTF-8 string)   [if User Name Flag = 1]
 ///   Password           (binary data)    [if Password Flag = 1]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConnectPacket<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+pub struct ConnectPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
     pub protocol_name: &'static str,
     pub protocol_level: u8,
     pub connect_flags: ConnectFlags,
     pub keep_alive: u16,
-    pub client_id: ClientName<MAX_CLIENT_NAME_LENGTH>,
+    pub client_id: ClientName,
     pub will_topic: Option<TopicName<MAX_TOPIC_NAME_LENGTH>>,
     pub will_payload: Option<heapless::Vec<u8, MAX_PAYLOAD_SIZE>>,
-    pub username: Option<heapless::String<MAX_CLIENT_NAME_LENGTH>>,
-    pub password: Option<heapless::Vec<u8, MAX_CLIENT_NAME_LENGTH>>,
+    pub username: Option<heapless::String<MAX_TOPIC_NAME_LENGTH>>,
+    pub password: Option<heapless::Vec<u8, MAX_TOPIC_NAME_LENGTH>>,
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst for ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     const PACKET_TYPE: PacketType = PacketType::Connect;
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsConst for ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsConst for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     const PACKET_FLAGS: u8 = 0b0000;
 }
 
-impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for ConnectPacket<MAX_CLIENT_NAME_LENGTH, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         // calculate remaining length
         let mut remaining_length = 0;
@@ -180,17 +180,17 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         if client_id.is_empty() && !clean_session {
             return Err(Error::InvalidClientIdLength { length: 0 }.into());
         }
-        if client_id.len() > MAX_CLIENT_NAME_LENGTH {
+        if client_id.len() > MAX_TOPIC_NAME_LENGTH {
             return Err(Error::ClientIdLengthExceeded {
-                max_length: MAX_CLIENT_NAME_LENGTH,
+                max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: client_id.len(),
             }.into());
         }
         let client_id = heapless::String::try_from(client_id)
-            .map(|s| ClientName::new(s))
+            .map(|s| ClientName::from(s))
             .map_err(|_| {
                 Error::ClientIdLengthExceeded {
-                    max_length: MAX_CLIENT_NAME_LENGTH,
+                    max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: client_id.len(),
                 }
         })?;
@@ -239,38 +239,38 @@ impl<const MAX_CLIENT_NAME_LENGTH: usize, const MAX_TOPIC_NAME_LENGTH: usize, co
         }
 
         // extract username
-        let mut username: Option<heapless::String<MAX_CLIENT_NAME_LENGTH>> = None;
+        let mut username: Option<heapless::String<MAX_TOPIC_NAME_LENGTH>> = None;
         if username_flag {
             let username_str = read_string(bytes, &mut offset)?;
-            if username_str.len() > MAX_CLIENT_NAME_LENGTH {
+            if username_str.len() > MAX_TOPIC_NAME_LENGTH {
                 return Err(Error::ClientIdLengthExceeded {
-                    max_length: MAX_CLIENT_NAME_LENGTH,
+                    max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: username_str.len(),
                 }.into());
             }
-            username = Some(heapless::String::<MAX_CLIENT_NAME_LENGTH>::try_from(username_str)
+            username = Some(heapless::String::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str)
                 .map_err(|_| {
                     Error::ClientIdLengthExceeded {
-                        max_length: MAX_CLIENT_NAME_LENGTH,
+                        max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: username_str.len(),
                     }
                 })?);
         }
 
         // extract password
-        let mut password: Option<heapless::Vec<u8, MAX_CLIENT_NAME_LENGTH>> = None;
+        let mut password: Option<heapless::Vec<u8, MAX_TOPIC_NAME_LENGTH>> = None;
         if password_flag {
             let password_bytes = read_binary(bytes, &mut offset)?;
-            let mut password_vec = heapless::Vec::<u8, MAX_CLIENT_NAME_LENGTH>::new();
-            if password_bytes.len() > MAX_CLIENT_NAME_LENGTH {
+            let mut password_vec = heapless::Vec::<u8, MAX_TOPIC_NAME_LENGTH>::new();
+            if password_bytes.len() > MAX_TOPIC_NAME_LENGTH {
                 return Err(Error::PacketTooLarge {
-                    max_size: MAX_CLIENT_NAME_LENGTH,
+                    max_size: MAX_TOPIC_NAME_LENGTH,
                     actual_size: password_bytes.len(),
                 }.into());
             }
             password_vec.extend_from_slice(password_bytes).map_err(|_| {
                 Error::PacketTooLarge {
-                    max_size: MAX_CLIENT_NAME_LENGTH,
+                    max_size: MAX_TOPIC_NAME_LENGTH,
                     actual_size: password_bytes.len(),
                 }
             })?;
