@@ -68,7 +68,7 @@ impl PacketEncoder for ConnAckPacket {
             _ => return Err(PacketEncodingError::MalformedPacket),
         };
         let return_code = ConnectReturnCode::try_from(bytes[3])?;
-        Ok(ConnAckPacket {
+        Ok(Self {
             session_present,
             return_code,
         })

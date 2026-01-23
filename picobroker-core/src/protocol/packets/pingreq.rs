@@ -29,7 +29,7 @@ impl PacketEncoder for PingReqPacket {
         Self::validate_packet_type(bytes[0])?;
         let (remaining_length, _) = read_variable_length(&bytes[1..])?;
         Self::validate_remaining_length(remaining_length)?;
-        Ok(PingReqPacket)
+        Ok(Self)
     }
 }
 
