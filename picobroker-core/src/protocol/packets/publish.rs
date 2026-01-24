@@ -3,6 +3,7 @@ use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeCons
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
 use crate::{Error, PacketEncodingError, TopicName};
+use crate::protocol::HeaplessString;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct PublishFlags {
@@ -90,7 +91,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         if topic_name.is_empty() {
             return Err(Error::EmptyTopic.into());
         }
-        let topic_name = heapless::String::try_from(topic_name)
+        let topic_name = HeaplessString::try_from(topic_name)
             .map(|s| TopicName::new(s))
             .map_err(|_| {
                 Error::TopicNameLengthExceeded {

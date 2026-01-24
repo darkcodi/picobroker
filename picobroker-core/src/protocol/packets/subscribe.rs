@@ -1,6 +1,7 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{read_string, write_string};
 use crate::{Error, PacketEncodingError, PacketType, QoS, TopicName};
+use crate::protocol::HeaplessString;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
@@ -56,7 +57,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
         if offset + 1 > bytes.len() {
             return Err(Error::IncompletePacket.into());
         }
-        let topic_name = heapless::String::try_from(topic_filter)
+        let topic_name = HeaplessString::try_from(topic_filter)
             .map(|s| TopicName::new(s))
             .map_err(|_| {
                 Error::TopicNameLengthExceeded {

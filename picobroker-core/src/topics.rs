@@ -4,22 +4,23 @@
 
 use crate::ClientId;
 use crate::error::{Error, Result};
+use crate::protocol::HeaplessString;
 
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TopicName<const MAX_TOPIC_NAME_LENGTH: usize>(heapless::String<MAX_TOPIC_NAME_LENGTH>);
+pub struct TopicName<const MAX_TOPIC_NAME_LENGTH: usize>(HeaplessString<MAX_TOPIC_NAME_LENGTH>);
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize> TopicName<MAX_TOPIC_NAME_LENGTH> {
-    pub fn new(name: heapless::String<MAX_TOPIC_NAME_LENGTH>) -> Self {
+    pub fn new(name: HeaplessString<MAX_TOPIC_NAME_LENGTH>) -> Self {
         TopicName(name)
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> From<heapless::String<MAX_TOPIC_NAME_LENGTH>>
+impl<const MAX_TOPIC_NAME_LENGTH: usize> From<HeaplessString<MAX_TOPIC_NAME_LENGTH>>
     for TopicName<MAX_TOPIC_NAME_LENGTH>
 {
-    fn from(name: heapless::String<MAX_TOPIC_NAME_LENGTH>) -> Self {
+    fn from(name: HeaplessString<MAX_TOPIC_NAME_LENGTH>) -> Self {
         TopicName(name)
     }
 }
@@ -29,7 +30,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_N
 
     fn try_from(value: &str) -> Result<Self> {
         let topic_str =
-            heapless::String::try_from(value).map_err(|_| Error::TopicNameLengthExceeded {
+            HeaplessString::try_from(value).map_err(|_| Error::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: value.len(),
             })?;
@@ -38,7 +39,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_N
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize> core::ops::Deref for TopicName<MAX_TOPIC_NAME_LENGTH> {
-    type Target = heapless::String<MAX_TOPIC_NAME_LENGTH>;
+    type Target = HeaplessString<MAX_TOPIC_NAME_LENGTH>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

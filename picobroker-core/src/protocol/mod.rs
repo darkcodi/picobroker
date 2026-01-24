@@ -3,6 +3,7 @@ mod packets;
 mod qos;
 mod utils;
 mod packet_error;
+mod heapless;
 
 pub use crate::protocol::packets::ConnAckPacket;
 pub use crate::protocol::packets::ConnectPacket;
@@ -26,3 +27,4 @@ pub use qos::QoS;
 pub use utils::{
     read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
 };
+pub use heapless::HeaplessString;

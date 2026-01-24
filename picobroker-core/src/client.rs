@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::protocol::HeaplessString;
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -6,11 +7,11 @@ const MAX_CLIENT_ID_LENGTH: usize = 23;
 /// The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
 /// "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ClientId(heapless::String<MAX_CLIENT_ID_LENGTH>);
+pub struct ClientId(HeaplessString<MAX_CLIENT_ID_LENGTH>);
 
-impl From<heapless::String<MAX_CLIENT_ID_LENGTH>> for ClientId
+impl From<HeaplessString<MAX_CLIENT_ID_LENGTH>> for ClientId
 {
-    fn from(value: heapless::String<MAX_CLIENT_ID_LENGTH>) -> Self {
+    fn from(value: HeaplessString<MAX_CLIENT_ID_LENGTH>) -> Self {
         ClientId(value)
     }
 }
@@ -20,7 +21,7 @@ impl TryFrom<&str> for ClientId {
 
     fn try_from(value: &str) -> Result<Self> {
         let client_id_str =
-            heapless::String::try_from(value).map_err(|_| Error::ClientIdLengthExceeded {
+            HeaplessString::try_from(value).map_err(|_| Error::ClientIdLengthExceeded {
                 max_length: MAX_CLIENT_ID_LENGTH,
                 actual_length: value.len(),
             })?;
@@ -29,7 +30,7 @@ impl TryFrom<&str> for ClientId {
 }
 
 impl core::ops::Deref for ClientId {
-    type Target = heapless::String<MAX_CLIENT_ID_LENGTH>;
+    type Target = HeaplessString<MAX_CLIENT_ID_LENGTH>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

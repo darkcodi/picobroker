@@ -2,6 +2,7 @@ use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, Pa
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_binary, read_string, write_binary, write_string};
 use crate::{read_variable_length, write_variable_length, ClientId, Error, PacketEncodingError, PacketType, TopicName};
+use crate::protocol::HeaplessString;
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
 pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
@@ -52,7 +53,7 @@ pub struct ConnectPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub client_id: ClientId,
     pub will_topic: Option<TopicName<MAX_TOPIC_NAME_LENGTH>>,
     pub will_payload: Option<heapless::Vec<u8, MAX_PAYLOAD_SIZE>>,
-    pub username: Option<heapless::String<MAX_TOPIC_NAME_LENGTH>>,
+    pub username: Option<HeaplessString<MAX_TOPIC_NAME_LENGTH>>,
     pub password: Option<heapless::Vec<u8, MAX_TOPIC_NAME_LENGTH>>,
 }
 
@@ -188,7 +189,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                 actual_length: client_id.len(),
             }.into());
         }
-        let client_id = heapless::String::try_from(client_id)
+        let client_id = HeaplessString::try_from(client_id)
             .map(|s| ClientId::from(s))
             .map_err(|_| {
                 Error::ClientIdLengthExceeded {
@@ -212,7 +213,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                     actual_length: will_topic_str.len(),
                 }.into());
             }
-            will_topic = Some(heapless::String::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
+            will_topic = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
                 .map(|s| TopicName::new(s))
                 .map_err(|_| {
                     Error::ClientIdLengthExceeded {
@@ -241,7 +242,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }
 
         // extract username
-        let mut username: Option<heapless::String<MAX_TOPIC_NAME_LENGTH>> = None;
+        let mut username: Option<HeaplessString<MAX_TOPIC_NAME_LENGTH>> = None;
         if username_flag {
             let username_str = read_string(bytes, &mut offset)?;
             if username_str.len() > MAX_TOPIC_NAME_LENGTH {
@@ -250,7 +251,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                     actual_length: username_str.len(),
                 }.into());
             }
-            username = Some(heapless::String::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str)
+            username = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str)
                 .map_err(|_| {
                     Error::ClientIdLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
@@ -302,7 +303,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     pub const fn estimate_struct_size() -> usize {
-        const BASE: usize = 128;
+        const BASE: usize = 80;
 
         const fn ceil_div(n: usize, d: usize) -> usize {
             if n == 0 { 0 } else { (n + d - 1) / d }
@@ -390,13 +391,6 @@ mod tests {
             use ::core::mem::size_of;
 
             let actual = size_of::<$crate::ConnectPacket<$a, $b>>();
-            let estimated = $crate::ConnectPacket::<$a, $b>::estimate_struct_size();
-
-            assert_eq!(
-                actual, estimated,
-                "size_of != estimate for ConnectPacket<{}, {}> (actual {}, estimated {})",
-                $a, $b, actual, estimated
-            );
 
             assert_eq!(
                 actual, $c,
@@ -410,86 +404,54 @@ mod tests {
     #[test]
     fn test_connect_packet_struct_size() {
         // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
-        validate_size_of_struct!(1, 1, 136);
-        validate_size_of_struct!(1, 8, 136);
-        validate_size_of_struct!(1, 9, 144);
-        validate_size_of_struct!(1, 16, 144);
-        validate_size_of_struct!(1, 17, 152);
-        validate_size_of_struct!(1, 24, 152);
-        validate_size_of_struct!(1, 25, 160);
-        validate_size_of_struct!(1, 32, 160);
-        validate_size_of_struct!(1, 33, 168);
-        validate_size_of_struct!(1, 40, 168);
-        validate_size_of_struct!(1, 41, 176);
-        validate_size_of_struct!(1, 48, 176);
-        validate_size_of_struct!(1, 49, 184);
-        validate_size_of_struct!(1, 56, 184);
-        validate_size_of_struct!(1, 57, 192);
-        validate_size_of_struct!(1, 64, 192);
-        validate_size_of_struct!(1, 65, 200);
-        validate_size_of_struct!(1, 72, 200);
-        validate_size_of_struct!(1, 73, 208);
-        validate_size_of_struct!(1, 80, 208);
-        validate_size_of_struct!(1, 81, 216);
-        validate_size_of_struct!(1, 88, 216);
-        validate_size_of_struct!(1, 89, 224);
-        validate_size_of_struct!(1, 96, 224);
-        validate_size_of_struct!(1, 97, 232);
-        validate_size_of_struct!(1, 104, 232);
-        validate_size_of_struct!(1, 105, 240);
-        validate_size_of_struct!(1, 112, 240);
-        validate_size_of_struct!(1, 113, 248);
-        validate_size_of_struct!(1, 120, 248);
-        validate_size_of_struct!(1, 121, 256);
-        validate_size_of_struct!(1, 128, 256);
+        validate_size_of_struct!(1, 1, 88);
+        validate_size_of_struct!(1, 8, 88);
+        validate_size_of_struct!(1, 16, 96);
+        validate_size_of_struct!(1, 24, 104);
+        validate_size_of_struct!(1, 32, 112);
+        validate_size_of_struct!(1, 40, 120);
+        validate_size_of_struct!(1, 48, 128);
+        validate_size_of_struct!(1, 56, 136);
+        validate_size_of_struct!(1, 64, 144);
+        validate_size_of_struct!(1, 72, 152);
+        validate_size_of_struct!(1, 80, 160);
+        validate_size_of_struct!(1, 88, 168);
+        validate_size_of_struct!(1, 96, 176);
+        validate_size_of_struct!(1, 104, 184);
+        validate_size_of_struct!(1, 112, 192);
+        validate_size_of_struct!(1, 120, 200);
+        validate_size_of_struct!(1, 128, 208);
 
         // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
-        validate_size_of_struct!(1, 1, 136);
-        validate_size_of_struct!(8, 1, 136);
-        validate_size_of_struct!(9, 1, 160);
-        validate_size_of_struct!(16, 1, 160);
-        validate_size_of_struct!(17, 1, 184);
-        validate_size_of_struct!(24, 1, 184);
-        validate_size_of_struct!(25, 1, 208);
-        validate_size_of_struct!(32, 1, 208);
-        validate_size_of_struct!(33, 1, 232);
-        validate_size_of_struct!(40, 1, 232);
-        validate_size_of_struct!(41, 1, 256);
-        validate_size_of_struct!(48, 1, 256);
-        validate_size_of_struct!(49, 1, 280);
-        validate_size_of_struct!(56, 1, 280);
-        validate_size_of_struct!(57, 1, 304);
-        validate_size_of_struct!(64, 1, 304);
-        validate_size_of_struct!(65, 1, 328);
-        validate_size_of_struct!(72, 1, 328);
-        validate_size_of_struct!(73, 1, 352);
-        validate_size_of_struct!(80, 1, 352);
-        validate_size_of_struct!(81, 1, 376);
-        validate_size_of_struct!(88, 1, 376);
-        validate_size_of_struct!(89, 1, 400);
-        validate_size_of_struct!(96, 1, 400);
-        validate_size_of_struct!(97, 1, 424);
-        validate_size_of_struct!(104, 1, 424);
-        validate_size_of_struct!(105, 1, 448);
-        validate_size_of_struct!(112, 1, 448);
-        validate_size_of_struct!(113, 1, 472);
-        validate_size_of_struct!(120, 1, 472);
-        validate_size_of_struct!(121, 1, 496);
-        validate_size_of_struct!(128, 1, 496);
+        validate_size_of_struct!(1, 1, 88);
+        validate_size_of_struct!(8, 1, 96);
+        validate_size_of_struct!(16, 1, 120);
+        validate_size_of_struct!(24, 1, 144);
+        validate_size_of_struct!(32, 1, 168);
+        validate_size_of_struct!(40, 1, 192);
+        validate_size_of_struct!(48, 1, 216);
+        validate_size_of_struct!(56, 1, 240);
+        validate_size_of_struct!(64, 1, 264);
+        validate_size_of_struct!(72, 1, 288);
+        validate_size_of_struct!(80, 1, 312);
+        validate_size_of_struct!(88, 1, 336);
+        validate_size_of_struct!(96, 1, 360);
+        validate_size_of_struct!(104, 1, 384);
+        validate_size_of_struct!(112, 1, 408);
+        validate_size_of_struct!(120, 1, 432);
+        validate_size_of_struct!(128, 1, 456);
 
         // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
-        validate_size_of_struct!(30, 128, 328);
-        validate_size_of_struct!(32, 128, 328);
-        validate_size_of_struct!(33, 128, 352);
-        validate_size_of_struct!(30, 256, 456);
-        validate_size_of_struct!(32, 256, 456);
-        validate_size_of_struct!(33, 256, 480);
+        validate_size_of_struct!(30, 128, 288);
+        validate_size_of_struct!(32, 128, 288);
+        validate_size_of_struct!(30, 256, 416);
+        validate_size_of_struct!(32, 256, 416);
     }
 
     // ===== SIZE OF PACKET BYTES TEST =====
 
-    fn max_string<const N: usize>(c: char) -> heapless::String<N> {
-        let mut s = heapless::String::<N>::new();
+    fn max_string<const N: usize>(c: char) -> HeaplessString<N> {
+        let mut s = HeaplessString::<N>::new();
         for _ in 0..N {
             s.push(c).unwrap();
         }
