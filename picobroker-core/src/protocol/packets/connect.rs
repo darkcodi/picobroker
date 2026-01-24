@@ -303,6 +303,30 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     }
 }
 
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    pub const fn estimate_struct_size() -> usize {
+        const BASE: usize = 144;
+
+        const fn ceil_div(n: usize, d: usize) -> usize {
+            if n == 0 { 0 } else { (n + d - 1) / d }
+        }
+
+        const fn round_up_to(n: usize, m: usize) -> usize {
+            if n == 0 { 0 } else { ceil_div(n, m) * m }
+        }
+
+        // Payload contributes in 8-byte chunks.
+        let payload_bytes = round_up_to(MAX_PAYLOAD_SIZE, 8);
+
+        // Topic contributes 0 for 1..=8, +24 for 9..=16, +48 for 17..=24, etc.
+        let topic_blocks = ceil_div(MAX_TOPIC_NAME_LENGTH, 8);
+        let extra_topic_blocks = topic_blocks.saturating_sub(1);
+        let topic_bytes = extra_topic_blocks * 24;
+
+        BASE + topic_bytes + payload_bytes
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use heapless::Vec;
@@ -342,6 +366,127 @@ mod tests {
 
     fn decode_test(bytes: &[u8]) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, PacketEncodingError> {
         ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
+    }
+
+    // ===== SIZE OF STRUCT TEST =====
+
+    #[macro_export]
+    macro_rules! assert_teq {
+        ($a:expr, $b:expr, $c:expr $(,)?) => {{
+            // Evaluate each expression once
+            let __a = &$a;
+            let __b = &$b;
+            let __c = &$c;
+
+            if !(*__a == *__b && *__b == *__c) {
+                panic!(
+                    "assert_teq! failed: values are not all equal\n  a = {:?}\n  b = {:?}\n  c = {:?}",
+                    __a, __b, __c
+                );
+            }
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! validate_size_of {
+        ($a:literal, $b:literal, $c:literal) => {{
+            use ::core::mem::size_of;
+
+            let actual = size_of::<$crate::ConnectPacket<$a, $b>>();
+            let estimated = $crate::ConnectPacket::<$a, $b>::estimate_struct_size();
+
+            assert_eq!(
+                actual, estimated,
+                "size_of != estimate for ConnectPacket<{}, {}> (actual {}, estimated {})",
+                $a, $b, actual, estimated
+            );
+
+            assert_eq!(
+                actual, $c,
+                "unexpected size for ConnectPacket<{}, {}> (actual {}, expected {})",
+                $a, $b, actual, $c
+            );
+        }};
+    }
+
+    // Size varies based on generic parameters; test some combinations
+    #[test]
+    fn test_connect_packet_struct_size() {
+        // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
+        validate_size_of!(1, 1, 152);
+        validate_size_of!(1, 8, 152);
+        validate_size_of!(1, 9, 160);
+        validate_size_of!(1, 16, 160);
+        validate_size_of!(1, 17, 168);
+        validate_size_of!(1, 24, 168);
+        validate_size_of!(1, 25, 176);
+        validate_size_of!(1, 32, 176);
+        validate_size_of!(1, 33, 184);
+        validate_size_of!(1, 40, 184);
+        validate_size_of!(1, 41, 192);
+        validate_size_of!(1, 48, 192);
+        validate_size_of!(1, 49, 200);
+        validate_size_of!(1, 56, 200);
+        validate_size_of!(1, 57, 208);
+        validate_size_of!(1, 64, 208);
+        validate_size_of!(1, 65, 216);
+        validate_size_of!(1, 72, 216);
+        validate_size_of!(1, 73, 224);
+        validate_size_of!(1, 80, 224);
+        validate_size_of!(1, 81, 232);
+        validate_size_of!(1, 88, 232);
+        validate_size_of!(1, 89, 240);
+        validate_size_of!(1, 96, 240);
+        validate_size_of!(1, 97, 248);
+        validate_size_of!(1, 104, 248);
+        validate_size_of!(1, 105, 256);
+        validate_size_of!(1, 112, 256);
+        validate_size_of!(1, 113, 264);
+        validate_size_of!(1, 120, 264);
+        validate_size_of!(1, 121, 272);
+        validate_size_of!(1, 128, 272);
+
+        // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
+        validate_size_of!(1, 1, 152);
+        validate_size_of!(8, 1, 152);
+        validate_size_of!(9, 1, 176);
+        validate_size_of!(16, 1, 176);
+        validate_size_of!(17, 1, 200);
+        validate_size_of!(24, 1, 200);
+        validate_size_of!(25, 1, 224);
+        validate_size_of!(32, 1, 224);
+        validate_size_of!(33, 1, 248);
+        validate_size_of!(40, 1, 248);
+        validate_size_of!(41, 1, 272);
+        validate_size_of!(48, 1, 272);
+        validate_size_of!(49, 1, 296);
+        validate_size_of!(56, 1, 296);
+        validate_size_of!(57, 1, 320);
+        validate_size_of!(64, 1, 320);
+        validate_size_of!(65, 1, 344);
+        validate_size_of!(72, 1, 344);
+        validate_size_of!(73, 1, 368);
+        validate_size_of!(80, 1, 368);
+        validate_size_of!(81, 1, 392);
+        validate_size_of!(88, 1, 392);
+        validate_size_of!(89, 1, 416);
+        validate_size_of!(96, 1, 416);
+        validate_size_of!(97, 1, 440);
+        validate_size_of!(104, 1, 440);
+        validate_size_of!(105, 1, 464);
+        validate_size_of!(112, 1, 464);
+        validate_size_of!(113, 1, 488);
+        validate_size_of!(120, 1, 488);
+        validate_size_of!(121, 1, 512);
+        validate_size_of!(128, 1, 512);
+
+        // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
+        validate_size_of!(30, 128, 344);
+        validate_size_of!(32, 128, 344);
+        validate_size_of!(33, 128, 368);
+        validate_size_of!(30, 256, 472);
+        validate_size_of!(32, 256, 472);
+        validate_size_of!(33, 256, 496);
     }
 
     // ===== PROTOCOL NAME FIELD TESTS =====
