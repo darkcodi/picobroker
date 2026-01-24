@@ -324,20 +324,6 @@ mod tests {
         result
     }
 
-    /// Base packet: minimal valid CONNECT with clean session
-    const fn base_packet() -> [u8; 17] {
-        [
-            0x10, 0x0F,             // Fixed header (type=CONNECT, remaining length = 15)
-            0x00, 0x04,             // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04,                   // Protocol Level (3.1.1)
-            0b0000_0010,            // Connect Flags (Clean Session)
-            0x00, 0x3C,             // Keep Alive (60 seconds)
-            0x00, 0x03,             // Client ID Length
-            0x61, 0x62, 0x63,       // Client ID "abc"
-        ]
-    }
-
     fn roundtrip_test(bytes: &[u8]) -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         if let Err(ref e) = result {
@@ -362,24 +348,21 @@ mod tests {
 
     #[test]
     fn test_protocol_name_valid_mqtt() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.protocol_name, "MQTT");
     }
 
     #[test]
     fn test_protocol_name_invalid_wrong_chars() {
-        let mut bytes = base_packet();
-        bytes[7] = 0x53; // Change "MQTT" to "MQTS"
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 53 04 02 00 3C 00 03 61 62 63");
         let result = decode_test(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
     }
 
     #[test]
     fn test_protocol_name_invalid_lowercase() {
-        let mut bytes = base_packet();
-        // Change to lowercase "mqtt"
-        bytes[4] = 0x6D; bytes[5] = 0x71; bytes[6] = 0x74; bytes[7] = 0x74;
+        let bytes = hex_to_bytes("10 0F 00 04 6D 71 74 74 04 02 00 3C 00 03 61 62 63");
         let result = decode_test(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
     }
@@ -388,23 +371,21 @@ mod tests {
 
     #[test]
     fn test_protocol_level_valid_311() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.protocol_level, 4);
     }
 
     #[test]
     fn test_protocol_level_invalid_31() {
-        let mut bytes = base_packet();
-        bytes[8] = 0x03; // MQTT 3.1
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 03 02 00 3C 00 03 61 62 63");
         let result = decode_test(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::UnsupportedProtocolLevel { level: 3 })));
     }
 
     #[test]
     fn test_protocol_level_invalid_50() {
-        let mut bytes = base_packet();
-        bytes[8] = 0x05; // MQTT 5.0
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 05 02 00 3C 00 03 61 62 63");
         let result = decode_test(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::UnsupportedProtocolLevel { level: 5 })));
     }
@@ -413,23 +394,21 @@ mod tests {
 
     #[test]
     fn test_connect_flag_clean_session_set() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
     }
 
     #[test]
     fn test_connect_flag_clean_session_not_set() {
-        let mut bytes = base_packet();
-        bytes[9] = 0b0000_0000; // No flags
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 00 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
     }
 
     #[test]
     fn test_connect_flag_reserved_bit_set() {
-        let mut bytes = base_packet();
-        bytes[9] = 0b0000_0011; // Set reserved bit 0
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 03 00 3C 00 03 61 62 63");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
@@ -445,7 +424,7 @@ mod tests {
 
     #[test]
     fn test_connect_flag_will_flag_not_set() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
     }
@@ -485,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_connect_flag_will_retain_not_set() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
     }
@@ -501,7 +480,7 @@ mod tests {
 
     #[test]
     fn test_connect_flag_username_not_set() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::USERNAME));
     }
@@ -517,7 +496,7 @@ mod tests {
 
     #[test]
     fn test_connect_flag_password_not_set() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::PASSWORD));
     }
@@ -526,23 +505,21 @@ mod tests {
 
     #[test]
     fn test_keep_alive_value_60() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 60);
     }
 
     #[test]
     fn test_keep_alive_value_zero() {
-        let mut bytes = base_packet();
-        bytes[10] = 0x00; bytes[11] = 0x00;
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 00 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 0);
     }
 
     #[test]
     fn test_keep_alive_value_max() {
-        let mut bytes = base_packet();
-        bytes[10] = 0xFF; bytes[11] = 0xFF;
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 FF FF 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 65535);
     }
@@ -551,7 +528,7 @@ mod tests {
 
     #[test]
     fn test_client_id_value_abc() {
-        let bytes = base_packet();
+        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.as_str(), "abc");
     }
@@ -565,25 +542,15 @@ mod tests {
 
     #[test]
     fn test_client_id_empty_without_clean_session() {
-        let mut bytes = base_packet();
-        bytes[9] = 0b0000_0000; // No clean session
-        bytes[1] = 0x0C;
-        bytes[12] = 0x00; bytes[13] = 0x00;
-        let bytes = &bytes[..14];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
+        let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 00 00 3C 00 00");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
     #[test]
     fn test_client_id_too_long() {
-        let mut bytes = base_packet();
-        bytes[12] = 0x00; bytes[13] = 32; // Set client ID length (too long)
-        let mut extended: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::new();
-        extended.extend_from_slice(&bytes[..14]).unwrap(); // Copy up to client ID length field
-        extended.extend_from_slice(&[b'a'; 32]).unwrap(); // Add client ID data
-        extended[1] = (extended.len() - 2) as u8; // Update remaining length
-
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&extended);
+        let bytes = hex_to_bytes("10 2C 00 04 4D 51 54 54 04 02 00 3C 00 20 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
@@ -725,16 +692,14 @@ mod tests {
 
     #[test]
     fn test_remaining_length_too_small() {
-        let mut bytes = base_packet();
-        bytes[1] = 0x0C; // Wrong (12 instead of 15)
+        let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::InvalidPacketLength { expected: 12, actual: 15 })));
     }
 
     #[test]
     fn test_remaining_length_too_large() {
-        let mut bytes = base_packet();
-        bytes[1] = 0x20; // Wrong (32 instead of 15)
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::InvalidPacketLength { expected: 32, actual: 15 })));
     }
