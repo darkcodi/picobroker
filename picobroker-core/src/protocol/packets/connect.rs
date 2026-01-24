@@ -426,31 +426,15 @@ mod tests {
 
     // ===== SIZE OF PACKET BYTES TEST =====
 
-    fn max_string<const N: usize>(c: char) -> HeaplessString<N> {
-        let mut s = HeaplessString::<N>::new();
-        for _ in 0..N {
-            s.push(c).unwrap();
-        }
-        s
-    }
-
-    fn max_vec<const N: usize>(c: u8) -> HeaplessVec<u8, N> {
-        let mut v = HeaplessVec::<u8, N>::new();
-        for _ in 0..N {
-            v.push(c).unwrap();
-        }
-        v
-    }
-
-    fn max_packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>() -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    const fn max_packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>() -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         ConnectPacket {
             connect_flags: ConnectFlags::ALL_FLAGS,
             keep_alive: 60,
-            client_id: ClientId::from(max_string('c')),
-            will_topic: Some(TopicName::new(max_string('t'))),
-            will_payload: Some(max_vec(1)),
-            username: Some(max_string('u')),
-            password: Some(max_vec(2)),
+            client_id: ClientId::new(HeaplessString::repeat('c')),
+            will_topic: Some(TopicName::new(HeaplessString::repeat('t'))),
+            will_payload: Some(HeaplessVec::repeat(1)),
+            username: Some(HeaplessString::repeat('u')),
+            password: Some(HeaplessVec::repeat(2)),
         }
     }
 

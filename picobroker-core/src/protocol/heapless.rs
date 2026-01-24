@@ -38,8 +38,29 @@ impl<const N: usize> TryFrom<&str> for HeaplessString<N> {
 }
 
 impl <const N: usize> HeaplessString<N> {
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        Self {
+            length: 0,
+            data: [0; N],
+        }
+    }
+
+    pub const fn repeat(c: char) -> Self {
+        let mut s = Self::new();
+        let ch_len = c.len_utf8();
+        let mut i = 0;
+        while i + ch_len <= N {
+            let mut buf = [0u8; 4];
+            c.encode_utf8(&mut buf);
+            let mut j = 0;
+            while j < ch_len {
+                s.data[i + j] = buf[j];
+                j += 1;
+            }
+            s.length += ch_len as u8;
+            i += ch_len;
+        }
+        s
     }
 
     pub fn as_str(&self) -> &str {
@@ -204,6 +225,26 @@ impl<T: Default, const N: usize> HeaplessVec<T, N> {
             length: 0,
             data: core::array::from_fn(|_| T::default()),
         }
+    }
+}
+
+impl<const N: usize> HeaplessVec<u8, N> {
+    pub const fn const_new() -> Self {
+        Self {
+            length: 0,
+            data: [0u8; N],
+        }
+    }
+
+    pub const fn repeat(n: u8) -> Self {
+        let mut vec = Self::const_new();
+        let mut i = 0;
+        while i < N {
+            vec.data[i] = n;
+            vec.length += 1;
+            i += 1;
+        }
+        vec
     }
 }
 

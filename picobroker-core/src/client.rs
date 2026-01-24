@@ -16,6 +16,12 @@ impl From<HeaplessString<MAX_CLIENT_ID_LENGTH>> for ClientId
     }
 }
 
+impl ClientId {
+    pub const fn new(value: HeaplessString<MAX_CLIENT_ID_LENGTH>) -> Self {
+        ClientId(value)
+    }
+}
+
 impl TryFrom<&str> for ClientId {
     type Error = Error;
 

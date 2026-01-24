@@ -12,7 +12,7 @@ use crate::protocol::{HeaplessString, HeaplessVec};
 pub struct TopicName<const MAX_TOPIC_NAME_LENGTH: usize>(HeaplessString<MAX_TOPIC_NAME_LENGTH>);
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize> TopicName<MAX_TOPIC_NAME_LENGTH> {
-    pub fn new(name: HeaplessString<MAX_TOPIC_NAME_LENGTH>) -> Self {
+    pub const fn new(name: HeaplessString<MAX_TOPIC_NAME_LENGTH>) -> Self {
         TopicName(name)
     }
 }
