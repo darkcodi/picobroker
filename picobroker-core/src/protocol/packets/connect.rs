@@ -47,8 +47,6 @@ impl ConnectFlags {
 ///   Password           (binary data)    [if Password Flag = 1]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
-    pub protocol_name: &'static str,
-    pub protocol_level: u8,
     pub connect_flags: ConnectFlags,
     pub keep_alive: u16,
     pub client_id: ClientId,
@@ -70,7 +68,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         // calculate remaining length
         let mut remaining_length = 0;
-        remaining_length += 2 + self.protocol_name.len(); // Protocol Name
+        remaining_length += 2 + MQTT_PROTOCOL_NAME.len(); // Protocol Name
         remaining_length += 1; // Protocol Level
         remaining_length += 1; // Connect Flags
         remaining_length += 2; // Keep Alive
@@ -96,8 +94,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         offset += int_len;
 
         // write variable header
-        write_string(&self.protocol_name, buffer, &mut offset)?;
-        buffer[offset] = self.protocol_level;
+        write_string(MQTT_PROTOCOL_NAME, buffer, &mut offset)?;
+        buffer[offset] = MQTT_3_1_1_PROTOCOL_LEVEL;
         offset += 1;
         buffer[offset] = self.connect_flags.bits();
         offset += 1;
@@ -291,8 +289,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }
 
         Ok(Self {
-            protocol_name: MQTT_PROTOCOL_NAME,
-            protocol_level,
             connect_flags,
             keep_alive,
             client_id,
@@ -306,7 +302,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
     pub const fn estimate_struct_size() -> usize {
-        const BASE: usize = 144;
+        const BASE: usize = 128;
 
         const fn ceil_div(n: usize, d: usize) -> usize {
             if n == 0 { 0 } else { (n + d - 1) / d }
@@ -414,80 +410,80 @@ mod tests {
     #[test]
     fn test_connect_packet_struct_size() {
         // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
-        validate_size_of_struct!(1, 1, 152);
-        validate_size_of_struct!(1, 8, 152);
-        validate_size_of_struct!(1, 9, 160);
-        validate_size_of_struct!(1, 16, 160);
-        validate_size_of_struct!(1, 17, 168);
-        validate_size_of_struct!(1, 24, 168);
-        validate_size_of_struct!(1, 25, 176);
-        validate_size_of_struct!(1, 32, 176);
-        validate_size_of_struct!(1, 33, 184);
-        validate_size_of_struct!(1, 40, 184);
-        validate_size_of_struct!(1, 41, 192);
-        validate_size_of_struct!(1, 48, 192);
-        validate_size_of_struct!(1, 49, 200);
-        validate_size_of_struct!(1, 56, 200);
-        validate_size_of_struct!(1, 57, 208);
-        validate_size_of_struct!(1, 64, 208);
-        validate_size_of_struct!(1, 65, 216);
-        validate_size_of_struct!(1, 72, 216);
-        validate_size_of_struct!(1, 73, 224);
-        validate_size_of_struct!(1, 80, 224);
-        validate_size_of_struct!(1, 81, 232);
-        validate_size_of_struct!(1, 88, 232);
-        validate_size_of_struct!(1, 89, 240);
-        validate_size_of_struct!(1, 96, 240);
-        validate_size_of_struct!(1, 97, 248);
-        validate_size_of_struct!(1, 104, 248);
-        validate_size_of_struct!(1, 105, 256);
-        validate_size_of_struct!(1, 112, 256);
-        validate_size_of_struct!(1, 113, 264);
-        validate_size_of_struct!(1, 120, 264);
-        validate_size_of_struct!(1, 121, 272);
-        validate_size_of_struct!(1, 128, 272);
+        validate_size_of_struct!(1, 1, 136);
+        validate_size_of_struct!(1, 8, 136);
+        validate_size_of_struct!(1, 9, 144);
+        validate_size_of_struct!(1, 16, 144);
+        validate_size_of_struct!(1, 17, 152);
+        validate_size_of_struct!(1, 24, 152);
+        validate_size_of_struct!(1, 25, 160);
+        validate_size_of_struct!(1, 32, 160);
+        validate_size_of_struct!(1, 33, 168);
+        validate_size_of_struct!(1, 40, 168);
+        validate_size_of_struct!(1, 41, 176);
+        validate_size_of_struct!(1, 48, 176);
+        validate_size_of_struct!(1, 49, 184);
+        validate_size_of_struct!(1, 56, 184);
+        validate_size_of_struct!(1, 57, 192);
+        validate_size_of_struct!(1, 64, 192);
+        validate_size_of_struct!(1, 65, 200);
+        validate_size_of_struct!(1, 72, 200);
+        validate_size_of_struct!(1, 73, 208);
+        validate_size_of_struct!(1, 80, 208);
+        validate_size_of_struct!(1, 81, 216);
+        validate_size_of_struct!(1, 88, 216);
+        validate_size_of_struct!(1, 89, 224);
+        validate_size_of_struct!(1, 96, 224);
+        validate_size_of_struct!(1, 97, 232);
+        validate_size_of_struct!(1, 104, 232);
+        validate_size_of_struct!(1, 105, 240);
+        validate_size_of_struct!(1, 112, 240);
+        validate_size_of_struct!(1, 113, 248);
+        validate_size_of_struct!(1, 120, 248);
+        validate_size_of_struct!(1, 121, 256);
+        validate_size_of_struct!(1, 128, 256);
 
         // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
-        validate_size_of_struct!(1, 1, 152);
-        validate_size_of_struct!(8, 1, 152);
-        validate_size_of_struct!(9, 1, 176);
-        validate_size_of_struct!(16, 1, 176);
-        validate_size_of_struct!(17, 1, 200);
-        validate_size_of_struct!(24, 1, 200);
-        validate_size_of_struct!(25, 1, 224);
-        validate_size_of_struct!(32, 1, 224);
-        validate_size_of_struct!(33, 1, 248);
-        validate_size_of_struct!(40, 1, 248);
-        validate_size_of_struct!(41, 1, 272);
-        validate_size_of_struct!(48, 1, 272);
-        validate_size_of_struct!(49, 1, 296);
-        validate_size_of_struct!(56, 1, 296);
-        validate_size_of_struct!(57, 1, 320);
-        validate_size_of_struct!(64, 1, 320);
-        validate_size_of_struct!(65, 1, 344);
-        validate_size_of_struct!(72, 1, 344);
-        validate_size_of_struct!(73, 1, 368);
-        validate_size_of_struct!(80, 1, 368);
-        validate_size_of_struct!(81, 1, 392);
-        validate_size_of_struct!(88, 1, 392);
-        validate_size_of_struct!(89, 1, 416);
-        validate_size_of_struct!(96, 1, 416);
-        validate_size_of_struct!(97, 1, 440);
-        validate_size_of_struct!(104, 1, 440);
-        validate_size_of_struct!(105, 1, 464);
-        validate_size_of_struct!(112, 1, 464);
-        validate_size_of_struct!(113, 1, 488);
-        validate_size_of_struct!(120, 1, 488);
-        validate_size_of_struct!(121, 1, 512);
-        validate_size_of_struct!(128, 1, 512);
+        validate_size_of_struct!(1, 1, 136);
+        validate_size_of_struct!(8, 1, 136);
+        validate_size_of_struct!(9, 1, 160);
+        validate_size_of_struct!(16, 1, 160);
+        validate_size_of_struct!(17, 1, 184);
+        validate_size_of_struct!(24, 1, 184);
+        validate_size_of_struct!(25, 1, 208);
+        validate_size_of_struct!(32, 1, 208);
+        validate_size_of_struct!(33, 1, 232);
+        validate_size_of_struct!(40, 1, 232);
+        validate_size_of_struct!(41, 1, 256);
+        validate_size_of_struct!(48, 1, 256);
+        validate_size_of_struct!(49, 1, 280);
+        validate_size_of_struct!(56, 1, 280);
+        validate_size_of_struct!(57, 1, 304);
+        validate_size_of_struct!(64, 1, 304);
+        validate_size_of_struct!(65, 1, 328);
+        validate_size_of_struct!(72, 1, 328);
+        validate_size_of_struct!(73, 1, 352);
+        validate_size_of_struct!(80, 1, 352);
+        validate_size_of_struct!(81, 1, 376);
+        validate_size_of_struct!(88, 1, 376);
+        validate_size_of_struct!(89, 1, 400);
+        validate_size_of_struct!(96, 1, 400);
+        validate_size_of_struct!(97, 1, 424);
+        validate_size_of_struct!(104, 1, 424);
+        validate_size_of_struct!(105, 1, 448);
+        validate_size_of_struct!(112, 1, 448);
+        validate_size_of_struct!(113, 1, 472);
+        validate_size_of_struct!(120, 1, 472);
+        validate_size_of_struct!(121, 1, 496);
+        validate_size_of_struct!(128, 1, 496);
 
         // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
-        validate_size_of_struct!(30, 128, 344);
-        validate_size_of_struct!(32, 128, 344);
-        validate_size_of_struct!(33, 128, 368);
-        validate_size_of_struct!(30, 256, 472);
-        validate_size_of_struct!(32, 256, 472);
-        validate_size_of_struct!(33, 256, 496);
+        validate_size_of_struct!(30, 128, 328);
+        validate_size_of_struct!(32, 128, 328);
+        validate_size_of_struct!(33, 128, 352);
+        validate_size_of_struct!(30, 256, 456);
+        validate_size_of_struct!(32, 256, 456);
+        validate_size_of_struct!(33, 256, 480);
     }
 
     // ===== SIZE OF PACKET BYTES TEST =====
@@ -510,8 +506,6 @@ mod tests {
 
     fn max_packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>() -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         ConnectPacket {
-            protocol_name: MQTT_PROTOCOL_NAME,
-            protocol_level: MQTT_3_1_1_PROTOCOL_LEVEL,
             connect_flags: ConnectFlags::ALL_FLAGS,
             keep_alive: 60,
             client_id: ClientId::from(max_string('c')),
@@ -620,13 +614,6 @@ mod tests {
     // ===== PROTOCOL NAME FIELD TESTS =====
 
     #[test]
-    fn test_protocol_name_valid_mqtt() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
-        let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.protocol_name, "MQTT");
-    }
-
-    #[test]
     fn test_protocol_name_invalid_wrong_chars() {
         let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 53 04 02 00 3C 00 03 61 62 63");
         let result = decode_test(&bytes);
@@ -641,13 +628,6 @@ mod tests {
     }
 
     // ===== PROTOCOL LEVEL FIELD TESTS =====
-
-    #[test]
-    fn test_protocol_level_valid_311() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
-        let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.protocol_level, 4);
-    }
 
     #[test]
     fn test_protocol_level_invalid_31() {
