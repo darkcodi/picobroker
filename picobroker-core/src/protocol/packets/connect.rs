@@ -314,6 +314,30 @@ mod tests {
 
     // ===== HELPER FUNCTIONS =====
 
+    fn hex_to_bytes(hex: &str) -> Vec<u8, MAX_PAYLOAD_SIZE> {
+        let mut result = Vec::new();
+        for s in hex.split_whitespace() {
+            if let Ok(b) = u8::from_str_radix(s, 16) {
+                let _ = result.push(b);
+            }
+        }
+        result
+    }
+
+    /// Base packet: minimal valid CONNECT with clean session
+    const fn base_packet() -> [u8; 17] {
+        [
+            0x10, 0x0F,             // Fixed header (type=CONNECT, remaining length = 15)
+            0x00, 0x04,             // Protocol Name Length
+            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
+            0x04,                   // Protocol Level (3.1.1)
+            0b0000_0010,            // Connect Flags (Clean Session)
+            0x00, 0x3C,             // Keep Alive (60 seconds)
+            0x00, 0x03,             // Client ID Length
+            0x61, 0x62, 0x63,       // Client ID "abc"
+        ]
+    }
+
     fn roundtrip_test(bytes: &[u8]) -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         if let Err(ref e) = result {
@@ -334,1099 +358,384 @@ mod tests {
         ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
     }
 
-    // ===== BASIC ROUNDTRIP TESTS =====
+    // ===== PROTOCOL NAME FIELD TESTS =====
 
     #[test]
-    fn test_connect_packet_roundtrip() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "abc");
+    fn test_protocol_name_valid_mqtt() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.protocol_name, "MQTT");
+    }
+
+    #[test]
+    fn test_protocol_name_invalid_wrong_chars() {
+        let mut bytes = base_packet();
+        bytes[7] = 0x53; // Change "MQTT" to "MQTS"
+        let result = decode_test(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
+    }
+
+    #[test]
+    fn test_protocol_name_invalid_lowercase() {
+        let mut bytes = base_packet();
+        // Change to lowercase "mqtt"
+        bytes[4] = 0x6D; bytes[5] = 0x71; bytes[6] = 0x74; bytes[7] = 0x74;
+        let result = decode_test(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
+    }
+
+    // ===== PROTOCOL LEVEL FIELD TESTS =====
+
+    #[test]
+    fn test_protocol_level_valid_311() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.protocol_level, 4);
+    }
+
+    #[test]
+    fn test_protocol_level_invalid_31() {
+        let mut bytes = base_packet();
+        bytes[8] = 0x03; // MQTT 3.1
+        let result = decode_test(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::UnsupportedProtocolLevel { level: 3 })));
+    }
+
+    #[test]
+    fn test_protocol_level_invalid_50() {
+        let mut bytes = base_packet();
+        bytes[8] = 0x05; // MQTT 5.0
+        let result = decode_test(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::UnsupportedProtocolLevel { level: 5 })));
+    }
+
+    // ===== CONNECT FLAGS: CLEAN SESSION BIT =====
+
+    #[test]
+    fn test_connect_flag_clean_session_set() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
-        assert_eq!(packet.keep_alive, 60);
     }
 
     #[test]
-    fn test_connect_packet_with_username() {
-        let connect_bytes: [u8; 24] = [
-            0x10, 0x16, // Fixed header (remaining length = 22)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x05, // Username Length
-            0x75, 0x73, 0x65, 0x72, 0x31, // Username "user1"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "abc");
-        assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("user1"));
-        assert!(packet.password.is_none());
-        assert!(packet.connect_flags.contains(ConnectFlags::USERNAME));
+    fn test_connect_flag_clean_session_not_set() {
+        let mut bytes = base_packet();
+        bytes[9] = 0b0000_0000; // No flags
+        let packet = roundtrip_test(&bytes);
+        assert!(!packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
     }
 
     #[test]
-    fn test_connect_packet_with_username_and_password() {
-        let connect_bytes: [u8; 31] = [
-            0x10, 0x1D, // Fixed header (remaining length = 29)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1100_0010, // Connect Flags (Username + Password + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x05, // Username Length
-            0x75, 0x73, 0x65, 0x72, 0x31, // Username "user1"
-            0x00, 0x05, // Password Length
-            0x70, 0x61, 0x73, 0x73, 0x31, // Password "pass1"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "abc");
-        assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("user1"));
-        assert_eq!(packet.password.as_ref().map(|p| p.as_slice()), Some(b"pass1".as_ref()));
-        assert!(packet.connect_flags.contains(ConnectFlags::USERNAME));
-        assert!(packet.connect_flags.contains(ConnectFlags::PASSWORD));
+    fn test_connect_flag_reserved_bit_set() {
+        let mut bytes = base_packet();
+        bytes[9] = 0b0000_0011; // Set reserved bit 0
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
+    // ===== CONNECT FLAGS: WILL FLAG =====
+
     #[test]
-    fn test_connect_packet_with_will_message_qos0() {
-        let connect_bytes: [u8; 34] = [
-            0x10, 0x20, // Fixed header (remaining length = 32)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session, QoS 0)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-            0x00, 0x07, // Will Payload Length
-            0x77, 0x69, 0x6C, 0x6C, 0x6D, 0x73, 0x67, // Will Payload "willmsg"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "abc");
-        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
-        assert_eq!(packet.will_payload.as_ref().map(|p| p.as_slice()), Some(b"willmsg".as_ref()));
+    fn test_connect_flag_will_flag_set() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
+    }
+
+    #[test]
+    fn test_connect_flag_will_flag_not_set() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert!(!packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
+    }
+
+    // ===== CONNECT FLAGS: WILL QoS =====
+
+    #[test]
+    fn test_connect_flag_will_qos_0() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_QOS_2));
     }
 
     #[test]
-    fn test_connect_packet_with_will_message_qos1() {
-        let connect_bytes: [u8; 34] = [
-            0x10, 0x20, // Fixed header (remaining length = 32)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_1110, // Connect Flags (Will + Clean Session, QoS 1)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-            0x00, 0x07, // Will Payload Length
-            0x77, 0x69, 0x6C, 0x6C, 0x6D, 0x73, 0x67, // Will Payload "willmsg"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
+    fn test_connect_flag_will_qos_1() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 0E 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
     }
 
     #[test]
-    fn test_connect_packet_with_will_message_qos2() {
-        let connect_bytes: [u8; 34] = [
-            0x10, 0x20, // Fixed header (remaining length = 32)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0001_0110, // Connect Flags (Will + Clean Session, QoS 2)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-            0x00, 0x07, // Will Payload Length
-            0x77, 0x69, 0x6C, 0x6C, 0x6D, 0x73, 0x67, // Will Payload "willmsg"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
+    fn test_connect_flag_will_qos_2() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 16 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_2));
     }
 
+    // ===== CONNECT FLAGS: WILL RETAIN =====
+
     #[test]
-    fn test_connect_packet_with_will_retain() {
-        let connect_bytes: [u8; 34] = [
-            0x10, 0x20, // Fixed header (remaining length = 32)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0010_0110, // Connect Flags (Will + Will Retain + Clean Session, QoS 0)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-            0x00, 0x07, // Will Payload Length
-            0x77, 0x69, 0x6C, 0x6C, 0x6D, 0x73, 0x67, // Will Payload "willmsg"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
+    fn test_connect_flag_will_retain_set() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 26 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
     }
 
     #[test]
-    fn test_connect_packet_with_all_fields() {
-        let connect_bytes: [u8; 48] = [
-            0x10, 0x2E, // Fixed header (remaining length = 46)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1110_1110, // Connect Flags (All flags except reserved)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-            0x00, 0x07, // Will Payload Length
-            0x77, 0x69, 0x6C, 0x6C, 0x6D, 0x73, 0x67, // Will Payload "willmsg"
-            0x00, 0x05, // Username Length
-            0x75, 0x73, 0x65, 0x72, 0x31, // Username "user1"
-            0x00, 0x05, // Password Length
-            0x70, 0x61, 0x73, 0x73, 0x31, // Password "pass1"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "abc");
-        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
-        assert_eq!(packet.will_payload.as_ref().map(|p| p.as_slice()), Some(b"willmsg".as_ref()));
-        assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("user1"));
-        assert_eq!(packet.password.as_ref().map(|p| p.as_slice()), Some(b"pass1".as_ref()));
-        assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
+    fn test_connect_flag_will_retain_not_set() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert!(!packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
+    }
+
+    // ===== CONNECT FLAGS: USERNAME FLAG =====
+
+    #[test]
+    fn test_connect_flag_username_set() {
+        let bytes = hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::USERNAME));
+    }
+
+    #[test]
+    fn test_connect_flag_username_not_set() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert!(!packet.connect_flags.contains(ConnectFlags::USERNAME));
+    }
+
+    // ===== CONNECT FLAGS: PASSWORD FLAG =====
+
+    #[test]
+    fn test_connect_flag_password_set() {
+        let bytes = hex_to_bytes("10 1C 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 04 70 61 73 73");
+        let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::PASSWORD));
     }
 
     #[test]
-    fn test_connect_packet_clean_session_with_empty_client_id() {
-        let connect_bytes: [u8; 14] = [
-            0x10, 0x0C, // Fixed header (remaining length = 12)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x00, // Client ID Length (empty)
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "");
-        assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
+    fn test_connect_flag_password_not_set() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert!(!packet.connect_flags.contains(ConnectFlags::PASSWORD));
+    }
+
+    // ===== KEEP ALIVE FIELD TESTS =====
+
+    #[test]
+    fn test_keep_alive_value_60() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.keep_alive, 60);
     }
 
     #[test]
-    fn test_connect_packet_no_flags() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0000, // Connect Flags (none)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "abc");
-        assert!(!packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
-    }
-
-    #[test]
-    fn test_connect_packet_keep_alive_zero() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x00, // Keep Alive (0 - disabled)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_keep_alive_value_zero() {
+        let mut bytes = base_packet();
+        bytes[10] = 0x00; bytes[11] = 0x00;
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 0);
     }
 
     #[test]
-    fn test_connect_packet_keep_alive_max() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0xFF, 0xFF, // Keep Alive (65535 - max)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_keep_alive_value_max() {
+        let mut bytes = base_packet();
+        bytes[10] = 0xFF; bytes[11] = 0xFF;
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 65535);
     }
 
-    // ===== INVALID PROTOCOL NAME TESTS =====
+    // ===== CLIENT ID FIELD TESTS =====
 
     #[test]
-    fn test_connect_packet_invalid_protocol_name() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x53, // Protocol Name "MQTS" (wrong!)
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
+    fn test_client_id_value_abc() {
+        let bytes = base_packet();
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.client_id.as_str(), "abc");
     }
 
     #[test]
-    fn test_connect_packet_protocol_name_wrong_case() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x6D, 0x71, 0x74, 0x74, // Protocol Name "mqtt" (lowercase)
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
-    }
-
-    // ===== INVALID PROTOCOL LEVEL TESTS =====
-
-    #[test]
-    fn test_connect_packet_unsupported_protocol_level() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x03, // Protocol Level (3.1 - unsupported)
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = decode_test(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::UnsupportedProtocolLevel { level }) => {
-                assert_eq!(level, 3);
-            }
-            _ => panic!("Expected UnsupportedProtocolLevel error"),
-        }
+    fn test_client_id_empty_with_clean_session() {
+        let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 02 00 3C 00 00");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.client_id.as_str(), "");
     }
 
     #[test]
-    fn test_connect_packet_protocol_level_5() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x05, // Protocol Level (5.0 - unsupported)
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = decode_test(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::UnsupportedProtocolLevel { level }) => {
-                assert_eq!(level, 5);
-            }
-            _ => panic!("Expected UnsupportedProtocolLevel error"),
-        }
-    }
-
-    // ===== RESERVED BIT TESTS =====
-
-    #[test]
-    fn test_connect_packet_reserved_bit_set() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0011, // Connect Flags (Reserved bit 0 is set!)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+    fn test_client_id_empty_without_clean_session() {
+        let mut bytes = base_packet();
+        bytes[9] = 0b0000_0000; // No clean session
+        bytes[1] = 0x0C;
+        bytes[12] = 0x00; bytes[13] = 0x00;
+        let bytes = &bytes[..14];
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
     #[test]
-    fn test_connect_packet_all_reserved_bits_set() {
-        // Test with bits 3 and 6 in QoS field (which are reserved)
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_1010, // Connect Flags (bit 3 set, which is in the QoS field)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        // Note: This should actually be valid as bit 3 is WILL_QOS_1
-        let packet = roundtrip_test(&connect_bytes);
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
-    }
+    fn test_client_id_too_long() {
+        let mut bytes = base_packet();
+        bytes[12] = 0x00; bytes[13] = 32; // Set client ID length (too long)
+        let mut extended: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::new();
+        extended.extend_from_slice(&bytes[..14]).unwrap(); // Copy up to client ID length field
+        extended.extend_from_slice(&[b'a'; 32]).unwrap(); // Add client ID data
+        extended[1] = (extended.len() - 2) as u8; // Update remaining length
 
-    // ===== CLIENT ID VALIDATION TESTS =====
-
-    #[test]
-    fn test_connect_packet_no_clean_session_empty_client_id() {
-        let connect_bytes: [u8; 14] = [
-            0x10, 0x0C, // Fixed header (remaining length = 12)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0000, // Connect Flags (no clean session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x00, // Client ID Length (empty)
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::Other) => {
-                // Error::InvalidClientIdLength gets converted to PacketEncodingError::Other
-            }
-            _ => panic!("Expected error for empty client ID without clean session"),
-        }
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&extended);
+        assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
     #[test]
-    fn test_connect_packet_client_id_too_long() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x1A, // Fixed header (remaining length = 26)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x20, // Client ID Length (32 - too long!)
-        ]).unwrap();
-        // Add 32 bytes for client ID
-        connect_bytes.extend_from_slice(&[b'a'; 32]);
-
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::Other) => {
-                // Error::ClientIdLengthExceeded gets converted to PacketEncodingError::Other
-            }
-            _ => panic!("Expected ClientIdLengthExceeded error"),
-        }
-    }
-
-    #[test]
-    fn test_connect_packet_client_id_exactly_max_length() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x23, // Fixed header (remaining length = 35)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 23u8, // Client ID Length (exactly max for ClientId)
-        ]).unwrap();
-        // Add 23 bytes for client ID (MAX_CLIENT_ID_LENGTH in client.rs)
-        connect_bytes.extend_from_slice(&[b'a'; 23]).unwrap();
-
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_client_id_exactly_max_length() {
+        let bytes = hex_to_bytes("10 23 00 04 4D 51 54 54 04 02 00 3C 00 17 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.len(), 23);
     }
 
-    // ===== WILL MESSAGE TESTS =====
+    #[test]
+    fn test_client_id_unicode() {
+        let bytes = hex_to_bytes("10 15 00 04 4D 51 54 54 04 02 00 3C 00 09 E4 BD A0 E5 A5 BD E4 B8 96");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.client_id.as_str(), "你好世");
+    }
+
+    // ===== WILL TOPIC FIELD TESTS =====
 
     #[test]
-    fn test_connect_packet_will_flag_without_will_fields() {
-        // If Will Flag is set, Will Topic and Will Payload must be present
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will Flag set)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            // Missing: Will Topic and Will Payload
-        ];
-        let result = decode_test(&connect_bytes);
-        // Should fail because packet ends before reading will topic
-        assert!(result.is_err());
+    fn test_will_topic_valid() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
     }
 
     #[test]
-    fn test_connect_packet_will_topic_too_long() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x26, // Fixed header (remaining length = 38)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 32u8, // Will Topic Length (32 - too long!)
-        ]).unwrap();
-        // Add 32 bytes for will topic
-        connect_bytes.extend_from_slice(&[b'w'; 32]);
-        // Add will payload length and payload
-        connect_bytes.push(0x00);
-        connect_bytes.push(0x05);
-        connect_bytes.extend_from_slice(b"hello");
-
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+    fn test_will_topic_empty() {
+        let bytes = hex_to_bytes("10 11 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 00");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
     #[test]
-    fn test_connect_packet_will_topic_empty() {
-        let connect_bytes: [u8; 19] = [
-            0x10, 0x13, // Fixed header (remaining length = 19)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x00, // Will Topic Length (empty - invalid!)
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+    fn test_will_topic_too_long() {
+        let bytes = hex_to_bytes("10 38 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 20 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 00 05 68 65 6C 6C 6F");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
-    #[test]
-    fn test_connect_packet_will_payload_too_large() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0xFF, 0x02, // Fixed header (remaining length = 511)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x05, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, // Will Topic "willt"
-            0x01, 0x00, // Will Payload Length (256 - too large, max is 128)
-        ]).unwrap();
-        // Add 256 bytes for will payload
-        connect_bytes.extend_from_slice(&[b'x'; 256]);
+    // ===== WILL PAYLOAD FIELD TESTS =====
 
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::Other) => {
-                // Error::PacketTooLarge gets converted to PacketEncodingError::Other
-            }
-            _ => panic!("Expected PacketTooLarge error"),
-        }
+    #[test]
+    fn test_will_payload_valid() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.will_payload.as_ref().map(|p| p.as_slice()), Some(b"willmsg".as_ref()));
     }
 
     #[test]
-    fn test_connect_packet_will_payload_exactly_max_size() {
-        // Use heapless::Vec with larger capacity for test
-        const TEST_BUFFER_SIZE: usize = 256;
-        let mut connect_bytes: Vec<u8, TEST_BUFFER_SIZE> = Vec::from_slice(&[
-            0x10, 0x98, 0x01, // Fixed header (remaining length = 152)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x05, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, // Will Topic "willt"
-            0x00, 128u8, // Will Payload Length (exactly max)
-        ]).unwrap();
-        // Add 128 bytes for will payload
-        connect_bytes.extend_from_slice(&[b'x'; 128]).unwrap();
-
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.will_payload.as_ref().unwrap().len(), 128);
-    }
-
-    #[test]
-    fn test_connect_packet_will_qos_without_will_flag() {
-        // Per spec: Will QoS bits must be 0 if Will Flag is 0
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_1010, // Connect Flags (Will QoS 1 set but Will Flag not set)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        // This is actually valid per the spec - the server should ignore Will QoS/Retain if Will Flag is 0
-        let packet = roundtrip_test(&connect_bytes);
-        assert!(!packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
-        assert!(packet.will_topic.is_none());
-    }
-
-    #[test]
-    fn test_connect_packet_will_retain_without_will_flag() {
-        // Per spec: Will Retain must be 0 if Will Flag is 0
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0010_0010, // Connect Flags (Will Retain set but Will Flag not set)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        // This is actually valid per the spec - the server should ignore Will Retain if Will Flag is 0
-        let packet = roundtrip_test(&connect_bytes);
-        assert!(!packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
-        assert!(packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
-        assert!(packet.will_topic.is_none());
-    }
-
-    #[test]
-    fn test_connect_packet_empty_will_payload() {
-        // Empty will payload is valid
-        let connect_bytes: [u8; 27] = [
-            0x10, 0x19, // Fixed header (remaining length = 25)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-            0x00, 0x00, // Will Payload Length (empty)
-        ];
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_will_payload_empty() {
+        let bytes = hex_to_bytes("10 19 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 00");
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.will_payload.as_ref().unwrap().len(), 0);
     }
 
-    // ===== USERNAME AND PASSWORD TESTS =====
-
     #[test]
-    fn test_connect_packet_username_too_long() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x22, // Fixed header (remaining length = 34)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 32u8, // Username Length (32 - too long!)
-        ]).unwrap();
-        // Add 32 bytes for username
-        connect_bytes.extend_from_slice(&[b'u'; 32]);
-
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+    fn test_will_payload_too_large() {
+        let bytes = hex_to_bytes("10 18 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 05 77 69 6C 6C 74 01 00 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
-    #[test]
-    fn test_connect_packet_username_exactly_max_length() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x2F, // Fixed header (remaining length = 47)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 30u8, // Username Length (exactly max)
-        ]).unwrap();
-        // Add 30 bytes for username
-        connect_bytes.extend_from_slice(&[b'u'; 30]);
+    // ===== USERNAME FIELD TESTS =====
 
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.username.as_ref().unwrap().len(), 30);
+    #[test]
+    fn test_username_value_user1() {
+        let bytes = hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("user1"));
     }
 
     #[test]
-    fn test_connect_packet_empty_username() {
-        // Empty username is technically valid per spec
-        let connect_bytes: [u8; 19] = [
-            0x10, 0x11, // Fixed header (remaining length = 17)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x00, // Username Length (empty)
-        ];
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_username_empty() {
+        let bytes = hex_to_bytes("10 11 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 00");
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().unwrap().len(), 0);
     }
 
     #[test]
-    fn test_connect_packet_password_too_long() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x26, // Fixed header (remaining length = 38)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0100_0010, // Connect Flags (Password + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 32u8, // Password Length (32 - too long!)
-        ]).unwrap();
-        // Add 32 bytes for password
-        connect_bytes.extend_from_slice(&[b'p'; 32]);
-
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+    fn test_username_too_long() {
+        let bytes = hex_to_bytes("10 31 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 20 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
     #[test]
-    fn test_connect_packet_password_exactly_max_length() {
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x2F, // Fixed header (remaining length = 47)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0100_0010, // Connect Flags (Password + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 30u8, // Password Length (exactly max)
-        ]).unwrap();
-        // Add 30 bytes for password
-        connect_bytes.extend_from_slice(&[b'p'; 30]);
-
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.password.as_ref().unwrap().len(), 30);
+    fn test_username_exactly_max_length() {
+        let bytes = hex_to_bytes("10 2F 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 1E 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.username.as_ref().unwrap().len(), 30);
     }
 
     #[test]
-    fn test_connect_packet_empty_password() {
-        // Empty password is technically valid per spec
-        let connect_bytes: [u8; 19] = [
-            0x10, 0x11, // Fixed header (remaining length = 17)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0100_0010, // Connect Flags (Password + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x00, // Password Length (empty)
-        ];
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_username_unicode() {
+        let bytes = hex_to_bytes("10 17 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 06 C3 B1 C3 A1 C3 A9");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.username.as_ref().unwrap().as_str(), "ñáé");
+    }
+
+    // ===== PASSWORD FIELD TESTS =====
+
+    #[test]
+    fn test_password_value_pass1() {
+        let bytes = hex_to_bytes("10 1D 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 05 70 61 73 73 31");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.password.as_ref().map(|p| p.as_slice()), Some(b"pass1".as_ref()));
+    }
+
+    #[test]
+    fn test_password_empty() {
+        let bytes = hex_to_bytes("10 18 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 00");
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.password.as_ref().unwrap().len(), 0);
     }
 
     #[test]
-    fn test_connect_packet_password_without_username() {
-        // Per spec: Password can be present without Username
-        let connect_bytes: [u8; 23] = [
-            0x10, 0x15, // Fixed header (remaining length = 21)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0100_0010, // Connect Flags (Password only, no Username)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x04, // Password Length
-            0x70, 0x61, 0x73, 0x73, // Password "pass"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert!(packet.username.is_none());
-        assert!(packet.password.is_some());
-    }
-
-    // ===== PACKET LENGTH VALIDATION TESTS =====
-
-    #[test]
-    fn test_connect_packet_invalid_remaining_length() {
-        // Test with incorrect remaining length (should be 0x0F but we use 0x0C)
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0C, // Fixed header (WRONG remaining length = 12 instead of 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::InvalidPacketLength { expected, actual }) => {
-                assert_eq!(expected, 12);
-                assert_eq!(actual, 15);
-            },
-            _ => panic!("Expected InvalidPacketLength error"),
-        }
-    }
-
-    #[test]
-    fn test_connect_packet_remaining_length_too_large() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x20, // Fixed header (remaining length = 32, but actual is 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        match result {
-            Err(PacketEncodingError::InvalidPacketLength { expected, actual }) => {
-                assert_eq!(expected, 32);
-                assert_eq!(actual, 15);
-            },
-            _ => panic!("Expected InvalidPacketLength error"),
-        }
-    }
-
-    #[test]
-    fn test_connect_packet_variable_length_encoding() {
-        // Note: We can't test multi-byte variable length encoding with MAX_TOPIC_NAME_LENGTH=30
-        // because the maximum packet size would be: 15 (base) + 32 (username field) = 47 bytes
-        // which is still less than 128. So this test just verifies basic functionality.
-        let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-            0x10, 0x2F, // Fixed header (remaining length = 47)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 30u8, // Username Length (max)
-        ]).unwrap();
-
-        // Add 30 bytes for username (max for MAX_TOPIC_NAME_LENGTH)
-        connect_bytes.extend_from_slice(&[b'u'; 30]).unwrap();
-
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.username.as_ref().unwrap().len(), 30);
-    }
-
-    // ===== INCOMPLETE PACKET TESTS =====
-
-    #[test]
-    fn test_connect_packet_incomplete_fixed_header() {
-        let connect_bytes: [u8; 1] = [
-            0x10, // Only packet type, missing remaining length
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_connect_packet_incomplete_protocol_name() {
-        let connect_bytes: [u8; 4] = [
-            0x10, 0x02, // Fixed header (remaining length = 2, but we need more)
-            0x00, 0x04, // Protocol Name Length
-            // Missing: actual protocol name
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
+    fn test_password_too_long() {
+        let bytes = hex_to_bytes("10 38 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 20 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(result, Err(PacketEncodingError::Other)));
     }
 
     #[test]
-    fn test_connect_packet_incomplete_protocol_level() {
-        let connect_bytes: [u8; 8] = [
-            0x10, 0x06, // Fixed header (remaining length = 6)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            // Missing: Protocol Level
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket)));
+    fn test_password_exactly_max_length() {
+        let bytes = hex_to_bytes("10 36 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 1E 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
+        let packet = roundtrip_test(&bytes);
+        assert_eq!(packet.password.as_ref().unwrap().len(), 30);
     }
 
     #[test]
-    fn test_connect_packet_incomplete_connect_flags() {
-        let connect_bytes: [u8; 9] = [
-            0x10, 0x07, // Fixed header (remaining length = 7)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            // Missing: Connect Flags
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket)));
-    }
-
-    #[test]
-    fn test_connect_packet_incomplete_keep_alive() {
-        let connect_bytes: [u8; 10] = [
-            0x10, 0x08, // Fixed header (remaining length = 8)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            // Missing: Keep Alive (2 bytes)
-        ];
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&connect_bytes);
-        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket)));
-    }
-
-    #[test]
-    fn test_connect_packet_incomplete_client_id() {
-        let connect_bytes: [u8; 16] = [
-            0x10, 0x0B, // Fixed header (remaining length = 11)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x05, // Client ID Length (5)
-            0x61, 0x62, // Client ID "ab" (incomplete, should be 5 bytes)
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_connect_packet_incomplete_will_topic() {
-        let connect_bytes: [u8; 23] = [
-            0x10, 0x11, // Fixed header (remaining length = 17)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0110, // Connect Flags (Will + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Will Topic Length (6)
-            0x77, 0x69, 0x6C, 0x6C, // Will Topic "will" (incomplete, should be 6 bytes)
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_connect_packet_incomplete_username() {
-        let connect_bytes: [u8; 22] = [
-            0x10, 0x12, // Fixed header (remaining length = 18)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Username Length (6)
-            0x75, 0x73, 0x65, // Username "use" (incomplete, should be 6 bytes)
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_connect_packet_incomplete_password() {
-        let connect_bytes: [u8; 29] = [
-            0x10, 0x17, // Fixed header (remaining length = 23)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1100_0010, // Connect Flags (Username + Password + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x05, // Username Length
-            0x75, 0x73, 0x65, 0x72, 0x31, // Username "user1"
-            0x00, 0x06, // Password Length (6)
-            0x70, 0x61, 0x73, // Password "pas" (incomplete, should be 6 bytes)
-        ];
-        let result = decode_test(&connect_bytes);
-        assert!(result.is_err());
-    }
-
-    // ===== EDGE CASE TESTS =====
-
-    #[test]
-    fn test_connect_packet_minimal_size() {
-        // Smallest valid CONNECT packet
-        let connect_bytes: [u8; 15] = [
-            0x10, 0x0D, // Fixed header (remaining length = 13)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0000, // Connect Flags (none)
-            0x00, 0x00, // Keep Alive (0)
-            0x00, 0x01, // Client ID Length
-            0x61, // Client ID "a"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "a");
-        assert_eq!(packet.keep_alive, 0);
-    }
-
-    #[test]
-    fn test_connect_packet_with_will_all_qos_levels() {
-        for (qos_flag, expected_qos) in [
-            (0b0000_0110u8, QoS::AtMostOnce),    // QoS 0
-            (0b0000_1110u8, QoS::AtLeastOnce),   // QoS 1
-            (0b0001_0110u8, QoS::ExactlyOnce),   // QoS 2
-        ] {
-            let mut connect_bytes: Vec<u8, MAX_PAYLOAD_SIZE> = Vec::from_slice(&[
-                0x10, 0x20, // Fixed header (remaining length = 32)
-                0x00, 0x04, // Protocol Name Length
-                0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-                0x04, // Protocol Level
-                qos_flag, // Connect Flags (Will with different QoS)
-                0x00, 0x3C, // Keep Alive (60 seconds)
-                0x00, 0x03, // Client ID Length
-                0x61, 0x62, 0x63, // Client ID "abc"
-                0x00, 0x06, // Will Topic Length
-                0x77, 0x69, 0x6C, 0x6C, 0x74, 0x70, // Will Topic "willtp"
-                0x00, 0x07, // Will Payload Length
-                0x77, 0x69, 0x6C, 0x6C, 0x6D, 0x73, 0x67, // Will Payload "willmsg"
-            ]).unwrap();
-
-            let packet = roundtrip_test(&connect_bytes);
-            assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
-            // Verify the QoS was decoded correctly by checking the encoded flags match
-            assert_eq!(packet.connect_flags.bits() & 0b0001_1000, qos_flag & 0b0001_1000);
-        }
-    }
-
-    #[test]
-    fn test_connect_packet_unicode_client_id() {
-        let connect_bytes: [u8; 23] = [
-            0x10, 0x15, // Fixed header (remaining length = 21)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x09, // Client ID Length (9 bytes - 3 UTF-8 characters)
-            0xE4, 0xBD, 0xA0, 0xE5, 0xA5, 0xBD, 0xE4, 0xB8, 0x96, // Client ID "你好世" (Chinese)
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.len(), 9); // 9 bytes in UTF-8
-        assert_eq!(packet.client_id.as_str(), "你好世");
-    }
-
-    #[test]
-    fn test_connect_packet_unicode_username() {
-        let connect_bytes: [u8; 25] = [
-            0x10, 0x17, // Fixed header (remaining length = 23)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1000_0010, // Connect Flags (Username + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x06, // Username Length (6 bytes - 3 UTF-8 characters)
-            0xC3, 0xB1, 0xC3, 0xA1, 0xC3, 0xA9, // Username "ñáé" (Spanish with accents)
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.username.as_ref().unwrap().len(), 6);
-        assert_eq!(packet.username.as_ref().unwrap().as_str(), "ñáé");
-    }
-
-    #[test]
-    fn test_connect_packet_binary_password() {
-        let connect_bytes: [u8; 34] = [
-            0x10, 0x20, // Fixed header (remaining length = 32)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1100_0010, // Connect Flags (Username + Password + Clean Session)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-            0x00, 0x05, // Username Length
-            0x75, 0x73, 0x65, 0x72, 0x31, // Username "user1"
-            0x00, 0x08, // Password Length
-            0x00, 0x01, 0xFF, 0xFE, 0x00, 0xFF, 0x01, 0x02, // Password with binary data
-        ];
-        let packet = roundtrip_test(&connect_bytes);
+    fn test_password_binary_data() {
+        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 08 00 01 FF FE 00 FF 01 02");
+        let packet = roundtrip_test(&bytes);
         assert_eq!(packet.password.as_ref().unwrap().as_slice(), &[0x00, 0x01, 0xFF, 0xFE, 0x00, 0xFF, 0x01, 0x02]);
     }
 
+    // ===== REMAINING LENGTH FIELD TESTS =====
+
     #[test]
-    fn test_connect_packet_all_zero_keep_alive() {
-        let connect_bytes: [u8; 17] = [
-            0x10, 0x0F, // Fixed header (remaining length = 15)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b0000_0010, // Connect Flags (Clean Session)
-            0x00, 0x00, // Keep Alive (0 - disabled)
-            0x00, 0x03, // Client ID Length
-            0x61, 0x62, 0x63, // Client ID "abc"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.keep_alive, 0);
+    fn test_remaining_length_too_small() {
+        let mut bytes = base_packet();
+        bytes[1] = 0x0C; // Wrong (12 instead of 15)
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::InvalidPacketLength { expected: 12, actual: 15 })));
     }
 
     #[test]
-    fn test_connect_packet_payload_order_with_all_fields() {
-        // Verify that fields are decoded in the correct order
-        let connect_bytes: [u8; 44] = [
-            0x10, 0x2A, // Fixed header (remaining length = 42)
-            0x00, 0x04, // Protocol Name Length
-            0x4D, 0x51, 0x54, 0x54, // Protocol Name "MQTT"
-            0x04, // Protocol Level
-            0b1110_1110, // Connect Flags (All flags except reserved)
-            0x00, 0x3C, // Keep Alive (60 seconds)
-            0x00, 0x03, // Client ID Length
-            0x63, 0x69, 0x64, // Client ID "cid"
-            0x00, 0x06, // Will Topic Length
-            0x77, 0x74, 0x70, 0x63, 0x2E, 0x74, // Will Topic "wtpc.t"
-            0x00, 0x04, // Will Payload Length
-            0x77, 0x70, 0x6C, 0x64, // Will Payload "wpld"
-            0x00, 0x05, // Username Length
-            0x75, 0x73, 0x72, 0x6E, 0x6D, // Username "usrnm"
-            0x00, 0x04, // Password Length
-            0x70, 0x77, 0x64, 0x31, // Password "pwd1"
-        ];
-        let packet = roundtrip_test(&connect_bytes);
-        assert_eq!(packet.client_id.as_str(), "cid");
-        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("wtpc.t"));
-        assert_eq!(packet.will_payload.as_ref().map(|p| p.as_slice()), Some(b"wpld".as_ref()));
-        assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("usrnm"));
-        assert_eq!(packet.password.as_ref().map(|p| p.as_slice()), Some(b"pwd1".as_ref()));
+    fn test_remaining_length_too_large() {
+        let mut bytes = base_packet();
+        bytes[1] = 0x20; // Wrong (32 instead of 15)
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
+        assert!(matches!(result, Err(PacketEncodingError::InvalidPacketLength { expected: 32, actual: 15 })));
     }
 }
