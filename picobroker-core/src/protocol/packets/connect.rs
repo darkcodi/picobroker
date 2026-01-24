@@ -19,6 +19,7 @@ impl ConnectFlags {
     pub const WILL_RETAIN:  Self = Self(0b_0010_0000);
     pub const PASSWORD:  Self = Self(0b_0100_0000);
     pub const USERNAME:  Self = Self(0b_1000_0000);
+    pub const ALL_FLAGS: Self = Self(0b_1111_1110);
 
     pub const fn empty() -> Self { Self(0) }
     pub const fn bits(self) -> u8 { self.0 }
@@ -388,7 +389,7 @@ mod tests {
     }
 
     #[macro_export]
-    macro_rules! validate_size_of {
+    macro_rules! validate_size_of_struct {
         ($a:literal, $b:literal, $c:literal) => {{
             use ::core::mem::size_of;
 
@@ -413,80 +414,207 @@ mod tests {
     #[test]
     fn test_connect_packet_struct_size() {
         // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
-        validate_size_of!(1, 1, 152);
-        validate_size_of!(1, 8, 152);
-        validate_size_of!(1, 9, 160);
-        validate_size_of!(1, 16, 160);
-        validate_size_of!(1, 17, 168);
-        validate_size_of!(1, 24, 168);
-        validate_size_of!(1, 25, 176);
-        validate_size_of!(1, 32, 176);
-        validate_size_of!(1, 33, 184);
-        validate_size_of!(1, 40, 184);
-        validate_size_of!(1, 41, 192);
-        validate_size_of!(1, 48, 192);
-        validate_size_of!(1, 49, 200);
-        validate_size_of!(1, 56, 200);
-        validate_size_of!(1, 57, 208);
-        validate_size_of!(1, 64, 208);
-        validate_size_of!(1, 65, 216);
-        validate_size_of!(1, 72, 216);
-        validate_size_of!(1, 73, 224);
-        validate_size_of!(1, 80, 224);
-        validate_size_of!(1, 81, 232);
-        validate_size_of!(1, 88, 232);
-        validate_size_of!(1, 89, 240);
-        validate_size_of!(1, 96, 240);
-        validate_size_of!(1, 97, 248);
-        validate_size_of!(1, 104, 248);
-        validate_size_of!(1, 105, 256);
-        validate_size_of!(1, 112, 256);
-        validate_size_of!(1, 113, 264);
-        validate_size_of!(1, 120, 264);
-        validate_size_of!(1, 121, 272);
-        validate_size_of!(1, 128, 272);
+        validate_size_of_struct!(1, 1, 152);
+        validate_size_of_struct!(1, 8, 152);
+        validate_size_of_struct!(1, 9, 160);
+        validate_size_of_struct!(1, 16, 160);
+        validate_size_of_struct!(1, 17, 168);
+        validate_size_of_struct!(1, 24, 168);
+        validate_size_of_struct!(1, 25, 176);
+        validate_size_of_struct!(1, 32, 176);
+        validate_size_of_struct!(1, 33, 184);
+        validate_size_of_struct!(1, 40, 184);
+        validate_size_of_struct!(1, 41, 192);
+        validate_size_of_struct!(1, 48, 192);
+        validate_size_of_struct!(1, 49, 200);
+        validate_size_of_struct!(1, 56, 200);
+        validate_size_of_struct!(1, 57, 208);
+        validate_size_of_struct!(1, 64, 208);
+        validate_size_of_struct!(1, 65, 216);
+        validate_size_of_struct!(1, 72, 216);
+        validate_size_of_struct!(1, 73, 224);
+        validate_size_of_struct!(1, 80, 224);
+        validate_size_of_struct!(1, 81, 232);
+        validate_size_of_struct!(1, 88, 232);
+        validate_size_of_struct!(1, 89, 240);
+        validate_size_of_struct!(1, 96, 240);
+        validate_size_of_struct!(1, 97, 248);
+        validate_size_of_struct!(1, 104, 248);
+        validate_size_of_struct!(1, 105, 256);
+        validate_size_of_struct!(1, 112, 256);
+        validate_size_of_struct!(1, 113, 264);
+        validate_size_of_struct!(1, 120, 264);
+        validate_size_of_struct!(1, 121, 272);
+        validate_size_of_struct!(1, 128, 272);
 
         // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
-        validate_size_of!(1, 1, 152);
-        validate_size_of!(8, 1, 152);
-        validate_size_of!(9, 1, 176);
-        validate_size_of!(16, 1, 176);
-        validate_size_of!(17, 1, 200);
-        validate_size_of!(24, 1, 200);
-        validate_size_of!(25, 1, 224);
-        validate_size_of!(32, 1, 224);
-        validate_size_of!(33, 1, 248);
-        validate_size_of!(40, 1, 248);
-        validate_size_of!(41, 1, 272);
-        validate_size_of!(48, 1, 272);
-        validate_size_of!(49, 1, 296);
-        validate_size_of!(56, 1, 296);
-        validate_size_of!(57, 1, 320);
-        validate_size_of!(64, 1, 320);
-        validate_size_of!(65, 1, 344);
-        validate_size_of!(72, 1, 344);
-        validate_size_of!(73, 1, 368);
-        validate_size_of!(80, 1, 368);
-        validate_size_of!(81, 1, 392);
-        validate_size_of!(88, 1, 392);
-        validate_size_of!(89, 1, 416);
-        validate_size_of!(96, 1, 416);
-        validate_size_of!(97, 1, 440);
-        validate_size_of!(104, 1, 440);
-        validate_size_of!(105, 1, 464);
-        validate_size_of!(112, 1, 464);
-        validate_size_of!(113, 1, 488);
-        validate_size_of!(120, 1, 488);
-        validate_size_of!(121, 1, 512);
-        validate_size_of!(128, 1, 512);
+        validate_size_of_struct!(1, 1, 152);
+        validate_size_of_struct!(8, 1, 152);
+        validate_size_of_struct!(9, 1, 176);
+        validate_size_of_struct!(16, 1, 176);
+        validate_size_of_struct!(17, 1, 200);
+        validate_size_of_struct!(24, 1, 200);
+        validate_size_of_struct!(25, 1, 224);
+        validate_size_of_struct!(32, 1, 224);
+        validate_size_of_struct!(33, 1, 248);
+        validate_size_of_struct!(40, 1, 248);
+        validate_size_of_struct!(41, 1, 272);
+        validate_size_of_struct!(48, 1, 272);
+        validate_size_of_struct!(49, 1, 296);
+        validate_size_of_struct!(56, 1, 296);
+        validate_size_of_struct!(57, 1, 320);
+        validate_size_of_struct!(64, 1, 320);
+        validate_size_of_struct!(65, 1, 344);
+        validate_size_of_struct!(72, 1, 344);
+        validate_size_of_struct!(73, 1, 368);
+        validate_size_of_struct!(80, 1, 368);
+        validate_size_of_struct!(81, 1, 392);
+        validate_size_of_struct!(88, 1, 392);
+        validate_size_of_struct!(89, 1, 416);
+        validate_size_of_struct!(96, 1, 416);
+        validate_size_of_struct!(97, 1, 440);
+        validate_size_of_struct!(104, 1, 440);
+        validate_size_of_struct!(105, 1, 464);
+        validate_size_of_struct!(112, 1, 464);
+        validate_size_of_struct!(113, 1, 488);
+        validate_size_of_struct!(120, 1, 488);
+        validate_size_of_struct!(121, 1, 512);
+        validate_size_of_struct!(128, 1, 512);
 
         // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
-        validate_size_of!(30, 128, 344);
-        validate_size_of!(32, 128, 344);
-        validate_size_of!(33, 128, 368);
-        validate_size_of!(30, 256, 472);
-        validate_size_of!(32, 256, 472);
-        validate_size_of!(33, 256, 496);
+        validate_size_of_struct!(30, 128, 344);
+        validate_size_of_struct!(32, 128, 344);
+        validate_size_of_struct!(33, 128, 368);
+        validate_size_of_struct!(30, 256, 472);
+        validate_size_of_struct!(32, 256, 472);
+        validate_size_of_struct!(33, 256, 496);
+    }
+
+    // ===== SIZE OF PACKET BYTES TEST =====
+
+    fn max_string<const N: usize>(c: char) -> heapless::String<N> {
+        let mut s = heapless::String::<N>::new();
+        for _ in 0..N {
+            s.push(c).unwrap();
+        }
+        s
+    }
+
+    fn max_vec<const N: usize>(c: u8) -> Vec<u8, N> {
+        let mut v = Vec::<u8, N>::new();
+        for _ in 0..N {
+            v.push(c).unwrap();
+        }
+        v
+    }
+
+    fn max_packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>() -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+        ConnectPacket {
+            protocol_name: MQTT_PROTOCOL_NAME,
+            protocol_level: MQTT_3_1_1_PROTOCOL_LEVEL,
+            connect_flags: ConnectFlags::ALL_FLAGS,
+            keep_alive: 60,
+            client_id: ClientId::from(max_string('c')),
+            will_topic: Some(TopicName::new(max_string('t'))),
+            will_payload: Some(max_vec(1)),
+            username: Some(max_string('u')),
+            password: Some(max_vec(2)),
+        }
+    }
+
+    #[macro_export]
+    macro_rules! validate_size_of_packet {
+        ($a:literal, $b:literal, $c:literal) => {{
+
+            const STRUCT_SIZE: usize = size_of::<$crate::ConnectPacket<$a, $b>>();
+            let packet = max_packet::<$a, $b>();
+            let mut buffer = [0u8; STRUCT_SIZE + 512];
+            let packet_size = packet.encode(&mut buffer).unwrap();
+            assert_eq!(
+                packet_size, $c,
+                "unexpected encoded size for ConnectPacket<{}, {}> (encoded {}, expected {})",
+                $a, $b, packet_size, $c
+            );
+        }};
+    }
+
+    #[test]
+    fn test_connect_packet_bytes_size() {
+        // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
+        validate_size_of_packet!(1, 1, 49);
+        validate_size_of_packet!(1, 8, 56);
+        validate_size_of_packet!(1, 9, 57);
+        validate_size_of_packet!(1, 16, 64);
+        validate_size_of_packet!(1, 17, 65);
+        validate_size_of_packet!(1, 24, 72);
+        validate_size_of_packet!(1, 25, 73);
+        validate_size_of_packet!(1, 32, 80);
+        validate_size_of_packet!(1, 33, 81);
+        validate_size_of_packet!(1, 40, 88);
+        validate_size_of_packet!(1, 41, 89);
+        validate_size_of_packet!(1, 48, 96);
+        validate_size_of_packet!(1, 49, 97);
+        validate_size_of_packet!(1, 56, 104);
+        validate_size_of_packet!(1, 57, 105);
+        validate_size_of_packet!(1, 64, 112);
+        validate_size_of_packet!(1, 65, 113);
+        validate_size_of_packet!(1, 72, 120);
+        validate_size_of_packet!(1, 73, 121);
+        validate_size_of_packet!(1, 80, 128);
+        validate_size_of_packet!(1, 81, 129);
+        validate_size_of_packet!(1, 88, 137);
+        validate_size_of_packet!(1, 89, 138);
+        validate_size_of_packet!(1, 96, 145);
+        validate_size_of_packet!(1, 97, 146);
+        validate_size_of_packet!(1, 104, 153);
+        validate_size_of_packet!(1, 105, 154);
+        validate_size_of_packet!(1, 112, 161);
+        validate_size_of_packet!(1, 113, 162);
+        validate_size_of_packet!(1, 120, 169);
+        validate_size_of_packet!(1, 121, 170);
+        validate_size_of_packet!(1, 128, 177);
+
+        // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
+        validate_size_of_packet!(1, 1, 49);
+        validate_size_of_packet!(8, 1, 70);
+        validate_size_of_packet!(9, 1, 73);
+        validate_size_of_packet!(16, 1, 94);
+        validate_size_of_packet!(17, 1, 97);
+        validate_size_of_packet!(24, 1, 118);
+        validate_size_of_packet!(25, 1, 121);
+        validate_size_of_packet!(32, 1, 143);
+        validate_size_of_packet!(33, 1, 146);
+        validate_size_of_packet!(40, 1, 167);
+        validate_size_of_packet!(41, 1, 170);
+        validate_size_of_packet!(48, 1, 191);
+        validate_size_of_packet!(49, 1, 194);
+        validate_size_of_packet!(56, 1, 215);
+        validate_size_of_packet!(57, 1, 218);
+        validate_size_of_packet!(64, 1, 239);
+        validate_size_of_packet!(65, 1, 242);
+        validate_size_of_packet!(72, 1, 263);
+        validate_size_of_packet!(73, 1, 266);
+        validate_size_of_packet!(80, 1, 287);
+        validate_size_of_packet!(81, 1, 290);
+        validate_size_of_packet!(88, 1, 311);
+        validate_size_of_packet!(89, 1, 314);
+        validate_size_of_packet!(96, 1, 335);
+        validate_size_of_packet!(97, 1, 338);
+        validate_size_of_packet!(104, 1, 359);
+        validate_size_of_packet!(105, 1, 362);
+        validate_size_of_packet!(112, 1, 383);
+        validate_size_of_packet!(113, 1, 386);
+        validate_size_of_packet!(120, 1, 407);
+        validate_size_of_packet!(121, 1, 410);
+        validate_size_of_packet!(128, 1, 431);
+
+        // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
+        validate_size_of_packet!(30, 128, 264);
+        validate_size_of_packet!(32, 128, 270);
+        validate_size_of_packet!(33, 128, 273);
+        validate_size_of_packet!(30, 256, 392);
+        validate_size_of_packet!(32, 256, 398);
+        validate_size_of_packet!(33, 256, 401);
     }
 
     // ===== PROTOCOL NAME FIELD TESTS =====
