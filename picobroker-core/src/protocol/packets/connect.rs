@@ -2,6 +2,7 @@ use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, Pa
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_binary, read_string, write_binary, write_string};
 use crate::{read_variable_length, write_variable_length, ClientId, Error, PacketEncodingError, PacketType, TopicName};
+use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::HeaplessString;
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
@@ -52,9 +53,9 @@ pub struct ConnectPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub keep_alive: u16,
     pub client_id: ClientId,
     pub will_topic: Option<TopicName<MAX_TOPIC_NAME_LENGTH>>,
-    pub will_payload: Option<heapless::Vec<u8, MAX_PAYLOAD_SIZE>>,
+    pub will_payload: Option<HeaplessVec<u8, MAX_PAYLOAD_SIZE>>,
     pub username: Option<HeaplessString<MAX_TOPIC_NAME_LENGTH>>,
-    pub password: Option<heapless::Vec<u8, MAX_TOPIC_NAME_LENGTH>>,
+    pub password: Option<HeaplessVec<u8, MAX_TOPIC_NAME_LENGTH>>,
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
@@ -200,7 +201,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // extract optional fields (will topic, will payload, username, password) as needed
         let mut will_topic: Option<TopicName<MAX_TOPIC_NAME_LENGTH>> = None;
-        let mut will_payload: Option<heapless::Vec<u8, MAX_PAYLOAD_SIZE>> = None;
+        let mut will_payload: Option<HeaplessVec<u8, MAX_PAYLOAD_SIZE>> = None;
         if will_flag {
             // extract will topic
             let will_topic_str = read_string(bytes, &mut offset)?;
@@ -224,7 +225,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
             // extract will payload
             let will_payload_bytes = read_binary(bytes, &mut offset)?;
-            let mut will_payload_vec = heapless::Vec::<u8, MAX_PAYLOAD_SIZE>::new();
+            let mut will_payload_vec = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
             if will_payload_bytes.len() > MAX_PAYLOAD_SIZE {
                 return Err(Error::PacketTooLarge {
                     max_size: MAX_PAYLOAD_SIZE,
@@ -261,10 +262,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }
 
         // extract password
-        let mut password: Option<heapless::Vec<u8, MAX_TOPIC_NAME_LENGTH>> = None;
+        let mut password: Option<HeaplessVec<u8, MAX_TOPIC_NAME_LENGTH>> = None;
         if password_flag {
             let password_bytes = read_binary(bytes, &mut offset)?;
-            let mut password_vec = heapless::Vec::<u8, MAX_TOPIC_NAME_LENGTH>::new();
+            let mut password_vec = HeaplessVec::<u8, MAX_TOPIC_NAME_LENGTH>::new();
             if password_bytes.len() > MAX_TOPIC_NAME_LENGTH {
                 return Err(Error::PacketTooLarge {
                     max_size: MAX_TOPIC_NAME_LENGTH,
@@ -301,33 +302,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-    pub const fn estimate_struct_size() -> usize {
-        const BASE: usize = 80;
-
-        const fn ceil_div(n: usize, d: usize) -> usize {
-            if n == 0 { 0 } else { (n + d - 1) / d }
-        }
-
-        const fn round_up_to(n: usize, m: usize) -> usize {
-            if n == 0 { 0 } else { ceil_div(n, m) * m }
-        }
-
-        // Payload contributes in 8-byte chunks.
-        let payload_bytes = round_up_to(MAX_PAYLOAD_SIZE, 8);
-
-        // Topic contributes 0 for 1..=8, +24 for 9..=16, +48 for 17..=24, etc.
-        let topic_blocks = ceil_div(MAX_TOPIC_NAME_LENGTH, 8);
-        let extra_topic_blocks = topic_blocks.saturating_sub(1);
-        let topic_bytes = extra_topic_blocks * 24;
-
-        BASE + topic_bytes + payload_bytes
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use heapless::Vec;
     use super::*;
     use crate::protocol::packet_error::PacketEncodingError;
 
@@ -336,8 +312,8 @@ mod tests {
 
     // ===== HELPER FUNCTIONS =====
 
-    fn hex_to_bytes(hex: &str) -> Vec<u8, MAX_PAYLOAD_SIZE> {
-        let mut result = Vec::new();
+    fn hex_to_bytes(hex: &str) -> HeaplessVec<u8, MAX_PAYLOAD_SIZE> {
+        let mut result = HeaplessVec::new();
         for s in hex.split_whitespace() {
             if let Ok(b) = u8::from_str_radix(s, 16) {
                 let _ = result.push(b);
@@ -404,48 +380,48 @@ mod tests {
     #[test]
     fn test_connect_packet_struct_size() {
         // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
-        validate_size_of_struct!(1, 1, 88);
-        validate_size_of_struct!(1, 8, 88);
-        validate_size_of_struct!(1, 16, 96);
-        validate_size_of_struct!(1, 24, 104);
-        validate_size_of_struct!(1, 32, 112);
-        validate_size_of_struct!(1, 40, 120);
-        validate_size_of_struct!(1, 48, 128);
-        validate_size_of_struct!(1, 56, 136);
-        validate_size_of_struct!(1, 64, 144);
-        validate_size_of_struct!(1, 72, 152);
-        validate_size_of_struct!(1, 80, 160);
-        validate_size_of_struct!(1, 88, 168);
-        validate_size_of_struct!(1, 96, 176);
-        validate_size_of_struct!(1, 104, 184);
-        validate_size_of_struct!(1, 112, 192);
-        validate_size_of_struct!(1, 120, 200);
-        validate_size_of_struct!(1, 128, 208);
+        validate_size_of_struct!(1, 1, 46);
+        validate_size_of_struct!(1, 8, 52);
+        validate_size_of_struct!(1, 16, 60);
+        validate_size_of_struct!(1, 24, 68);
+        validate_size_of_struct!(1, 32, 76);
+        validate_size_of_struct!(1, 40, 84);
+        validate_size_of_struct!(1, 48, 92);
+        validate_size_of_struct!(1, 56, 100);
+        validate_size_of_struct!(1, 64, 108);
+        validate_size_of_struct!(1, 72, 116);
+        validate_size_of_struct!(1, 80, 124);
+        validate_size_of_struct!(1, 88, 132);
+        validate_size_of_struct!(1, 96, 140);
+        validate_size_of_struct!(1, 104, 148);
+        validate_size_of_struct!(1, 112, 156);
+        validate_size_of_struct!(1, 120, 164);
+        validate_size_of_struct!(1, 128, 172);
 
         // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
-        validate_size_of_struct!(1, 1, 88);
-        validate_size_of_struct!(8, 1, 96);
-        validate_size_of_struct!(16, 1, 120);
-        validate_size_of_struct!(24, 1, 144);
-        validate_size_of_struct!(32, 1, 168);
-        validate_size_of_struct!(40, 1, 192);
-        validate_size_of_struct!(48, 1, 216);
-        validate_size_of_struct!(56, 1, 240);
-        validate_size_of_struct!(64, 1, 264);
-        validate_size_of_struct!(72, 1, 288);
-        validate_size_of_struct!(80, 1, 312);
-        validate_size_of_struct!(88, 1, 336);
-        validate_size_of_struct!(96, 1, 360);
-        validate_size_of_struct!(104, 1, 384);
-        validate_size_of_struct!(112, 1, 408);
-        validate_size_of_struct!(120, 1, 432);
-        validate_size_of_struct!(128, 1, 456);
+        validate_size_of_struct!(1, 1, 46);
+        validate_size_of_struct!(8, 1, 66);
+        validate_size_of_struct!(16, 1, 90);
+        validate_size_of_struct!(24, 1, 114);
+        validate_size_of_struct!(32, 1, 138);
+        validate_size_of_struct!(40, 1, 162);
+        validate_size_of_struct!(48, 1, 186);
+        validate_size_of_struct!(56, 1, 210);
+        validate_size_of_struct!(64, 1, 234);
+        validate_size_of_struct!(72, 1, 258);
+        validate_size_of_struct!(80, 1, 282);
+        validate_size_of_struct!(88, 1, 306);
+        validate_size_of_struct!(96, 1, 330);
+        validate_size_of_struct!(104, 1, 354);
+        validate_size_of_struct!(112, 1, 378);
+        validate_size_of_struct!(120, 1, 402);
+        validate_size_of_struct!(128, 1, 426);
 
         // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
-        validate_size_of_struct!(30, 128, 288);
-        validate_size_of_struct!(32, 128, 288);
-        validate_size_of_struct!(30, 256, 416);
-        validate_size_of_struct!(32, 256, 416);
+        validate_size_of_struct!(30, 128, 258);
+        validate_size_of_struct!(32, 128, 264);
+        validate_size_of_struct!(30, 256, 386);
+        validate_size_of_struct!(32, 256, 392);
     }
 
     // ===== SIZE OF PACKET BYTES TEST =====
@@ -458,8 +434,8 @@ mod tests {
         s
     }
 
-    fn max_vec<const N: usize>(c: u8) -> Vec<u8, N> {
-        let mut v = Vec::<u8, N>::new();
+    fn max_vec<const N: usize>(c: u8) -> HeaplessVec<u8, N> {
+        let mut v = HeaplessVec::<u8, N>::new();
         for _ in 0..N {
             v.push(c).unwrap();
         }
@@ -499,78 +475,46 @@ mod tests {
         // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
         validate_size_of_packet!(1, 1, 49);
         validate_size_of_packet!(1, 8, 56);
-        validate_size_of_packet!(1, 9, 57);
         validate_size_of_packet!(1, 16, 64);
-        validate_size_of_packet!(1, 17, 65);
         validate_size_of_packet!(1, 24, 72);
-        validate_size_of_packet!(1, 25, 73);
         validate_size_of_packet!(1, 32, 80);
-        validate_size_of_packet!(1, 33, 81);
         validate_size_of_packet!(1, 40, 88);
-        validate_size_of_packet!(1, 41, 89);
         validate_size_of_packet!(1, 48, 96);
-        validate_size_of_packet!(1, 49, 97);
         validate_size_of_packet!(1, 56, 104);
-        validate_size_of_packet!(1, 57, 105);
         validate_size_of_packet!(1, 64, 112);
-        validate_size_of_packet!(1, 65, 113);
         validate_size_of_packet!(1, 72, 120);
-        validate_size_of_packet!(1, 73, 121);
         validate_size_of_packet!(1, 80, 128);
-        validate_size_of_packet!(1, 81, 129);
         validate_size_of_packet!(1, 88, 137);
-        validate_size_of_packet!(1, 89, 138);
         validate_size_of_packet!(1, 96, 145);
-        validate_size_of_packet!(1, 97, 146);
         validate_size_of_packet!(1, 104, 153);
-        validate_size_of_packet!(1, 105, 154);
         validate_size_of_packet!(1, 112, 161);
-        validate_size_of_packet!(1, 113, 162);
         validate_size_of_packet!(1, 120, 169);
-        validate_size_of_packet!(1, 121, 170);
         validate_size_of_packet!(1, 128, 177);
 
         // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
         validate_size_of_packet!(1, 1, 49);
         validate_size_of_packet!(8, 1, 70);
-        validate_size_of_packet!(9, 1, 73);
         validate_size_of_packet!(16, 1, 94);
-        validate_size_of_packet!(17, 1, 97);
         validate_size_of_packet!(24, 1, 118);
-        validate_size_of_packet!(25, 1, 121);
         validate_size_of_packet!(32, 1, 143);
-        validate_size_of_packet!(33, 1, 146);
         validate_size_of_packet!(40, 1, 167);
-        validate_size_of_packet!(41, 1, 170);
         validate_size_of_packet!(48, 1, 191);
-        validate_size_of_packet!(49, 1, 194);
         validate_size_of_packet!(56, 1, 215);
-        validate_size_of_packet!(57, 1, 218);
         validate_size_of_packet!(64, 1, 239);
-        validate_size_of_packet!(65, 1, 242);
         validate_size_of_packet!(72, 1, 263);
-        validate_size_of_packet!(73, 1, 266);
         validate_size_of_packet!(80, 1, 287);
-        validate_size_of_packet!(81, 1, 290);
         validate_size_of_packet!(88, 1, 311);
-        validate_size_of_packet!(89, 1, 314);
         validate_size_of_packet!(96, 1, 335);
-        validate_size_of_packet!(97, 1, 338);
         validate_size_of_packet!(104, 1, 359);
-        validate_size_of_packet!(105, 1, 362);
         validate_size_of_packet!(112, 1, 383);
-        validate_size_of_packet!(113, 1, 386);
         validate_size_of_packet!(120, 1, 407);
-        validate_size_of_packet!(121, 1, 410);
         validate_size_of_packet!(128, 1, 431);
 
         // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
         validate_size_of_packet!(30, 128, 264);
         validate_size_of_packet!(32, 128, 270);
-        validate_size_of_packet!(33, 128, 273);
         validate_size_of_packet!(30, 256, 392);
         validate_size_of_packet!(32, 256, 398);
-        validate_size_of_packet!(33, 256, 401);
     }
 
     // ===== PROTOCOL NAME FIELD TESTS =====

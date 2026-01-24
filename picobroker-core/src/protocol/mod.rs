@@ -27,4 +27,4 @@ pub use qos::QoS;
 pub use utils::{
     read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
 };
-pub use heapless::HeaplessString;
+pub use heapless::{HeaplessString, HeaplessVec};

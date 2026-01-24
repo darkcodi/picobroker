@@ -3,6 +3,7 @@ use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeCons
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
 use crate::{Error, PacketEncodingError, TopicName};
+use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::HeaplessString;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -37,7 +38,7 @@ impl PublishFlags {
 pub struct PublishPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
     pub topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
     pub packet_id: Option<u16>,
-    pub payload: heapless::Vec<u8, MAX_PAYLOAD_SIZE>,
+    pub payload: HeaplessVec<u8, MAX_PAYLOAD_SIZE>,
     pub qos: QoS,
     pub dup: bool,
     pub retain: bool,
@@ -129,7 +130,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         };
 
         let payload_len = bytes.len() - offset;
-        let mut payload = heapless::Vec::new();
+        let mut payload = HeaplessVec::new();
         payload
             .extend_from_slice(&bytes[offset..offset + payload_len])
             .map_err(|_| Error::BufferTooSmall)?;

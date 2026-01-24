@@ -53,16 +53,16 @@ impl <const N: usize> HeaplessString<N> {
     pub fn is_empty(&self) -> bool {
         self.length == 0
     }
-    
+
     pub fn capacity(&self) -> usize {
         N
     }
-    
+
     pub fn clear(&mut self) {
         self.length = 0;
         self.data = [0; N];
     }
-    
+
     pub fn push(&mut self, ch: char) -> Result<(), ()> {
         let ch_len = ch.len_utf8();
         if (self.length as usize) + ch_len > N {
@@ -74,7 +74,7 @@ impl <const N: usize> HeaplessString<N> {
         self.length += ch_len as u8;
         Ok(())
     }
-    
+
     pub fn push_str(&mut self, s: &str) -> Result<(), ()> {
         let bytes = s.as_bytes();
         if (self.length as usize) + bytes.len() > N {
@@ -83,6 +83,194 @@ impl <const N: usize> HeaplessString<N> {
         self.data[self.length as usize..self.length as usize + bytes.len()].copy_from_slice(bytes);
         self.length += bytes.len() as u8;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct HeaplessVec<T, const N: usize> {
+    length: u16,
+    data: [T; N],
+}
+
+impl<T: Default, const N: usize> Default for HeaplessVec<T, N> {
+    fn default() -> Self {
+        Self {
+            length: 0,
+            data: core::array::from_fn(|_| T::default()),
+        }
+    }
+}
+
+impl<T, const N: usize> HeaplessVec<T, N> {
+    pub fn len(&self) -> usize {
+        self.length as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+
+    pub fn capacity(&self) -> usize {
+        N
+    }
+
+    pub fn clear(&mut self) {
+        self.length = 0;
+    }
+
+    pub fn push(&mut self, item: T) -> Result<(), ()> {
+        if (self.length as usize) >= N {
+            return Err(());
+        }
+        self.data[self.length as usize] = item;
+        self.length += 1;
+        Ok(())
+    }
+
+    pub fn get(&self, index: usize) -> Option<&T> {
+        if index < self.length as usize {
+            Some(&self.data[index])
+        } else {
+            None
+        }
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        &self.data[..self.length as usize]
+    }
+
+    pub fn extend_from_slice(&mut self, slice: &[T]) -> Result<(), ()>
+    where
+        T: Clone,
+    {
+        // Check if adding slice would exceed capacity
+        if (self.length as usize) + slice.len() > N {
+            return Err(());
+        }
+
+        // Clone each element from slice into self.data
+        for (i, item) in slice.iter().enumerate() {
+            self.data[self.length as usize + i] = item.clone();
+        }
+
+        // Update length
+        self.length += slice.len() as u16;
+        Ok(())
+    }
+
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&T) -> bool,
+        T: Clone,
+    {
+        let mut write_idx = 0;
+        let len = self.length as usize;
+
+        for read_idx in 0..len {
+            if f(&self.data[read_idx]) {
+                // Keep this element
+                if write_idx != read_idx {
+                    self.data[write_idx] = self.data[read_idx].clone();
+                }
+                write_idx += 1;
+            }
+            // Else: skip element (don't increment write_idx)
+        }
+
+        self.length = write_idx as u16;
+    }
+
+    pub fn remove(&mut self, index: usize)
+    where
+        T: Clone,
+    {
+        if index >= self.length as usize {
+            panic!("remove index out of bounds");
+        }
+
+        // Shift elements after index left by one position
+        for i in index..self.length as usize - 1 {
+            self.data[i] = self.data[i + 1].clone();
+        }
+
+        // Decrease length
+        self.length -= 1;
+    }
+}
+
+impl<T: Default, const N: usize> HeaplessVec<T, N> {
+    pub fn new() -> Self {
+        Self {
+            length: 0,
+            data: core::array::from_fn(|_| T::default()),
+        }
+    }
+}
+
+impl<T, const N: usize> core::ops::Deref for HeaplessVec<T, N> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        &self.data[..self.length as usize]
+    }
+}
+
+impl<T, const N: usize> core::ops::DerefMut for HeaplessVec<T, N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data[..self.length as usize]
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a HeaplessVec<T, N> {
+    type Item = &'a T;
+    type IntoIter = core::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a mut HeaplessVec<T, N> {
+    type Item = &'a mut T;
+    type IntoIter = core::slice::IterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.data[..self.length as usize].iter_mut()
+    }
+}
+
+impl<T: Default, const N: usize> IntoIterator for HeaplessVec<T, N> {
+    type Item = T;
+    type IntoIter = HeaplessVecIntoIterator<T, N>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        HeaplessVecIntoIterator { vec: self, index: 0 }
+    }
+}
+
+pub struct HeaplessVecIntoIterator<T: Default, const N: usize> {
+    vec: HeaplessVec<T, N>,
+    index: u16,
+}
+
+impl<T: Default, const N: usize> Iterator for HeaplessVecIntoIterator<T, N> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.vec.length {
+            return None;
+        }
+
+        // Use core::mem::replace to swap out the element with Default::default()
+        let item = core::mem::replace(&mut self.vec.data[self.index as usize], T::default());
+        self.index += 1;
+
+        // If we've consumed all elements, update the length
+        if self.index == self.vec.length {
+            self.vec.length = 0;
+        }
+
+        Some(item)
     }
 }
 
@@ -128,5 +316,100 @@ mod tests {
         assert_eq!(size_of::<HeaplessString<30>>(), 31);
         assert_eq!(size_of::<HeaplessString<31>>(), 32);
         assert_eq!(size_of::<HeaplessString<32>>(), 33);
+    }
+
+    #[test]
+    fn test_extend_from_slice() {
+        let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
+        vec.push(1).unwrap();
+        vec.push(2).unwrap();
+
+        // Extend with empty slice
+        assert!(vec.extend_from_slice(&[]).is_ok());
+        assert_eq!(vec.len(), 2);
+
+        // Extend with elements
+        assert!(vec.extend_from_slice(&[3, 4]).is_ok());
+        assert_eq!(vec.len(), 4);
+        assert_eq!(vec.as_slice(), &[1, 2, 3, 4]);
+
+        // Exceed capacity
+        assert!(vec.extend_from_slice(&[5, 6]).is_err());
+        assert_eq!(vec.len(), 4);
+    }
+
+    #[test]
+    fn test_remove() {
+        let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
+        vec.push(1).unwrap();
+        vec.push(2).unwrap();
+        vec.push(3).unwrap();
+        vec.push(4).unwrap();
+
+        // Remove from middle
+        vec.remove(1);
+        assert_eq!(vec.as_slice(), &[1, 3, 4]);
+
+        // Remove from front
+        vec.remove(0);
+        assert_eq!(vec.as_slice(), &[3, 4]);
+
+        // Remove from back
+        vec.remove(1);
+        assert_eq!(vec.as_slice(), &[3]);
+
+        // Remove last element
+        vec.remove(0);
+        assert!(vec.is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "remove index out of bounds")]
+    fn test_remove_out_of_bounds() {
+        let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
+        vec.push(1).unwrap();
+        vec.remove(5); // Should panic
+    }
+
+    #[test]
+    fn test_retain() {
+        let mut vec: HeaplessVec<u8, 10> = HeaplessVec::new();
+        for i in 1..=5 {
+            vec.push(i).unwrap();
+        }
+
+        // Keep only even numbers
+        vec.retain(|x| x % 2 == 0);
+        assert_eq!(vec.as_slice(), &[2, 4]);
+
+        // Keep all
+        vec.retain(|_| true);
+        assert_eq!(vec.as_slice(), &[2, 4]);
+
+        // Keep none
+        vec.retain(|_| false);
+        assert!(vec.is_empty());
+    }
+
+    #[test]
+    fn test_vec_iteration_via_deref() {
+        let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
+        vec.push(1).unwrap();
+        vec.push(2).unwrap();
+        vec.push(3).unwrap();
+
+        // Test iter() from Deref
+        let mut iter = vec.iter();
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next(), Some(&3));
+        assert_eq!(iter.next(), None);
+
+        // Test for loop
+        let mut sum = 0;
+        for item in &vec {
+            sum += item;
+        }
+        assert_eq!(sum, 6);
     }
 }

@@ -48,7 +48,7 @@ impl<
     >
 {
     /// Create a new MQTT broker with the given time source
-    pub const fn new(time_source: T) -> Self {
+    pub fn new(time_source: T) -> Self {
         Self {
             time_source,
             clients: ClientRegistry::new(),

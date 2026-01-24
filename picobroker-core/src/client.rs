@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::protocol::HeaplessString;
+use crate::protocol::{HeaplessString, HeaplessVec};
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -106,15 +106,15 @@ impl Client {
 /// Manages connected clients and their state
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClientRegistry<const MAX_CLIENTS: usize> {
-    clients: heapless::Vec<Option<Client>, MAX_CLIENTS>,
+    clients: HeaplessVec<Option<Client>, MAX_CLIENTS>,
 }
 
 impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
 {
     /// Create a new client registry
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            clients: heapless::Vec::new(),
+            clients: HeaplessVec::new(),
         }
     }
 
@@ -179,8 +179,8 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     pub fn get_expired_clients(
         &self,
         current_time: u64,
-    ) -> heapless::Vec<ClientId, MAX_CLIENTS> {
-        let mut expired = heapless::Vec::new();
+    ) -> HeaplessVec<ClientId, MAX_CLIENTS> {
+        let mut expired = HeaplessVec::new();
         for client in &self.clients {
             if let Some(client) = client {
                 if client.is_expired(current_time) {

@@ -4,7 +4,7 @@
 
 use crate::ClientId;
 use crate::error::{Error, Result};
-use crate::protocol::HeaplessString;
+use crate::protocol::{HeaplessString, HeaplessVec};
 
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.
@@ -99,10 +99,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str>
 ///
 /// This is the primary data structure in the topic-centric organization.
 /// Each topic maintains a list of clients subscribed to it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TopicEntry<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize> {
     topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
-    subscribers: heapless::Vec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC>,
+    subscribers: HeaplessVec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
@@ -112,7 +112,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     pub fn new(topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>) -> Self {
         Self {
             topic_name,
-            subscribers: heapless::Vec::new(),
+            subscribers: HeaplessVec::new(),
         }
     }
 
@@ -184,7 +184,7 @@ pub struct TopicRegistry<
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
-    topics: heapless::Vec<TopicEntry<MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIBERS_PER_TOPIC>, MAX_TOPICS>,
+    topics: HeaplessVec<TopicEntry<MAX_TOPIC_NAME_LENGTH, MAX_SUBSCRIBERS_PER_TOPIC>, MAX_TOPICS>,
 }
 
 impl<
@@ -194,9 +194,9 @@ impl<
     > TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new topic registry
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            topics: heapless::Vec::new(),
+            topics: HeaplessVec::new(),
         }
     }
 
@@ -252,7 +252,7 @@ impl<
     pub fn get_subscribers(
         &self,
         topic: &TopicName<MAX_TOPIC_NAME_LENGTH>,
-    ) -> heapless::Vec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
+    ) -> HeaplessVec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
         self.topics
             .iter()
             .find(|entry| &entry.topic_name == topic)
@@ -301,7 +301,7 @@ impl<
         let mut removed_count = 0;
 
         // Remove client from all topics
-        for entry in &mut self.topics {
+        for mut entry in &mut self.topics {
             if entry.remove_subscriber(&id) {
                 removed_count += 1;
             }
