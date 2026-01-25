@@ -58,4 +58,9 @@ impl<'a> TcpListener for EmbassyTcpListener<'a> {
         // TODO: Implement Embassy TCP accept
         Err(BrokerError::AcceptConnectionError)
     }
+
+    async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), BrokerError> {
+        // TODO: Implement non-blocking Embassy TCP accept
+        Err(BrokerError::AcceptConnectionError)
+    }
 }

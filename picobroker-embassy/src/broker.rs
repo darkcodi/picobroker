@@ -11,10 +11,16 @@ pub type EmbassyPicoBroker<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    const CLIENT_TO_BROKER_QUEUE_SIZE: usize,
+    const BROKER_TO_CLIENT_QUEUE_SIZE: usize,
+    const MAX_PAYLOAD_SIZE: usize,
 > = PicoBroker<
     EmbassyTimeSource,
     MAX_TOPIC_NAME_LENGTH,
     MAX_CLIENTS,
     MAX_TOPICS,
     MAX_SUBSCRIBERS_PER_TOPIC,
+    CLIENT_TO_BROKER_QUEUE_SIZE,
+    BROKER_TO_CLIENT_QUEUE_SIZE,
+    MAX_PAYLOAD_SIZE,
 >;

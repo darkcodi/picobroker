@@ -30,16 +30,18 @@ mod broker_error;
 mod client;
 mod network;
 mod protocol;
+mod server;
 mod task;
 mod time;
 mod topics;
 
-pub use broker::PicoBroker;
+pub use broker::{PicoBroker, PicoBrokerServer};
 pub use broker_error::BrokerError;
 pub use client::{Client, ClientId, ClientRegistry};
 pub use network::{SocketAddr, TcpListener, TcpStream};
 pub use protocol::ConnAckPacket;
 pub use protocol::ConnectPacket;
+pub use protocol::ConnectReturnCode;
 pub use protocol::DisconnectPacket;
 pub use protocol::Packet;
 pub use protocol::PacketEncoder;
@@ -60,6 +62,10 @@ pub use protocol::UnsubscribePacket;
 pub use protocol::{
     read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
 };
+pub use server::{BrokerToClientMessage, ClientToBrokerMessage, ClientSession};
 pub use task::{SpawnError, TaskSpawner};
 pub use time::{DummyTimeSource, TimeSource};
 pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};
+
+// Re-export heapless for convenience
+pub use heapless;

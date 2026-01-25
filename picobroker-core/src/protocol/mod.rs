@@ -1,12 +1,13 @@
 mod heapless;
 mod packet_error;
 mod packet_type;
-mod packets;
+pub mod packets;
 mod qos;
 mod utils;
 
 pub use crate::protocol::packets::ConnAckPacket;
 pub use crate::protocol::packets::ConnectPacket;
+pub use crate::protocol::packets::ConnectReturnCode;
 pub use crate::protocol::packets::DisconnectPacket;
 pub use crate::protocol::packets::Packet;
 pub use crate::protocol::packets::PacketEncoder;

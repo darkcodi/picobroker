@@ -1,5 +1,6 @@
 use crate::protocol::{HeaplessString, HeaplessVec};
 use crate::{BrokerError, PacketEncodingError};
+use crate::server::session::ClientSession;
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -104,16 +105,35 @@ impl Client {
 /// Client registry
 ///
 /// Manages connected clients and their state
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClientRegistry<const MAX_CLIENTS: usize> {
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClientRegistry<
+    const MAX_CLIENTS: usize,
+    const CLIENT_TO_BROKER_QUEUE_SIZE: usize,
+    const BROKER_TO_CLIENT_QUEUE_SIZE: usize,
+    const MAX_TOPIC_NAME_LENGTH: usize,
+    const MAX_PAYLOAD_SIZE: usize,
+> {
     clients: HeaplessVec<Option<Client>, MAX_CLIENTS>,
+    /// Sessions with communication queues
+    sessions: HeaplessVec<
+        Option<ClientSession<
+            CLIENT_TO_BROKER_QUEUE_SIZE,
+            BROKER_TO_CLIENT_QUEUE_SIZE,
+            MAX_TOPIC_NAME_LENGTH,
+            MAX_PAYLOAD_SIZE,
+        >>,
+        MAX_CLIENTS
+    >,
 }
 
-impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
+impl<const MAX_CLIENTS: usize, const CB_Q: usize, const BC_Q: usize, const MAX_TOPIC: usize, const MAX_PAYLOAD: usize>
+    ClientRegistry<MAX_CLIENTS, CB_Q, BC_Q, MAX_TOPIC, MAX_PAYLOAD>
+{
     /// Create a new client registry
     pub fn new() -> Self {
         Self {
             clients: HeaplessVec::new(),
+            sessions: HeaplessVec::new(),
         }
     }
 
@@ -131,7 +151,14 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
 
         // Find empty slot or add new
         if let Some(slot) = self.clients.iter().position(|c| c.is_none()) {
-            self.clients[slot] = Some(Client::new(id, keep_alive, current_time));
+            self.clients[slot] = Some(Client::new(id.clone(), keep_alive, current_time));
+            // Ensure session slot exists
+            if self.sessions.len() <= slot {
+                self.sessions.push(None).map_err(|_| BrokerError::MaxClientsReached {
+                    max_clients: MAX_CLIENTS,
+                })?;
+            }
+            self.sessions[slot] = Some(ClientSession::new(id));
             Ok(())
         } else {
             // Add to end
@@ -142,7 +169,12 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
                 });
             }
             self.clients
-                .push(Some(Client::new(id, keep_alive, current_time)))
+                .push(Some(Client::new(id.clone(), keep_alive, current_time)))
+                .map_err(|_| BrokerError::MaxClientsReached {
+                    max_clients: MAX_CLIENTS,
+                })?;
+            self.sessions
+                .push(Some(ClientSession::new(id)))
                 .map_err(|_| BrokerError::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 })?;
@@ -154,6 +186,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     pub fn unregister(&mut self, id: &ClientId) {
         if let Some(index) = self.find_index(id) {
             self.clients[index] = None;
+            self.sessions[index] = None;
         }
     }
 
@@ -198,5 +231,29 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     /// Get number of connected clients
     pub fn count(&self) -> usize {
         self.clients.iter().filter(|c| c.is_some()).count()
+    }
+
+    /// Get mutable reference to all sessions
+    pub fn sessions_mut(
+        &mut self,
+    ) -> &mut HeaplessVec<
+        Option<ClientSession<
+            CB_Q,
+            BC_Q,
+            MAX_TOPIC,
+            MAX_PAYLOAD,
+        >>,
+        MAX_CLIENTS,
+    > {
+        &mut self.sessions
+    }
+
+    /// Get session for a specific client
+    pub fn get_session_mut(&mut self, id: &ClientId) -> Option<&mut ClientSession<CB_Q, BC_Q, MAX_TOPIC, MAX_PAYLOAD>> {
+        if let Some(index) = self.find_index(id) {
+            self.sessions[index].as_mut()
+        } else {
+            None
+        }
     }
 }

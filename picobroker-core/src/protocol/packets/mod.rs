@@ -1,4 +1,4 @@
-mod connack;
+pub mod connack;
 mod connect;
 mod disconnect;
 mod pingreq;
@@ -14,6 +14,7 @@ mod unsuback;
 mod unsubscribe;
 
 pub use crate::protocol::packets::connack::ConnAckPacket;
+pub use crate::protocol::packets::connack::ConnectReturnCode;
 pub use crate::protocol::packets::connect::ConnectPacket;
 pub use crate::protocol::packets::disconnect::DisconnectPacket;
 pub use crate::protocol::packets::pingreq::PingReqPacket;

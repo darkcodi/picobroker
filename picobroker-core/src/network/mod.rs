@@ -30,4 +30,11 @@ pub trait TcpListener {
 
     /// Accept a new connection
     async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr), BrokerError>;
+
+    /// Try to accept a new connection without blocking
+    ///
+    /// Returns immediately with an error if no connection is pending.
+    /// This is used in the server main loop to allow periodic processing
+    /// of client messages between connection attempts.
+    async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), BrokerError>;
 }
