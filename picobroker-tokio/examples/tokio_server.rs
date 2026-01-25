@@ -7,7 +7,7 @@ use picobroker_tokio::{DefaultTokioPicoBrokerServer, StdLogger, StdTimeSource, T
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let time_source = StdTimeSource;
     let listener = TokioTcpListener::bind("0.0.0.0:1883").await?;

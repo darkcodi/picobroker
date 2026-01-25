@@ -3,7 +3,7 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use crate::client::{ClientRegistry};
-use crate::{BrokerError, SocketAddr, TcpStream};
+use crate::{BrokerError, SocketAddr};
 use crate::topics::TopicRegistry;
 
 /// MQTT broker (core logic)
@@ -19,7 +19,6 @@ use crate::topics::TopicRegistry;
 /// - `MAX_CLIENTS`: Maximum number of concurrent clients
 /// - `MAX_TOPICS`: Maximum number of distinct topics
 /// - `MAX_SUBSCRIBERS_PER_TOPIC`: Maximum subscribers per topic
-/// - `S`: TCP stream type
 #[derive(Debug)]
 pub struct PicoBroker<
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -28,10 +27,9 @@ pub struct PicoBroker<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    S: TcpStream,
 > {
-    pub clients: ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, S>,
-    pub topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
+    clients: ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS>,
+    topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
 impl<
@@ -41,8 +39,7 @@ impl<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    S: TcpStream,
-    > PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC, S>
+    > PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new MQTT broker with the given time source
     pub fn new() -> Self {

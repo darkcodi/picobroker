@@ -64,4 +64,3 @@ pub use protocol::{
 pub use traits::{TimeSource, Delay, Logger};
 pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};
 pub use protocol::HeaplessString;
-pub use protocol::HeaplessVec;

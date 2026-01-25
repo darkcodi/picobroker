@@ -3,7 +3,7 @@ mod packet_error;
 mod packet_type;
 mod packets;
 mod qos;
-pub mod utils;
+mod utils;
 
 pub use crate::protocol::packets::ConnAckPacket;
 pub use crate::protocol::packets::ConnectPacket;
