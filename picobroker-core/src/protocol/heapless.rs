@@ -109,6 +109,60 @@ impl<const N: usize> HeaplessString<N> {
     }
 }
 
+impl<const N: usize> core::fmt::Write for HeaplessString<N> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        // Try to push, but truncate silently if full
+        let bytes = s.as_bytes();
+        let remaining = N.saturating_sub(self.length as usize);
+        let to_copy = bytes.len().min(remaining);
+
+        self.data[self.length as usize..self.length as usize + to_copy]
+            .copy_from_slice(&bytes[..to_copy]);
+        self.length += to_copy as u8;
+
+        // Always return Ok to signal silent truncation
+        Ok(())
+    }
+
+    fn write_char(&mut self, c: char) -> core::fmt::Result {
+        // Encode char as UTF-8
+        let mut buf = [0u8; 4];
+        let encoded = c.encode_utf8(&mut buf);
+        self.write_str(encoded)
+    }
+}
+
+/// Heapless formatting macro that creates a formatted HeaplessString
+///
+/// Syntax: `format_heapless!(SIZE; "format string", arg1, arg2, ...)`
+///
+/// # Behavior
+/// - Truncates silently if formatted output exceeds SIZE bytes
+/// - Returns HeaplessString<SIZE> directly (no Result wrapper)
+/// - SIZE must be ≤ 255 (due to u8 length field in HeaplessString)
+///
+/// # Example
+/// ```
+/// use picobroker_core::format_heapless;
+/// let msg = format_heapless!(128; "Value: {}", 42);
+/// assert_eq!(msg.as_str(), "Value: 42");
+/// ```
+#[macro_export]
+macro_rules! format_heapless {
+    ($size:expr; $fmt:expr $(, $($arg:expr),* $(,)?)?) => {{
+        use core::fmt::Write;
+        let mut buffer = $crate::HeaplessString::<$size>::new();
+
+        // Write! will use our fmt::Write impl which truncates silently
+        write!(buffer, $fmt $(, $($arg),*)?).unwrap_or_else(|_| {
+            // This should never happen since our Write impl always returns Ok
+            // But if it does, we still return the buffer (with partial content)
+        });
+
+        buffer
+    }};
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HeaplessVec<T, const N: usize> {
     length: u16,
@@ -324,6 +378,7 @@ impl<T: Default, const N: usize> Iterator for HeaplessVecIntoIterator<T, N> {
 mod tests {
     use super::*;
     use core::mem::size_of;
+    use core::fmt::Write;
 
     #[test]
     fn test_optimized_string_size() {
@@ -457,5 +512,59 @@ mod tests {
             sum += item;
         }
         assert_eq!(sum, 6);
+    }
+
+    // Tests for fmt::Write implementation
+    #[test]
+    fn test_fmt_write_basic() {
+        let mut s = HeaplessString::<10>::new();
+        write!(s, "hello").unwrap();
+        assert_eq!(s.as_str(), "hello");
+        assert_eq!(s.len(), 5);
+    }
+
+    #[test]
+    fn test_fmt_write_formatting() {
+        let mut s = HeaplessString::<20>::new();
+        write!(s, "Hello, {}!", "world").unwrap();
+        assert_eq!(s.as_str(), "Hello, world!");
+    }
+
+    #[test]
+    fn test_fmt_write_truncates_on_overflow() {
+        let mut s = HeaplessString::<5>::new();
+        write!(s, "hello world").unwrap();
+        // Should truncate to fit capacity
+        assert_eq!(s.as_str(), "hello");
+        assert_eq!(s.len(), 5);
+    }
+
+    #[test]
+    fn test_format_heapless_basic() {
+        let msg = format_heapless!(32; "Value: {}", 42);
+        assert_eq!(msg.as_str(), "Value: 42");
+    }
+
+    #[test]
+    fn test_format_heapless_multiple_args() {
+        let a = 10;
+        let b = 20;
+        let msg = format_heapless!(64; "a={}, b={}, sum={}", a, b, a + b);
+        assert_eq!(msg.as_str(), "a=10, b=20, sum=30");
+    }
+
+    #[test]
+    fn test_format_heapless_truncates_silently() {
+        let msg = format_heapless!(5; "hello world");
+        // Should truncate to "hello" without panicking
+        assert_eq!(msg.as_str(), "hello");
+        assert_eq!(msg.len(), 5);
+    }
+
+    #[test]
+    fn test_format_heapless_empty_format() {
+        let msg = format_heapless!(16; "");
+        assert_eq!(msg.as_str(), "");
+        assert_eq!(msg.len(), 0);
     }
 }

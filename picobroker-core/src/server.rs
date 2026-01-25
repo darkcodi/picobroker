@@ -1,4 +1,5 @@
 use crate::{BrokerError, Delay, Logger, PicoBroker, TaskSpawner, TcpListener, TcpStream, TimeSource};
+use crate::format_heapless;
 
 /// MQTT Broker Server
 ///
@@ -86,14 +87,14 @@ impl<
             // 1. Try to accept a connection (non-blocking)
             // Note: This returns immediately if no connection is pending
             if let Ok((mut stream, socket_addr)) = self.listener.try_accept().await {
-                self.logger.info(heapless::format!(128; "Received new connection from {}", socket_addr).unwrap().as_str());
+                self.logger.info(format_heapless!(128; "Received new connection from {}", socket_addr).as_str());
 
                 const KEEP_ALIVE_SECS: u16 = 60; // Default non-configurable keep-alive for new clients
                 let current_time = self.time_source.now_secs();
                 let maybe_session_id = self.broker.register_new_client(socket_addr, KEEP_ALIVE_SECS, current_time);
                 match maybe_session_id {
                     Ok(session_id) => {
-                        self.logger.info(heapless::format!(128; "Registered new client with session ID {}", session_id).unwrap().as_str());
+                        self.logger.info(format_heapless!(128; "Registered new client with session ID {}", session_id).as_str());
 
                         // Spawn client handler task
                         // Note: We move the stream into the task
@@ -102,15 +103,15 @@ impl<
                             Self::client_handler_task(stream, logger).await;
                         }) {
                             Ok(_) => {
-                                self.logger.info(heapless::format!(128; "Spawned client handler task for client {}", session_id).unwrap().as_str());
+                                self.logger.info(format_heapless!(128; "Spawned client handler task for client {}", session_id).as_str());
                             },
                             Err(task_spawn_error) => {
-                                self.logger.error(heapless::format!(128; "Failed to spawn client handler task: {}", task_spawn_error).unwrap().as_str());
+                                self.logger.error(format_heapless!(128; "Failed to spawn client handler task: {}", task_spawn_error).as_str());
                             }
                         }
                     },
                     Err(e) => {
-                        self.logger.error(heapless::format!(128; "Failed to register new client: {}", e).unwrap().as_str());
+                        self.logger.error(format_heapless!(128; "Failed to register new client: {}", e).as_str());
                         self.logger.error("Closing connection");
                         let _ = stream.close().await;
                     }

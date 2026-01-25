@@ -64,6 +64,4 @@ pub use protocol::{
 pub use traits::{TaskSpawnError, TaskSpawner};
 pub use traits::{TimeSource, Delay, Logger};
 pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};
-
-// Re-export heapless for convenience
-pub use heapless;
+pub use protocol::HeaplessString;
