@@ -1,5 +1,5 @@
 use crate::protocol::{HeaplessString, HeaplessVec};
-use crate::{BrokerError, Packet, PacketEncodingError, SocketAddr};
+use crate::{BrokerError, PacketEncodingError, SocketAddr, TcpStream};
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -74,6 +74,7 @@ pub struct ClientSession<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
+    S: TcpStream,
 > {
     /// Unique session identifier
     pub session_id: usize,
@@ -92,9 +93,22 @@ pub struct ClientSession<
 
     /// Timestamp of last activity (seconds since epoch)
     pub last_activity: u64,
+
+    /// TCP stream for this client
+    pub stream: Option<S>,
+
+    /// Outbound message buffer (messages to send to client)
+    pub outbound_buffer: HeaplessVec<u8, QUEUE_SIZE>,
+
+    /// Read buffer (accumulating incoming packet data)
+    pub read_buffer: HeaplessVec<u8, MAX_PAYLOAD_SIZE>,
+
+    /// Current length of data in read_buffer
+    pub read_buffer_len: usize,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize> ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, S: TcpStream>
+    ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, S>
 {
     /// Create a new client session
     pub fn new(socket_addr: SocketAddr, keep_alive_secs: u16, current_time: u64) -> Self {
@@ -106,6 +120,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QU
             state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
+            stream: None,
+            outbound_buffer: HeaplessVec::new(),
+            read_buffer: HeaplessVec::new(),
+            read_buffer_len: 0,
         }
     }
 
@@ -133,16 +151,17 @@ pub struct ClientRegistry<
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
     const MAX_CLIENTS: usize,
+    S: TcpStream,
 > {
     /// Sessions with communication queues
-    sessions: HeaplessVec<
-        Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
+    pub sessions: HeaplessVec<
+        Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, S>>,
         MAX_CLIENTS
     >,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize>
-    ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS>
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, S: TcpStream>
+    ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, S>
 {
     /// Create a new client registry
     pub fn new() -> Self {
@@ -160,5 +179,15 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QU
         let session_id = session.session_id;
         self.sessions.push(Some(session)).map_err(|_| BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS })?;
         Ok(session_id)
+    }
+
+    /// Get session by index
+    pub fn get_session(&self, index: usize) -> Option<&ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, S>> {
+        self.sessions.get(index).and_then(|s| s.as_ref())
+    }
+
+    /// Get mutable session by index
+    pub fn get_session_mut(&mut self, index: usize) -> Option<&mut ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, S>> {
+        self.sessions.get_mut(index).and_then(|s| s.as_mut())
     }
 }

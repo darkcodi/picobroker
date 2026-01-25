@@ -75,11 +75,11 @@ impl TokioTcpStream {
 impl TcpStream for TokioTcpStream {
     async fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, NetworkError> {
         // tokio's try_read is synchronous but non-blocking
-        self.inner
-            .try_read(buf)
-            .map_err(|_| {
-                NetworkError::IoError
-            })
+        match self.inner.try_read(buf) {
+            Ok(n) => Ok(n),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => Err(NetworkError::WouldBlock),
+            Err(_) => Err(NetworkError::IoError),
+        }
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
@@ -134,6 +134,9 @@ impl TcpListener for TokioTcpListener {
                     },
                     port: addr.port(),
                 };
+
+                // Disable Nagle's algorithm for lower latency
+                let _ = stream.set_nodelay(true);
 
                 let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
                 Ok((tokio_stream, socket_addr))

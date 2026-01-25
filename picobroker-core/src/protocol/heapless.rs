@@ -165,8 +165,8 @@ macro_rules! format_heapless {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HeaplessVec<T, const N: usize> {
-    length: u16,
-    data: [T; N],
+    pub length: u16,
+    pub data: [T; N],
 }
 
 impl<T: Default, const N: usize> Default for HeaplessVec<T, N> {
@@ -214,6 +214,10 @@ impl<T, const N: usize> HeaplessVec<T, N> {
 
     pub fn as_slice(&self) -> &[T] {
         &self.data[..self.length as usize]
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.data[..self.length as usize]
     }
 
     pub fn extend_from_slice(&mut self, slice: &[T]) -> Result<(), ()>
@@ -272,6 +276,24 @@ impl<T, const N: usize> HeaplessVec<T, N> {
 
         // Decrease length
         self.length -= 1;
+    }
+
+    pub fn remove_prefix(&mut self, count: usize)
+    where
+        T: Clone,
+    {
+        if count == 0 {
+            return;
+        }
+        if count >= self.length as usize {
+            self.length = 0;
+        } else {
+            let remaining = self.length as usize - count;
+            for i in 0..remaining {
+                self.data[i] = self.data[i + count].clone();
+            }
+            self.length = remaining as u16;
+        }
     }
 }
 
