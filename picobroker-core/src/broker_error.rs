@@ -4,14 +4,8 @@
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrokerError {
-    /// Failed to accept a new connection
-    AcceptConnectionError,
-    /// Failed to bind to the specified address
-    BindError,
     /// Client with the given ID is already connected
     ClientAlreadyConnected,
-    /// I/O error occurred
-    IoError,
     /// Maximum number of clients reached
     MaxClientsReached { max_clients: usize },
     /// Maximum number of subscribers per topic reached
@@ -23,12 +17,9 @@ pub enum BrokerError {
 impl core::fmt::Display for BrokerError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BrokerError::AcceptConnectionError => write!(f, "Failed to accept a new connection"),
-            BrokerError::BindError => write!(f, "Failed to bind to the specified address"),
             BrokerError::ClientAlreadyConnected => {
                 write!(f, "Client with the given ID is already connected")
             }
-            BrokerError::IoError => write!(f, "I/O error occurred"),
             BrokerError::MaxClientsReached { max_clients } => {
                 write!(f, "Maximum number of clients reached: {}", max_clients)
             }

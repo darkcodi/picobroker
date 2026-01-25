@@ -1,4 +1,4 @@
-pub mod connack;
+mod connack;
 mod connect;
 mod disconnect;
 mod pingreq;

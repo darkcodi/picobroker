@@ -1,7 +1,7 @@
 mod heapless;
 mod packet_error;
 mod packet_type;
-pub mod packets;
+mod packets;
 mod qos;
 mod utils;
 

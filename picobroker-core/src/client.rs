@@ -1,6 +1,6 @@
+use heapless::spsc::Queue;
 use crate::protocol::{HeaplessString, HeaplessVec};
-use crate::{BrokerError, PacketEncodingError};
-use crate::server::session::ClientSession;
+use crate::{BrokerError, Packet, PacketEncodingError, SocketAddr};
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -66,24 +66,55 @@ pub enum ClientState {
     Disconnected,
 }
 
-#[allow(dead_code)]
-pub struct ClientChannel {
-    pub packets_to_send: heapless::spsc::Queue<u8, 23>,
-}
+/// Client session with dual queues
+///
+/// Maintains the communication channels between a client task
+/// and the broker, along with connection state.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ClientSession<
+    const MAX_TOPIC_NAME_LENGTH: usize,
+    const MAX_PAYLOAD_SIZE: usize,
+    const QUEUE_SIZE: usize,
+> {
+    /// Unique session identifier
+    pub session_id: usize,
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Client {
-    pub id: ClientId,
+    /// Client socket address
+    pub socket_addr: SocketAddr,
+
+    /// Client identifier
+    pub client_id: Option<ClientId>,
+
+    /// Current client state
+    pub state: ClientState,
+
+    /// Keep-alive interval in seconds
     pub keep_alive_secs: u16,
+
+    /// Timestamp of last activity (seconds since epoch)
     pub last_activity: u64,
+
+    /// Queue for messages from client to broker
+    pub client_to_broker: Queue<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE>,
+
+    /// Queue for messages from broker to client
+    pub broker_to_client: Queue<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE>,
 }
 
-impl Client {
-    pub fn new(id: ClientId, keep_alive_secs: u16, current_time: u64) -> Self {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize> ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
+{
+    /// Create a new client session
+    pub fn new(socket_addr: SocketAddr, keep_alive_secs: u16, current_time: u64) -> Self {
+        let session_id = socket_addr.port as usize; // Simple session ID based on port for demo purposes
         Self {
-            id,
+            session_id,
+            socket_addr,
+            client_id: None,
+            state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
+            client_to_broker: Queue::new(),
+            broker_to_client: Queue::new(),
         }
     }
 
@@ -107,153 +138,36 @@ impl Client {
 /// Manages connected clients and their state
 #[derive(Debug, PartialEq, Eq)]
 pub struct ClientRegistry<
-    const MAX_CLIENTS: usize,
-    const CLIENT_TO_BROKER_QUEUE_SIZE: usize,
-    const BROKER_TO_CLIENT_QUEUE_SIZE: usize,
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
+    const QUEUE_SIZE: usize,
+    const MAX_CLIENTS: usize,
 > {
-    clients: HeaplessVec<Option<Client>, MAX_CLIENTS>,
     /// Sessions with communication queues
     sessions: HeaplessVec<
-        Option<ClientSession<
-            CLIENT_TO_BROKER_QUEUE_SIZE,
-            BROKER_TO_CLIENT_QUEUE_SIZE,
-            MAX_TOPIC_NAME_LENGTH,
-            MAX_PAYLOAD_SIZE,
-        >>,
+        Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
         MAX_CLIENTS
     >,
 }
 
-impl<const MAX_CLIENTS: usize, const CB_Q: usize, const BC_Q: usize, const MAX_TOPIC: usize, const MAX_PAYLOAD: usize>
-    ClientRegistry<MAX_CLIENTS, CB_Q, BC_Q, MAX_TOPIC, MAX_PAYLOAD>
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize>
+    ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS>
 {
     /// Create a new client registry
     pub fn new() -> Self {
         Self {
-            clients: HeaplessVec::new(),
             sessions: HeaplessVec::new(),
         }
     }
 
-    /// Register a new client
-    pub fn register(
-        &mut self,
-        id: ClientId,
-        keep_alive: u16,
-        current_time: u64,
-    ) -> Result<(), BrokerError> {
-        // Check if client already exists
-        if self.find_index(&id).is_some() {
-            return Err(BrokerError::ClientAlreadyConnected);
+    /// Register a new client session
+    pub fn register_new_client(&mut self, socket_addr: SocketAddr, keep_alive_secs: u16, current_time: u64) -> Result<usize, BrokerError> {
+        if self.sessions.len() >= MAX_CLIENTS {
+            return Err(BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS });
         }
-
-        // Find empty slot or add new
-        if let Some(slot) = self.clients.iter().position(|c| c.is_none()) {
-            self.clients[slot] = Some(Client::new(id.clone(), keep_alive, current_time));
-            // Ensure session slot exists
-            if self.sessions.len() <= slot {
-                self.sessions.push(None).map_err(|_| BrokerError::MaxClientsReached {
-                    max_clients: MAX_CLIENTS,
-                })?;
-            }
-            self.sessions[slot] = Some(ClientSession::new(id));
-            Ok(())
-        } else {
-            // Add to end
-            let slot = self.clients.len();
-            if slot >= MAX_CLIENTS {
-                return Err(BrokerError::MaxClientsReached {
-                    max_clients: MAX_CLIENTS,
-                });
-            }
-            self.clients
-                .push(Some(Client::new(id.clone(), keep_alive, current_time)))
-                .map_err(|_| BrokerError::MaxClientsReached {
-                    max_clients: MAX_CLIENTS,
-                })?;
-            self.sessions
-                .push(Some(ClientSession::new(id)))
-                .map_err(|_| BrokerError::MaxClientsReached {
-                    max_clients: MAX_CLIENTS,
-                })?;
-            Ok(())
-        }
-    }
-
-    /// Unregister a client
-    pub fn unregister(&mut self, id: &ClientId) {
-        if let Some(index) = self.find_index(id) {
-            self.clients[index] = None;
-            self.sessions[index] = None;
-        }
-    }
-
-    /// Update client activity timestamp
-    pub fn update_activity(&mut self, id: &ClientId, current_time: u64) -> bool {
-        if let Some(index) = self.find_index(id) {
-            if let Some(Some(client)) = self.clients.get_mut(index) {
-                client.update_activity(current_time);
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Get list of expired clients
-    pub fn get_expired_clients(&self, current_time: u64) -> HeaplessVec<ClientId, MAX_CLIENTS> {
-        let mut expired = HeaplessVec::new();
-        for client in self.clients.iter().flatten() {
-            if client.is_expired(current_time) {
-                let _ = expired.push(client.id.clone());
-            }
-        }
-        expired
-    }
-
-    /// Find client index by id
-    pub fn find_index(&self, id: &ClientId) -> Option<usize> {
-        self.clients.iter().position(|c| {
-            if let Some(client) = c {
-                &client.id == id
-            } else {
-                false
-            }
-        })
-    }
-
-    /// Check if client is connected
-    pub fn is_connected(&self, id: &ClientId) -> bool {
-        self.find_index(id).is_some()
-    }
-
-    /// Get number of connected clients
-    pub fn count(&self) -> usize {
-        self.clients.iter().filter(|c| c.is_some()).count()
-    }
-
-    /// Get mutable reference to all sessions
-    pub fn sessions_mut(
-        &mut self,
-    ) -> &mut HeaplessVec<
-        Option<ClientSession<
-            CB_Q,
-            BC_Q,
-            MAX_TOPIC,
-            MAX_PAYLOAD,
-        >>,
-        MAX_CLIENTS,
-    > {
-        &mut self.sessions
-    }
-
-    /// Get session for a specific client
-    pub fn get_session_mut(&mut self, id: &ClientId) -> Option<&mut ClientSession<CB_Q, BC_Q, MAX_TOPIC, MAX_PAYLOAD>> {
-        if let Some(index) = self.find_index(id) {
-            self.sessions[index].as_mut()
-        } else {
-            None
-        }
+        let session = ClientSession::new(socket_addr, keep_alive_secs, current_time);
+        let session_id = session.session_id;
+        self.sessions.push(Some(session)).map_err(|_| BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS })?;
+        Ok(session_id)
     }
 }

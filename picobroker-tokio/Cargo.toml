@@ -7,6 +7,4 @@ edition.workspace = true
 picobroker-core = { path = "../picobroker-core" }
 tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util"] }
 log = "0.4"
-
-[dev-dependencies]
 env_logger = "0.11"
