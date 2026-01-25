@@ -65,3 +65,6 @@ pub use traits::{TaskSpawnError, TaskSpawner};
 pub use traits::{TimeSource, Delay, Logger};
 pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};
 pub use protocol::HeaplessString;
+pub use protocol::HeaplessVec;
+pub use protocol::{Consumer, Producer, Queue};
+

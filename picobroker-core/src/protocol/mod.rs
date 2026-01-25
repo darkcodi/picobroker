@@ -23,6 +23,7 @@ pub use crate::protocol::packets::SubscribePacket;
 pub use crate::protocol::packets::UnsubAckPacket;
 pub use crate::protocol::packets::UnsubscribePacket;
 pub use heapless::{HeaplessString, HeaplessVec};
+pub use heapless::spsc::{Consumer, Producer, Queue};
 pub use packet_error::PacketEncodingError;
 pub use packet_type::PacketType;
 pub use qos::QoS;
