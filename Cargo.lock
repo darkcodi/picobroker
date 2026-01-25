@@ -118,7 +118,7 @@ dependencies = [
  "embassy-time",
  "embedded-io-async 0.7.0",
  "embedded-nal-async",
- "heapless 0.8.0",
+ "heapless",
  "managed",
  "smoltcp",
 ]
@@ -140,7 +140,7 @@ dependencies = [
  "embedded-io-async 0.6.1",
  "futures-core",
  "futures-sink",
- "heapless 0.8.0",
+ "heapless",
 ]
 
 [[package]]
@@ -297,17 +297,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "heapless"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2af2455f757db2b292a9b1768c4b70186d443bcb3b316252d6b540aec1cd89ed"
-dependencies = [
- "hash32",
- "portable-atomic",
- "stable_deref_trait",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -402,9 +391,6 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "picobroker-core"
 version = "0.1.0"
-dependencies = [
- "heapless 0.9.2",
-]
 
 [[package]]
 name = "picobroker-embassy"
@@ -522,7 +508,7 @@ dependencies = [
  "bitflags",
  "byteorder",
  "cfg-if",
- "heapless 0.8.0",
+ "heapless",
  "managed",
 ]
 

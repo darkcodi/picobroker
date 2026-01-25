@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-heapless = { version = "0.9", features = ["portable-atomic"] }
+# zero dependencies for core crate

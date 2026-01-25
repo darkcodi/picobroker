@@ -1,4 +1,3 @@
-use heapless::spsc::Queue;
 use crate::protocol::{HeaplessString, HeaplessVec};
 use crate::{BrokerError, Packet, PacketEncodingError, SocketAddr};
 
@@ -93,12 +92,6 @@ pub struct ClientSession<
 
     /// Timestamp of last activity (seconds since epoch)
     pub last_activity: u64,
-
-    /// Queue for messages from client to broker
-    pub client_to_broker: Queue<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE>,
-
-    /// Queue for messages from broker to client
-    pub broker_to_client: Queue<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE>,
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize> ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
@@ -113,8 +106,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QU
             state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
-            client_to_broker: Queue::new(),
-            broker_to_client: Queue::new(),
         }
     }
 
