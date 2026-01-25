@@ -1,5 +1,5 @@
-use crate::{BrokerError, ClientId, Delay, Logger, NetworkError, Packet, PacketEncoder, PicoBroker, SocketAddr, TcpListener, TcpStream, TimeSource};
-use crate::format_heapless;
+use log::{error, info};
+use crate::{BrokerError, ClientId, Delay, NetworkError, Packet, PacketEncoder, PicoBroker, SocketAddr, TcpListener, TcpStream, TimeSource};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -23,7 +23,6 @@ use crate::protocol::HeaplessVec;
 pub struct PicoBrokerServer<
     TS: TimeSource,
     TL: TcpListener,
-    L: Logger,
     D: Delay,
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
@@ -34,7 +33,6 @@ pub struct PicoBrokerServer<
 > {
     time_source: TS,
     listener: TL,
-    logger: L,
     delay: D,
     broker: PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
     client_registry: ClientRegistry<
@@ -49,7 +47,6 @@ pub struct PicoBrokerServer<
 impl<
     TS: TimeSource,
     TL: TcpListener,
-    L: Logger,
     D: Delay,
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
@@ -57,14 +54,13 @@ impl<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-> PicoBrokerServer<TS, TL, L, D, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+> PicoBrokerServer<TS, TL, D, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new MQTT broker server
-    pub fn new(time_source: TS, listener: TL, logger: L, delay: D) -> Self {
+    pub fn new(time_source: TS, listener: TL, delay: D) -> Self {
         Self {
             time_source,
             listener,
-            logger,
             delay,
             broker: PicoBroker::new(),
             client_registry: ClientRegistry::new(),
@@ -84,26 +80,25 @@ impl<
     pub async fn run(&mut self) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
-        L: Clone + Send + 'static,
     {
-        self.logger.info("Starting server main loop");
+        info!("Starting server main loop");
         loop {
             // 1. Try to accept a connection (non-blocking)
             // Note: This returns immediately if no connection is pending
             if let Ok((stream, socket_addr)) = self.listener.try_accept().await {
-                self.logger.info(format_heapless!(128; "Received new connection from {}", socket_addr).as_str());
+                info!("Received new connection from {}", socket_addr);
 
                 const KEEP_ALIVE_SECS: u16 = 60; // Default non-configurable keep-alive for new clients
                 let current_time = self.time_source.now_secs();
                 let maybe_session_id = self.client_registry.register_new_client(stream, socket_addr, KEEP_ALIVE_SECS, current_time);
                 match maybe_session_id {
                     Ok(session_id) => {
-                        self.logger.info(format_heapless!(128; "Registered new client with session ID {}", session_id).as_str());
+                        info!("Registered new client with session ID {}", session_id);
 
                     },
                     Err(e) => {
-                        self.logger.error(format_heapless!(128; "Failed to register new client: {}", e).as_str());
-                        self.logger.error("Closing connection");
+                        error!("Failed to register new client: {}", e);
+                        error!("Closing connection");
                     }
                 };
             }
@@ -122,19 +117,19 @@ impl<
     async fn process_client_messages(&mut self) -> Result<(), BrokerError> {
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
-                match Self::try_read_packet_from_stream(&self.logger, &mut session.stream).await {
+                match Self::try_read_packet_from_stream(&mut session.stream).await {
                     Ok(Some(packet)) => {
-                        self.logger.info(format_heapless!(200; "Received packet from client {}: {:?}", session.session_id, packet).as_str());
+                        info!("Received packet from client {}: {:?}", session.session_id, packet);
                         // Here you would process the packet (e.g., handle CONNECT, PUBLISH, SUBSCRIBE, etc.)
                         match packet {
                             Packet::Connect(connect_packet) => {
-                                self.logger.info(format_heapless!(128; "Client {} sent CONNECT with client ID: {}", session.session_id, connect_packet.client_id).as_str());
+                                info!("Client {} sent CONNECT with client ID: {}", session.session_id, connect_packet.client_id);
                                 session.client_id = Some(ClientId::try_from(connect_packet.client_id.as_str()).unwrap_or_default());
                                 session.state = ClientState::Connected;
                                 // Send CONNACK response (not implemented here)
                             }
                             _ => {
-                                self.logger.info(format_heapless!(128; "Processing other packet types not implemented yet").as_str());
+                                info!("Processing other packet types not implemented yet");
                             },
                         }
                     }
@@ -142,7 +137,7 @@ impl<
                         // No packet available, continue
                     }
                     Err(e) => {
-                        // self.logger.error(format_heapless!(128; "Error reading packet from client {}: {}", session.session_id, e).as_str());
+                        // error!(format_heapless!(128; "Error reading packet from client {}: {}", session.session_id, e).as_str());
                         // Handle error (e.g., close connection, cleanup)
                     }
                 }
@@ -151,7 +146,7 @@ impl<
         Ok(())
     }
 
-    async fn try_read_packet_from_stream<S: TcpStream>(logger: &L, stream: &mut S) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+    async fn try_read_packet_from_stream<S: TcpStream>(stream: &mut S) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
         let mut header_buffer = [0u8; MAX_PAYLOAD_SIZE];
 
         match stream.try_read(&mut header_buffer).await {
@@ -162,12 +157,12 @@ impl<
                     match maybe_packet {
                         Ok(packet) => Ok(Some(packet)),
                         Err(e) => {
-                            logger.error(format_heapless!(128; "Failed to decode packet: {}", e).as_str());
+                            error!("Failed to decode packet: {}", e);
                             Err(BrokerError::PacketEncodingError { error: e })
                         }
                     }
                 } else {
-                    logger.info("Connection closed by peer");
+                    info!("Connection closed by peer");
                     Err(BrokerError::NetworkError { error: NetworkError::ConnectionClosed })
                 }
             }

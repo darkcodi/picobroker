@@ -72,21 +72,6 @@ pub trait TimeSource {
     fn now_secs(&self) -> u64;
 }
 
-/// Logging trait for abstracting logging functionality
-pub trait Logger {
-    /// Log a debug message
-    fn debug(&self, message: &str);
-
-    /// Log an informational message
-    fn info(&self, message: &str);
-
-    /// Log a warning message
-    fn warn(&self, message: &str);
-
-    /// Log an error message
-    fn error(&self, message: &str);
-}
-
 /// Delay trait for abstracting sleep/delay functionality
 #[allow(async_fn_in_trait)]
 pub trait Delay {

@@ -132,37 +132,6 @@ impl<const N: usize> core::fmt::Write for HeaplessString<N> {
     }
 }
 
-/// Heapless formatting macro that creates a formatted HeaplessString
-///
-/// Syntax: `format_heapless!(SIZE; "format string", arg1, arg2, ...)`
-///
-/// # Behavior
-/// - Truncates silently if formatted output exceeds SIZE bytes
-/// - Returns HeaplessString<SIZE> directly (no Result wrapper)
-/// - SIZE must be ≤ 255 (due to u8 length field in HeaplessString)
-///
-/// # Example
-/// ```
-/// use picobroker_core::format_heapless;
-/// let msg = format_heapless!(128; "Value: {}", 42);
-/// assert_eq!(msg.as_str(), "Value: 42");
-/// ```
-#[macro_export]
-macro_rules! format_heapless {
-    ($size:expr; $fmt:expr $(, $($arg:expr),* $(,)?)?) => {{
-        use core::fmt::Write;
-        let mut buffer = $crate::HeaplessString::<$size>::new();
-
-        // Write! will use our fmt::Write impl which truncates silently
-        write!(buffer, $fmt $(, $($arg),*)?).unwrap_or_else(|_| {
-            // This should never happen since our Write impl always returns Ok
-            // But if it does, we still return the buffer (with partial content)
-        });
-
-        buffer
-    }};
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HeaplessVec<T, const N: usize> {
     length: u16,
@@ -537,34 +506,5 @@ mod tests {
         // Should truncate to fit capacity
         assert_eq!(s.as_str(), "hello");
         assert_eq!(s.len(), 5);
-    }
-
-    #[test]
-    fn test_format_heapless_basic() {
-        let msg = format_heapless!(32; "Value: {}", 42);
-        assert_eq!(msg.as_str(), "Value: 42");
-    }
-
-    #[test]
-    fn test_format_heapless_multiple_args() {
-        let a = 10;
-        let b = 20;
-        let msg = format_heapless!(64; "a={}, b={}, sum={}", a, b, a + b);
-        assert_eq!(msg.as_str(), "a=10, b=20, sum=30");
-    }
-
-    #[test]
-    fn test_format_heapless_truncates_silently() {
-        let msg = format_heapless!(5; "hello world");
-        // Should truncate to "hello" without panicking
-        assert_eq!(msg.as_str(), "hello");
-        assert_eq!(msg.len(), 5);
-    }
-
-    #[test]
-    fn test_format_heapless_empty_format() {
-        let msg = format_heapless!(16; "");
-        assert_eq!(msg.as_str(), "");
-        assert_eq!(msg.len(), 0);
     }
 }

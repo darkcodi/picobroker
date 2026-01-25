@@ -9,7 +9,6 @@
 // Re-export core for convenience
 pub use picobroker_core::*;
 
-use log::{debug, error, info, warn};
 use tokio::net::TcpStream as TokioTcpStreamInner;
 
 const DEFAULT_MAX_TOPIC_NAME_LENGTH: usize = 32;
@@ -38,7 +37,6 @@ pub type TokioPicoBrokerServer<
     > = PicoBrokerServer<
     StdTimeSource,
     TokioTcpListener,
-    StdLogger,
     TokioDelay,
     MAX_TOPIC_NAME_LENGTH,
     MAX_PAYLOAD_SIZE,
@@ -155,27 +153,6 @@ impl TimeSource for StdTimeSource {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs()
-    }
-}
-
-#[derive(Clone)]
-pub struct StdLogger;
-
-impl Logger for StdLogger {
-    fn debug(&self, message: &str) {
-        debug!("{}", message);
-    }
-
-    fn info(&self, message: &str) {
-        info!("{}", message);
-    }
-
-    fn warn(&self, message: &str) {
-        warn!("{}", message);
-    }
-
-    fn error(&self, message: &str) {
-        error!("{}", message);
     }
 }
 

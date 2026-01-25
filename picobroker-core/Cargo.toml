@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-# zero dependencies for core crate
+log = "0.4"
