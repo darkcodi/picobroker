@@ -5,6 +5,6 @@ edition.workspace = true
 
 [dependencies]
 picobroker-core = { path = "../picobroker-core" }
-tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util", "sync"] }
+tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util"] }
 log = "0.4"
 env_logger = "0.11"

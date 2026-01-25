@@ -12,61 +12,6 @@ pub use picobroker_core::*;
 use std::sync::Arc;
 use log::{debug, error, info, warn};
 use tokio::net::TcpStream as TokioTcpStreamInner;
-use tokio::sync::mpsc;
-
-// Wrapper types for tokio channels to implement our traits
-pub struct TokioSender<T>(mpsc::Sender<T>);
-
-impl<T> TokioSender<T> {
-    pub fn new(inner: mpsc::Sender<T>) -> Self {
-        Self(inner)
-    }
-
-    pub fn inner(&self) -> &mpsc::Sender<T> {
-        &self.0
-    }
-}
-
-impl<T: Send + 'static> Sender<T> for TokioSender<T> {
-    fn is_closed(&self) -> bool {
-        self.0.is_closed()
-    }
-
-    fn close(&self) {
-        // tokio mpsc doesn't have a close method - dropping the sender closes it
-        // We can't explicitly close it here, but dropping achieves the same effect
-    }
-
-    fn try_send(&self, msg: T) -> Result<(), TrySendError<T>> {
-        self.0.try_send(msg)
-            .map_err(|e| match e {
-                mpsc::error::TrySendError::Full(m) => TrySendError::Full(m),
-                mpsc::error::TrySendError::Closed(m) => TrySendError::Closed(m),
-            })
-    }
-}
-
-pub struct TokioReceiver<T>(mpsc::Receiver<T>);
-
-impl<T> TokioReceiver<T> {
-    pub fn new(inner: mpsc::Receiver<T>) -> Self {
-        Self(inner)
-    }
-
-    pub fn inner(&mut self) -> &mut mpsc::Receiver<T> {
-        &mut self.0
-    }
-}
-
-impl<T: Send + 'static> Receiver<T> for TokioReceiver<T> {
-    fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        self.0.try_recv()
-            .map_err(|e| match e {
-                mpsc::error::TryRecvError::Empty => TryRecvError::Empty,
-                mpsc::error::TryRecvError::Disconnected => TryRecvError::Closed,
-            })
-    }
-}
 
 const DEFAULT_MAX_TOPIC_NAME_LENGTH: usize = 32;
 const DEFAULT_MAX_PAYLOAD_SIZE: usize = 128;
