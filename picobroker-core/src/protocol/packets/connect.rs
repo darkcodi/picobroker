@@ -1,7 +1,6 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
-use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_binary, read_string, write_binary, write_string};
-use crate::{read_variable_length, write_variable_length, ClientId, Error, PacketEncodingError, PacketType, TopicName};
+use crate::{read_variable_length, write_variable_length, ClientId, PacketEncodingError, PacketType, TopicName};
 use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::HeaplessString;
 
@@ -129,7 +128,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // validate protocol name
         let mut offset = 1 + int_length;
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let protocol_name = read_string(bytes, &mut offset)?;
         if protocol_name != MQTT_PROTOCOL_NAME {
@@ -138,7 +139,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // validate protocol level
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let protocol_level = bytes[offset];
         offset += 1;
@@ -150,31 +153,29 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // validate connect flags
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
-        let connect_flags = bytes[offset];
+        let connect_flags_byte = bytes[offset];
         offset += 1;
-        let connect_flags = ConnectFlags(connect_flags);
+        let connect_flags = ConnectFlags(connect_flags_byte);
         // validate reserved bits per MQTT 3.1.1 spec: Bit 0 (reserved) must be 0
         if connect_flags.contains(ConnectFlags::RESERVED) {
-            return Err(Error::InvalidConnectFlags.into());
+            return Err(PacketEncodingError::InvalidConnectFlags {
+                flags: connect_flags_byte,
+            });
         }
         let clean_session = connect_flags.contains(ConnectFlags::CLEAN_SESSION);
         let will_flag = connect_flags.contains(ConnectFlags::WILL_FLAG);
-        let will_qos = if connect_flags.contains(ConnectFlags::WILL_QOS_2) {
-            QoS::ExactlyOnce
-        } else if connect_flags.contains(ConnectFlags::WILL_QOS_1) {
-            QoS::AtLeastOnce
-        } else {
-            QoS::AtMostOnce
-        };
-        let will_retain = connect_flags.contains(ConnectFlags::WILL_RETAIN);
         let username_flag = connect_flags.contains(ConnectFlags::USERNAME);
         let password_flag = connect_flags.contains(ConnectFlags::PASSWORD);
 
         // extract keep alive
         if offset + 2 > bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let keep_alive = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
         offset += 2;
@@ -182,18 +183,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // extract client id
         let client_id = read_string(bytes, &mut offset)?;
         if client_id.is_empty() && !clean_session {
-            return Err(Error::InvalidClientIdLength { length: 0 }.into());
-        }
-        if client_id.len() > MAX_TOPIC_NAME_LENGTH {
-            return Err(Error::ClientIdLengthExceeded {
-                max_length: MAX_TOPIC_NAME_LENGTH,
-                actual_length: client_id.len(),
-            }.into());
+            return Err(PacketEncodingError::ClientIdEmpty);
         }
         let client_id = HeaplessString::try_from(client_id)
             .map(|s| ClientId::from(s))
             .map_err(|_| {
-                Error::ClientIdLengthExceeded {
+                PacketEncodingError::ClientIdLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: client_id.len(),
                 }
@@ -206,18 +201,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             // extract will topic
             let will_topic_str = read_string(bytes, &mut offset)?;
             if will_topic_str.is_empty() {
-                return Err(Error::EmptyTopic.into());
-            }
-            if will_topic_str.len() > MAX_TOPIC_NAME_LENGTH {
-                return Err(Error::ClientIdLengthExceeded {
-                    max_length: MAX_TOPIC_NAME_LENGTH,
-                    actual_length: will_topic_str.len(),
-                }.into());
+                return Err(PacketEncodingError::TopicEmpty);
             }
             will_topic = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
                 .map(|s| TopicName::new(s))
                 .map_err(|_| {
-                    Error::ClientIdLengthExceeded {
+                    PacketEncodingError::TopicNameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: will_topic_str.len(),
                     }
@@ -227,14 +216,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             let will_payload_bytes = read_binary(bytes, &mut offset)?;
             let mut will_payload_vec = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
             if will_payload_bytes.len() > MAX_PAYLOAD_SIZE {
-                return Err(Error::PacketTooLarge {
+                return Err(PacketEncodingError::PayloadTooLarge {
                     max_size: MAX_PAYLOAD_SIZE,
                     actual_size: will_payload_bytes.len(),
-                }.into());
+                });
             }
             // Note: MQTT 3.1.1 spec does not limit will payload size, but we enforce MAX_PAYLOAD_SIZE here
             will_payload_vec.extend_from_slice(will_payload_bytes).map_err(|_| {
-                Error::PacketTooLarge {
+                PacketEncodingError::PayloadTooLarge {
                     max_size: MAX_PAYLOAD_SIZE,
                     actual_size: will_payload_bytes.len(),
                 }
@@ -246,15 +235,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         let mut username: Option<HeaplessString<MAX_TOPIC_NAME_LENGTH>> = None;
         if username_flag {
             let username_str = read_string(bytes, &mut offset)?;
-            if username_str.len() > MAX_TOPIC_NAME_LENGTH {
-                return Err(Error::ClientIdLengthExceeded {
-                    max_length: MAX_TOPIC_NAME_LENGTH,
-                    actual_length: username_str.len(),
-                }.into());
-            }
             username = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str)
                 .map_err(|_| {
-                    Error::ClientIdLengthExceeded {
+                    PacketEncodingError::UsernameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: username_str.len(),
                     }
@@ -266,16 +249,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         if password_flag {
             let password_bytes = read_binary(bytes, &mut offset)?;
             let mut password_vec = HeaplessVec::<u8, MAX_TOPIC_NAME_LENGTH>::new();
-            if password_bytes.len() > MAX_TOPIC_NAME_LENGTH {
-                return Err(Error::PacketTooLarge {
-                    max_size: MAX_TOPIC_NAME_LENGTH,
-                    actual_size: password_bytes.len(),
-                }.into());
-            }
             password_vec.extend_from_slice(password_bytes).map_err(|_| {
-                Error::PacketTooLarge {
-                    max_size: MAX_TOPIC_NAME_LENGTH,
-                    actual_size: password_bytes.len(),
+                PacketEncodingError::PasswordLengthExceeded {
+                    max_length: MAX_TOPIC_NAME_LENGTH,
+                    actual_length: password_bytes.len(),
                 }
             })?;
             password = Some(password_vec);
@@ -283,9 +260,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // Validate that the remaining length matches the actual bytes read
         let actual_payload_size = offset - 1 - int_length;
-        if actual_payload_size != remaining_length as usize {
+        if actual_payload_size != remaining_length {
             return Err(PacketEncodingError::InvalidPacketLength {
-                expected: remaining_length as usize,
+                expected: remaining_length,
                 actual: actual_payload_size,
             });
         }
@@ -553,7 +530,7 @@ mod tests {
     fn test_connect_flag_reserved_bit_set() {
         let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 03 00 3C 00 03 61 62 63");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidConnectFlags { flags: 3 })));
     }
 
     // ===== CONNECT FLAGS: WILL FLAG =====
@@ -687,14 +664,14 @@ mod tests {
     fn test_client_id_empty_without_clean_session() {
         let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 00 00 3C 00 00");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::ClientIdEmpty)));
     }
 
     #[test]
     fn test_client_id_too_long() {
         let bytes = hex_to_bytes("10 2C 00 04 4D 51 54 54 04 02 00 3C 00 20 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::ClientIdLengthExceeded { max_length: 30, actual_length: 32 })));
     }
 
     #[test]
@@ -724,14 +701,14 @@ mod tests {
     fn test_will_topic_empty() {
         let bytes = hex_to_bytes("10 11 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 00");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicEmpty)));
     }
 
     #[test]
     fn test_will_topic_too_long() {
         let bytes = hex_to_bytes("10 38 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 20 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 00 05 68 65 6C 6C 6F");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicNameLengthExceeded { max_length: 30, actual_length: 32 })));
     }
 
     // ===== WILL PAYLOAD FIELD TESTS =====
@@ -754,7 +731,7 @@ mod tests {
     fn test_will_payload_too_large() {
         let bytes = hex_to_bytes("10 18 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 05 77 69 6C 6C 74 01 00 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert_eq!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 128 }));
     }
 
     // ===== USERNAME FIELD TESTS =====
@@ -777,7 +754,7 @@ mod tests {
     fn test_username_too_long() {
         let bytes = hex_to_bytes("10 31 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 20 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::UsernameLengthExceeded { max_length: 30, actual_length: 32 })));
     }
 
     #[test]
@@ -814,7 +791,7 @@ mod tests {
     fn test_password_too_long() {
         let bytes = hex_to_bytes("10 38 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 20 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::PasswordLengthExceeded { max_length: 30, actual_length: 32 })));
     }
 
     #[test]

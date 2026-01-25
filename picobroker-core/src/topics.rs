@@ -2,8 +2,7 @@
 //!
 //! Manages topic subscriptions
 
-use crate::ClientId;
-use crate::error::{Error, Result};
+use crate::{BrokerError, ClientId, PacketEncodingError};
 use crate::protocol::{HeaplessString, HeaplessVec};
 
 /// Topic name
@@ -26,11 +25,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> From<HeaplessString<MAX_TOPIC_NAME_LENG
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_NAME_LENGTH> {
-    type Error = Error;
+    type Error = PacketEncodingError;
 
-    fn try_from(value: &str) -> Result<Self> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let topic_str =
-            HeaplessString::try_from(value).map_err(|_| Error::TopicNameLengthExceeded {
+            HeaplessString::try_from(value).map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: value.len(),
             })?;
@@ -87,9 +86,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TopicSubscription<MAX_TOPIC_NAME_LENGTH
 impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str>
     for TopicSubscription<MAX_TOPIC_NAME_LENGTH>
 {
-    type Error = Error;
+    type Error = PacketEncodingError;
 
-    fn try_from(value: &str) -> Result<Self> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let topic_name = TopicName::try_from(value)?;
         Ok(TopicSubscription::exact(topic_name))
     }
@@ -120,14 +119,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     ///
     /// Returns an error if MAX_SUBSCRIBERS_PER_TOPIC is reached.
     /// Does nothing if the client is already subscribed (prevents duplicates).
-    pub fn add_subscriber(&mut self, id: ClientId) -> Result<()> {
+    pub fn add_subscriber(&mut self, id: ClientId) -> Result<(), BrokerError> {
         // Check for duplicates first
         if self.subscribers.iter().any(|c| c == &id) {
             return Ok(()); // Already subscribed
         }
         self.subscribers
             .push(id)
-            .map_err(|_| Error::MaxSubscribersPerTopicReached {
+            .map_err(|_| BrokerError::MaxSubscribersPerTopicReached {
                 max_subscribers: MAX_SUBSCRIBERS_PER_TOPIC,
             })
     }
@@ -215,7 +214,7 @@ impl<
         &mut self,
         id: ClientId,
         filter: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
-    ) -> Result<()> {
+    ) -> Result<(), BrokerError> {
         let topic_name = match filter {
             TopicSubscription::Exact(name) => name,
             TopicSubscription::Empty => {
@@ -229,7 +228,7 @@ impl<
         } else {
             // Check if we've reached the max topics limit
             if self.topics.len() >= MAX_TOPICS {
-                return Err(Error::MaxTopicsReached {
+                return Err(BrokerError::MaxTopicsReached {
                     max_topics: MAX_TOPICS,
                 });
             }
@@ -239,7 +238,7 @@ impl<
             new_entry.add_subscriber(id)?;
             self.topics
                 .push(new_entry)
-                .map_err(|_| Error::MaxTopicsReached {
+                .map_err(|_| BrokerError::MaxTopicsReached {
                     max_topics: MAX_TOPICS,
                 })
         }

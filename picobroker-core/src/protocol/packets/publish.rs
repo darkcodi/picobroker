@@ -1,7 +1,7 @@
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeConst};
 use crate::protocol::qos::QoS;
-use crate::{Error, PacketEncodingError, TopicName};
+use crate::{PacketEncodingError, TopicName};
 use crate::protocol::heapless::{HeaplessVec, HeaplessString};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -22,9 +22,9 @@ impl PublishFlags {
         (dup << 3) | ((self.qos as u8) << 1) | retain
     }
 
-    pub fn from_nibble(nibble: u8) -> Option<Self> {
+    pub fn from_nibble(nibble: u8) -> Result<Self, PacketEncodingError> {
         let qos = QoS::from_u8((nibble >> 1) & 0b11)?;
-        Some(PublishFlags {
+        Ok(PublishFlags {
             dup: (nibble & 0b1000) != 0,
             qos,
             retain: (nibble & 0b0001) != 0,
@@ -71,7 +71,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 2. Write header byte (type + flags)
         if offset >= buffer.len() {
-            return Err(Error::BufferTooSmall.into());
+            return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
         }
         buffer[offset] = PublishFlags {
             dup: self.dup,
@@ -90,9 +90,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 5. Write packet ID if QoS > 0
         if self.qos != QoS::AtMostOnce {
             if offset + 2 > buffer.len() {
-                return Err(Error::BufferTooSmall.into());
+                return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
             }
-            let pid = self.packet_id.ok_or_else(|| Error::MalformedPacket)?;
+            let pid = self.packet_id.ok_or_else(|| PacketEncodingError::MissingPacketId)?;
             let pid_bytes = pid.to_be_bytes();
             buffer[offset] = pid_bytes[0];
             buffer[offset + 1] = pid_bytes[1];
@@ -101,7 +101,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 6. Write payload
         if offset + self.payload.len() > buffer.len() {
-            return Err(Error::BufferTooSmall.into());
+            return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
         }
         buffer[offset..offset + self.payload.len()].copy_from_slice(&self.payload);
         offset += self.payload.len();
@@ -114,19 +114,18 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 1. Validate packet type
         if offset >= bytes.len() {
-            return Err(Error::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket { buffer_size: bytes.len() });
         }
         let header_byte = bytes[offset];
         offset += 1;
         let packet_type = (header_byte >> 4) & 0x0F;
         if packet_type != PacketType::Publish as u8 {
-            return Err(Error::InvalidPacketType { packet_type }.into());
+            return Err(PacketEncodingError::InvalidPacketType { packet_type }.into());
         }
 
         // 2. Parse flags from header byte
         let flags_nibble = header_byte & 0x0F;
-        let publish_flags = PublishFlags::from_nibble(flags_nibble)
-            .ok_or_else(|| Error::MalformedPacket)?;
+        let publish_flags = PublishFlags::from_nibble(flags_nibble)?;
 
         // 3. Read remaining length
         let (remaining_length, var_len_bytes) = crate::protocol::utils::read_variable_length(&bytes[offset..])?;
@@ -138,11 +137,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 4. Read topic name
         let topic_str = crate::protocol::utils::read_string(bytes, &mut offset)?;
         if topic_str.is_empty() {
-            return Err(Error::EmptyTopic.into());
+            return Err(PacketEncodingError::TopicEmpty);
         }
         let topic_name = HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(topic_str)
             .map(|s| TopicName::new(s))
-            .map_err(|_| Error::TopicNameLengthExceeded {
+            .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: topic_str.len(),
             })?;
@@ -150,11 +149,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 5. Read packet ID if QoS > 0
         let packet_id = if publish_flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
-                return Err(Error::IncompletePacket.into());
+                return Err(PacketEncodingError::IncompletePacket { buffer_size: bytes.len() });
             }
             let pid = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
             if pid == 0 {
-                return Err(Error::MalformedPacket.into());
+                return Err(PacketEncodingError::MissingPacketId);
             }
             offset += 2;
             Some(pid)
@@ -165,17 +164,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 6. Read payload
         let payload_end = start_offset + remaining_length;
         if payload_end > bytes.len() {
-            return Err(Error::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket { buffer_size: bytes.len() });
         }
         let payload_bytes = &bytes[offset..payload_end];
         let mut payload = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
-        if payload_bytes.len() > MAX_PAYLOAD_SIZE {
-            return Err(Error::PacketTooLarge {
-                max_size: MAX_PAYLOAD_SIZE,
-                actual_size: payload_bytes.len(),
-            }.into());
-        }
-        payload.extend_from_slice(payload_bytes).map_err(|_| Error::PacketTooLarge {
+        payload.extend_from_slice(payload_bytes).map_err(|_| PacketEncodingError::PayloadTooLarge {
             max_size: MAX_PAYLOAD_SIZE,
             actual_size: payload_bytes.len(),
         })?;
@@ -366,7 +359,7 @@ mod tests {
     fn test_topic_empty_fails() {
         let bytes = [0x30, 0x00, 0x00, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicEmpty)));
     }
 
     // ===== PACKET ID TESTS =====
@@ -397,7 +390,7 @@ mod tests {
         // QoS 1 with packet_id = 0 should fail
         let bytes = [0x32, 0x05, 0x00, 0x01, 0x61, 0x00, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::MissingPacketId)));
     }
 
     // ===== PAYLOAD TESTS =====
@@ -541,21 +534,21 @@ mod tests {
     fn test_incomplete_packet_empty() {
         let bytes: [u8; 0] = [];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert_eq!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 0 }));
     }
 
     #[test]
     fn test_incomplete_packet_no_remaining_length() {
         let bytes = [0x30];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     #[test]
     fn test_incomplete_packet_no_topic() {
         let bytes = [0x30, 0x03];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     #[test]
@@ -563,7 +556,7 @@ mod tests {
         // Wrong packet type (0x00 instead of 0x30)
         let bytes = [0x00, 0x03, 0x00, 0x01, 0x61];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidPacketType { .. })));
     }
 
     #[test]
@@ -571,7 +564,7 @@ mod tests {
         // QoS 1 but no packet ID in packet
         let bytes = [0x32, 0x03, 0x00, 0x01, 0x61];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert_eq!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 5 }));
     }
 
     // ===== ENCODE TESTS =====
@@ -619,7 +612,7 @@ mod tests {
         let packet = make_publish_packet("sensor/temp", b"hello", QoS::AtMostOnce, false, false, None);
         let mut buffer = [0u8; 10];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
     }
 
     // ===== PROTOCOL COMPLIANCE TESTS =====

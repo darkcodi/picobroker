@@ -23,7 +23,7 @@ impl TryFrom<u8> for ConnectReturnCode {
             3 => Ok(ConnectReturnCode::ServerUnavailable),
             4 => Ok(ConnectReturnCode::BadUserNameOrPassword),
             5 => Ok(ConnectReturnCode::NotAuthorized),
-            _ => Err(PacketEncodingError::MalformedPacket),
+            _ => Err(PacketEncodingError::InvalidConnectReturnCode { return_code: code }),
         }
     }
 }
@@ -65,7 +65,7 @@ impl PacketEncoder for ConnAckPacket {
         let session_present = match session_present_byte {
             0b0000_0000 => false,
             0b0000_0001 => true,
-            _ => return Err(PacketEncodingError::MalformedPacket),
+            _ => return Err(PacketEncodingError::InvalidSessionPresentFlag {flag: session_present_byte}),
         };
         let return_code = ConnectReturnCode::try_from(bytes[3])?;
         Ok(Self {

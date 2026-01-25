@@ -27,7 +27,7 @@
 
 mod broker;
 mod client;
-mod error;
+mod broker_error;
 mod network;
 mod protocol;
 mod task;
@@ -36,7 +36,7 @@ mod topics;
 
 pub use broker::PicoBroker;
 pub use client::{Client, ClientId, ClientRegistry};
-pub use error::{Error, Result};
+pub use broker_error::BrokerError;
 pub use task::{SpawnError, TaskSpawner};
 pub use network::{SocketAddr, TcpListener, TcpStream};
 pub use protocol::ConnAckPacket;

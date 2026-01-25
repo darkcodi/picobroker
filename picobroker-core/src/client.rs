@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::{BrokerError, PacketEncodingError};
 use crate::protocol::{HeaplessString, HeaplessVec};
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
@@ -23,11 +23,11 @@ impl ClientId {
 }
 
 impl TryFrom<&str> for ClientId {
-    type Error = Error;
+    type Error = PacketEncodingError;
 
-    fn try_from(value: &str) -> Result<Self> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         let client_id_str =
-            HeaplessString::try_from(value).map_err(|_| Error::ClientIdLengthExceeded {
+            HeaplessString::try_from(value).map_err(|_| PacketEncodingError::ClientIdLengthExceeded {
                 max_length: MAX_CLIENT_ID_LENGTH,
                 actual_length: value.len(),
             })?;
@@ -130,10 +130,10 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
         id: ClientId,
         keep_alive: u16,
         current_time: u64,
-    ) -> Result<()> {
+    ) -> Result<(), BrokerError> {
         // Check if client already exists
         if self.find_index(&id).is_some() {
-            return Err(Error::ClientAlreadyConnected);
+            return Err(BrokerError::ClientAlreadyConnected);
         }
 
         // Find empty slot or add new
@@ -144,13 +144,13 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
             // Add to end
             let slot = self.clients.len();
             if slot >= MAX_CLIENTS {
-                return Err(Error::MaxClientsReached {
+                return Err(BrokerError::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 });
             }
             self.clients
                 .push(Some(Client::new(id, keep_alive, current_time)))
-                .map_err(|_| Error::MaxClientsReached {
+                .map_err(|_| BrokerError::MaxClientsReached {
                     max_clients: MAX_CLIENTS,
                 })?;
             Ok(())

@@ -71,7 +71,9 @@ trait PacketFixedSize {
 
     fn validate_buffer_size(buffer_size: usize) -> Result<(), PacketEncodingError> {
         if buffer_size < Self::PACKET_SIZE {
-            return Err(PacketEncodingError::BufferTooSmall);
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size,
+            });
         }
         Ok(())
     }

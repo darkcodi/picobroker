@@ -1,6 +1,6 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{read_string, write_string};
-use crate::{Error, PacketEncodingError, PacketType, TopicName};
+use crate::{PacketEncodingError, PacketType, TopicName};
 use crate::protocol::HeaplessString;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,7 +21,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
-            return Err(Error::BufferTooSmall.into());
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size: buffer.len(),
+            });
         }
         let pid_bytes = self.packet_id.to_be_bytes();
         buffer[offset] = pid_bytes[0];
@@ -34,24 +36,26 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > bytes.len() {
-            return Err(Error::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
 
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {
-            return Err(Error::MalformedPacket.into());
+            return Err(PacketEncodingError::MissingPacketId);
         }
 
         offset += 2;
         let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {
-            return Err(Error::EmptyTopic.into());
+            return Err(PacketEncodingError::TopicEmpty);
         }
         let topic_name = HeaplessString::try_from(topic_filter)
             .map(|s| TopicName::new(s))
             .map_err(|_| {
-                Error::TopicNameLengthExceeded {
+                PacketEncodingError::TopicNameLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: topic_filter.len(),
                 }
@@ -131,7 +135,7 @@ mod tests {
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         let bytes = [0x00, 0x00, 0x00, 0x01, 0x61];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::MissingPacketId)));
     }
 
     #[test]
@@ -213,7 +217,7 @@ mod tests {
     fn test_topic_filter_empty_fails() {
         let bytes = [0x00, 0x01, 0x00, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicEmpty)));
     }
 
     #[test]
@@ -273,7 +277,7 @@ mod tests {
         bytes[3] = 31;
         bytes[4..35].copy_from_slice(topic.as_bytes());
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicNameLengthExceeded { .. })));
     }
 
     // ===== ERROR CONDITION TESTS: BUFFER SIZE =====
@@ -286,7 +290,7 @@ mod tests {
         };
         let mut buffer = [0u8; 0];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
     }
 
     #[test]
@@ -297,7 +301,7 @@ mod tests {
         };
         let mut buffer = [0u8; 1];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
     }
 
     #[test]
@@ -308,7 +312,7 @@ mod tests {
         };
         let mut buffer = [0u8; 2];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
     }
 
     #[test]
@@ -319,7 +323,7 @@ mod tests {
         };
         let mut buffer = [0u8; 3];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
     }
 
     #[test]
@@ -330,7 +334,7 @@ mod tests {
         };
         let mut buffer = [0u8; 4];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
     }
 
     #[test]
@@ -351,28 +355,28 @@ mod tests {
     fn test_decode_incomplete_packet_0_bytes() {
         let bytes = [];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_1_byte() {
         let bytes = [0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_2_bytes() {
         let bytes = [0x00, 0x01];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_3_bytes() {
         let bytes = [0x00, 0x01, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     #[test]
@@ -380,7 +384,7 @@ mod tests {
         // Packet_id + length prefix but no topic data
         let bytes = [0x00, 0x01, 0x00, 0x01];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
     }
 
     // ===== COMPLETE PACKET ROUNDTRIP TESTS =====

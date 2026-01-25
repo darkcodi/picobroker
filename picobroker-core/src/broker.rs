@@ -3,7 +3,7 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use crate::client::{ClientId, ClientRegistry};
-use crate::error::Result;
+use crate::BrokerError;
 use crate::time::TimeSource;
 use crate::topics::TopicRegistry;
 
@@ -63,7 +63,7 @@ impl<
         &mut self,
         id: ClientId,
         keep_alive: u16,
-    ) -> Result<()> {
+    ) -> Result<(), BrokerError> {
         let current_time = self.time_source.now_secs();
         self
             .clients

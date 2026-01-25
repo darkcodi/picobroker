@@ -1,7 +1,7 @@
 //! Tokio networking implementation
 
 use picobroker_core::{TcpListener, TcpStream};
-use picobroker_core::{Error, Result, SocketAddr};
+use picobroker_core::{BrokerError, SocketAddr};
 use tokio::net::TcpStream as TokioTcpStreamInner;
 
 /// Tokio TCP stream wrapper
@@ -32,30 +32,30 @@ impl TcpStream for TokioTcpStream {
     fn read<'a, 'b>(
         &'a mut self,
         buf: &'b mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize>> + 'a
+    ) -> impl core::future::Future<Output = Result<usize, BrokerError>> + 'a
     where
         'b: 'a,
     {
         use tokio::io::AsyncReadExt;
-        async move { self.inner.read(buf).await.map_err(|_| Error::IoError) }
+        async move { self.inner.read(buf).await.map_err(|_| BrokerError::IoError) }
     }
 
     fn write<'a, 'b>(
         &'a mut self,
         buf: &'b [u8],
-    ) -> impl core::future::Future<Output = Result<usize>> + 'a
+    ) -> impl core::future::Future<Output = Result<usize, BrokerError>> + 'a
     where
         'b: 'a,
     {
         use tokio::io::AsyncWriteExt;
-        async move { self.inner.write(buf).await.map_err(|_| Error::IoError) }
+        async move { self.inner.write(buf).await.map_err(|_| BrokerError::IoError) }
     }
 
     fn close<'a>(
         &'a mut self,
-    ) -> impl core::future::Future<Output = Result<()>> + 'a {
+    ) -> impl core::future::Future<Output = Result<(), BrokerError>> + 'a {
         use tokio::io::AsyncWriteExt;
-        async move { self.inner.shutdown().await.map_err(|_| Error::IoError) }
+        async move { self.inner.shutdown().await.map_err(|_| BrokerError::IoError) }
     }
 }
 
@@ -68,10 +68,10 @@ pub struct TokioTcpListener {
 
 impl TokioTcpListener {
     /// Bind to the specified address
-    pub async fn bind(addr: &str) -> Result<Self> {
+    pub async fn bind(addr: &str) -> Result<Self, BrokerError> {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
-            .map_err(|_| Error::BindError)?;
+            .map_err(|_| BrokerError::BindError)?;
 
         Ok(TokioTcpListener { inner: listener })
     }
@@ -82,9 +82,9 @@ impl TcpListener for TokioTcpListener {
 
     fn accept<'a>(
         &'a mut self,
-    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr)>> + 'a {
+    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr), BrokerError>> + 'a {
         async move {
-            let (stream, addr) = self.inner.accept().await.map_err(|_| Error::AcceptError)?;
+            let (stream, addr) = self.inner.accept().await.map_err(|_| BrokerError::AcceptConnectionError)?;
 
             let socket_addr = SocketAddr {
                 ip: match addr.ip() {

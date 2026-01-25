@@ -1,3 +1,5 @@
+use crate::PacketEncodingError;
+
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum QoS {
@@ -7,12 +9,12 @@ pub enum QoS {
 }
 
 impl QoS {
-    pub const fn from_u8(value: u8) -> Option<Self> {
+    pub const fn from_u8(value: u8) -> Result<Self, PacketEncodingError> {
         match value {
-            0 => Some(QoS::AtMostOnce),
-            1 => Some(QoS::AtLeastOnce),
-            2 => Some(QoS::ExactlyOnce),
-            _ => None,
+            0 => Ok(QoS::AtMostOnce),
+            1 => Ok(QoS::AtLeastOnce),
+            2 => Ok(QoS::ExactlyOnce),
+            _ => Err(PacketEncodingError::InvalidQosLevel { level: value }),
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{read_string, write_string};
-use crate::{Error, PacketEncodingError, PacketType, QoS, TopicName};
+use crate::{PacketEncodingError, PacketType, QoS, TopicName};
 use crate::protocol::HeaplessString;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +22,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
-            return Err(Error::BufferTooSmall.into());
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size: buffer.len(),
+            });
         }
         let pid_bytes = self.packet_id.to_be_bytes();
         buffer[offset] = pid_bytes[0];
@@ -30,9 +32,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
         offset += 2;
         write_string(self.topic_filter.as_str(), buffer, &mut offset)?;
         if offset >= buffer.len() {
-            return Err(Error::BufferTooSmall.into());
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size: buffer.len(),
+            });
         }
-        buffer[offset] = 0;
+        buffer[offset] = self.requested_qos as u8;
         offset += 1;
         Ok(offset)
     }
@@ -40,39 +44,38 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > bytes.len() {
-            return Err(Error::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
 
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {
-            return Err(Error::MalformedPacket.into());
+            return Err(PacketEncodingError::MissingPacketId);
         }
 
         offset += 2;
         let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {
-            return Err(Error::EmptyTopic.into());
+            return Err(PacketEncodingError::TopicEmpty);
         }
         if offset + 1 > bytes.len() {
-            return Err(Error::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let topic_name = HeaplessString::try_from(topic_filter)
             .map(|s| TopicName::new(s))
             .map_err(|_| {
-                Error::TopicNameLengthExceeded {
+                PacketEncodingError::TopicNameLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: topic_filter.len(),
                 }
             })?;
         // Read requested QoS byte (currently unused but must be read to validate packet structure)
-        let requested_qos = bytes[offset];
-        let requested_qos = match requested_qos {
-            0 => QoS::AtMostOnce,
-            1 => QoS::AtLeastOnce,
-            2 => QoS::ExactlyOnce,
-            _ => return Err(Error::MalformedPacket.into()),
-        };
+        let requested_qos_byte = bytes[offset];
+        let requested_qos = QoS::from_u8(requested_qos_byte)?;
         Ok(Self {
             packet_id,
             topic_filter: topic_name,
@@ -111,9 +114,7 @@ mod tests {
 
     #[test]
     fn test_subscribe_packet_struct_size() {
-        // Should be 35 bytes: 2 for packet_id + 32 for topic_filter (HeaplessString with MAX_TOPIC_NAME_LENGTH=30) + 1 for requested_qos
-        // HeaplessString<30> is 32 bytes (30 bytes array + 2 bytes for length)
-        assert_eq!(core::mem::size_of::<SubscribePacket<MAX_TOPIC_NAME_LENGTH>>(), 35);
+        assert_eq!(core::mem::size_of::<SubscribePacket<MAX_TOPIC_NAME_LENGTH>>(), 34);
     }
 
     // ===== PACKET BYTES SIZE TEST =====
@@ -151,7 +152,7 @@ mod tests {
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         let bytes = [0x00, 0x00, 0x00, 0x01, 0x61, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::MissingPacketId)));
     }
 
     #[test]
@@ -233,7 +234,7 @@ mod tests {
     fn test_topic_filter_empty_fails() {
         let bytes = [0x00, 0x01, 0x00, 0x00, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicEmpty)));
     }
 
     #[test]
@@ -295,7 +296,7 @@ mod tests {
         bytes[4..35].copy_from_slice(topic.as_bytes());
         bytes[35] = 0x00; // QoS 0
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::TopicNameLengthExceeded { max_length: 30, actual_length: 31 })));
     }
 
     // ===== REQUESTED QoS FIELD TESTS =====
@@ -378,7 +379,7 @@ mod tests {
         };
         let mut buffer = [0u8; 0];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 0 })));
     }
 
     #[test]
@@ -390,7 +391,7 @@ mod tests {
         };
         let mut buffer = [0u8; 1];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 1 })));
     }
 
     #[test]
@@ -402,7 +403,7 @@ mod tests {
         };
         let mut buffer = [0u8; 2];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 2 })));
     }
 
     #[test]
@@ -414,7 +415,7 @@ mod tests {
         };
         let mut buffer = [0u8; 3];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 3 })));
     }
 
     #[test]
@@ -426,7 +427,7 @@ mod tests {
         };
         let mut buffer = [0u8; 4];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 4 })));
     }
 
     #[test]
@@ -438,7 +439,7 @@ mod tests {
         };
         let mut buffer = [0u8; 5];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 5 })));
     }
 
     #[test]
@@ -460,35 +461,35 @@ mod tests {
     fn test_decode_incomplete_packet_0_bytes() {
         let bytes = [];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 0 })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_1_byte() {
         let bytes = [0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 1 })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_2_bytes() {
         let bytes = [0x00, 0x01];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 2 })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_3_bytes() {
         let bytes = [0x00, 0x01, 0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 3 })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_4_bytes() {
         let bytes = [0x00, 0x01, 0x00, 0x01];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 4 })));
     }
 
     #[test]
@@ -496,7 +497,7 @@ mod tests {
         // Packet_id + length prefix + topic data but missing QoS byte
         let bytes = [0x00, 0x01, 0x00, 0x01, 0x61];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 5 })));
     }
 
     // ===== ERROR CONDITION TESTS: INVALID QoS =====
@@ -506,14 +507,14 @@ mod tests {
         // QoS value 3 is the first invalid value
         let bytes = [0x00, 0x01, 0x00, 0x01, 0x61, 0x03];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidQosLevel { level: 3 })));
     }
 
     #[test]
     fn test_decode_invalid_qos_4() {
         let bytes = [0x00, 0x01, 0x00, 0x01, 0x61, 0x04];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidQosLevel { level: 4 })));
     }
 
     #[test]
@@ -521,7 +522,7 @@ mod tests {
         // Maximum u8 value
         let bytes = [0x00, 0x01, 0x00, 0x01, 0x61, 0xFF];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidQosLevel { level: 255 })));
     }
 
     // ===== COMPLETE PACKET ROUNDTRIP TESTS =====

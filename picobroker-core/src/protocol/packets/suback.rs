@@ -1,6 +1,6 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::qos::QoS;
-use crate::{Error, PacketEncodingError, PacketType};
+use crate::{PacketEncodingError, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubAckPacket {
@@ -19,7 +19,9 @@ impl PacketFlagsConst for SubAckPacket {
 impl PacketEncoder for SubAckPacket {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         if buffer.len() < 3 {
-            return Err(Error::BufferTooSmall.into());
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size: buffer.len(),
+            });
         }
         let pid_bytes = self.packet_id.to_be_bytes();
         buffer[0] = pid_bytes[0];
@@ -30,13 +32,13 @@ impl PacketEncoder for SubAckPacket {
 
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
         if bytes.len() < 3 {
-            return Err(Error::IncompletePacket.into());
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
         let qos_value = bytes[2];
-        let granted_qos = QoS::from_u8(qos_value).ok_or(Error::InvalidSubAckQoS {
-            invalid_qos: qos_value,
-        })?;
+        let granted_qos = QoS::from_u8(qos_value)?;
         Ok(Self {
             packet_id,
             granted_qos,
@@ -223,7 +225,7 @@ mod tests {
         };
         let mut buffer = [0u8; 0];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 0 })));
     }
 
     #[test]
@@ -234,7 +236,7 @@ mod tests {
         };
         let mut buffer = [0u8; 1];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 1 })));
     }
 
     #[test]
@@ -245,7 +247,7 @@ mod tests {
         };
         let mut buffer = [0u8; 2];
         let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { buffer_size: 2 })));
     }
 
     #[test]
@@ -266,21 +268,21 @@ mod tests {
     fn test_decode_incomplete_packet_0_bytes() {
         let bytes = [];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 0 })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_1_byte() {
         let bytes = [0x00];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 1 })));
     }
 
     #[test]
     fn test_decode_incomplete_packet_2_bytes() {
         let bytes = [0x00, 0x01];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 2 })));
     }
 
     // ===== ERROR CONDITION TESTS: INVALID QoS =====
@@ -290,14 +292,14 @@ mod tests {
         // QoS value 3 is the first invalid value
         let bytes = [0x00, 0x01, 0x03];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidQosLevel { level: 3 })));
     }
 
     #[test]
     fn test_decode_invalid_qos_4() {
         let bytes = [0x00, 0x01, 0x04];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidQosLevel { level: 4 })));
     }
 
     #[test]
@@ -305,7 +307,7 @@ mod tests {
         // Maximum u8 value
         let bytes = [0x00, 0x01, 0xFF];
         let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::Other)));
+        assert!(matches!(result, Err(PacketEncodingError::InvalidQosLevel { level: 255 })));
     }
 
     // ===== COMPLETE PACKET ROUNDTRIP TESTS =====

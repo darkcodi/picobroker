@@ -1,6 +1,6 @@
 //! Embassy networking implementation (stubs)
 
-use picobroker_core::{Error, Result, SocketAddr, TcpListener, TcpStream};
+use picobroker_core::{BrokerError, SocketAddr, TcpListener, TcpStream};
 
 /// Embassy TCP stream wrapper
 ///
@@ -11,9 +11,9 @@ pub struct EmbassyTcpStream<'a> {
 }
 
 impl<'a> EmbassyTcpStream<'a> {
-    pub async fn from_socket(_socket: embassy_net::tcp::TcpSocket<'a>) -> Result<Self> {
+    pub async fn from_socket(_socket: embassy_net::tcp::TcpSocket<'a>) -> Result<Self, BrokerError> {
         // TODO: Implement when Embassy dependencies are available
-        Err(Error::IoError)
+        Err(BrokerError::IoError)
     }
 }
 
@@ -21,35 +21,35 @@ impl<'a> TcpStream for EmbassyTcpStream<'a> {
     fn read<'life0, 'life1>(
         &'life0 mut self,
         _buf: &'life1 mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize>> + 'life0
+    ) -> impl core::future::Future<Output = Result<usize, BrokerError>> + 'life0
     where
         'life1: 'life0,
     {
         async move {
             // TODO: Implement Embassy TCP read
-            Err(Error::IoError)
+            Err(BrokerError::IoError)
         }
     }
 
     fn write<'life0, 'life1>(
         &'life0 mut self,
         _buf: &'life1 [u8],
-    ) -> impl core::future::Future<Output = Result<usize>> + 'life0
+    ) -> impl core::future::Future<Output = Result<usize, BrokerError>> + 'life0
     where
         'life1: 'life0,
     {
         async move {
             // TODO: Implement Embassy TCP write
-            Err(Error::IoError)
+            Err(BrokerError::IoError)
         }
     }
 
     fn close<'life0>(
         &'life0 mut self,
-    ) -> impl core::future::Future<Output = Result<()>> + 'life0 {
+    ) -> impl core::future::Future<Output = Result<(), BrokerError>> + 'life0 {
         async move {
             // TODO: Implement Embassy TCP close
-            Err(Error::IoError)
+            Err(BrokerError::IoError)
         }
     }
 }
@@ -63,9 +63,9 @@ pub struct EmbassyTcpListener<'a> {
 
 impl<'a> EmbassyTcpListener<'a> {
     /// TODO: Bind to address using Embassy when available
-    pub async fn bind(_addr: &str) -> Result<Self> {
+    pub async fn bind(_addr: &str) -> Result<Self, BrokerError> {
         // TODO: Implement when Embassy dependencies are available
-        Err(Error::BindError)
+        Err(BrokerError::BindError)
     }
 }
 
@@ -74,10 +74,10 @@ impl<'a> TcpListener for EmbassyTcpListener<'a> {
 
     fn accept<'life0>(
         &'life0 mut self,
-    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr)>> + 'life0 {
+    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr), BrokerError>> + 'life0 {
         async move {
             // TODO: Implement Embassy TCP accept
-            Err(Error::AcceptError)
+            Err(BrokerError::AcceptConnectionError)
         }
     }
 }
