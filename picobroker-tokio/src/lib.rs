@@ -75,31 +75,25 @@ impl TokioTcpStream {
 }
 
 impl TcpStream for TokioTcpStream {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, NetworkError> {
-        use tokio::io::AsyncReadExt;
-        self.inner.read(buf).await.map_err(|e| {
-            NetworkError::IoError
-        })
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> impl core::future::Future<Output = Result<usize, NetworkError>> + Send + 'a {
+        async move {
+            use tokio::io::AsyncReadExt;
+            self.inner.read(buf).await.map_err(|_| NetworkError::IoError)
+        }
     }
 
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
-        use tokio::io::AsyncWriteExt;
-        self.inner
-            .write(buf)
-            .await
-            .map_err(|e| {
-                NetworkError::IoError
-            })
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> impl core::future::Future<Output = Result<usize, NetworkError>> + Send + 'a {
+        async move {
+            use tokio::io::AsyncWriteExt;
+            self.inner.write(buf).await.map_err(|_| NetworkError::IoError)
+        }
     }
 
-    async fn close(&mut self) -> Result<(), NetworkError> {
-        use tokio::io::AsyncWriteExt;
-        self.inner
-            .shutdown()
-            .await
-            .map_err(|e| {
-                NetworkError::IoError
-            })
+    fn close<'a>(&'a mut self) -> impl core::future::Future<Output = Result<(), NetworkError>> + Send + 'a {
+        async move {
+            use tokio::io::AsyncWriteExt;
+            self.inner.shutdown().await.map_err(|_| NetworkError::IoError)
+        }
     }
 }
 
@@ -126,25 +120,27 @@ impl TokioTcpListener {
 impl TcpListener for TokioTcpListener {
     type Stream = TokioTcpStream;
 
-    async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), NetworkError> {
-        use tokio::time::{Duration, timeout};
+    fn try_accept<'a>(&'a mut self) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr), NetworkError>> + Send + 'a {
+        async move {
+            use tokio::time::{timeout, Duration};
 
-        // Try to accept with zero timeout - returns immediately if no connection is pending
-        match timeout(Duration::ZERO, self.inner.accept()).await {
-            Ok(Ok((stream, addr))) => {
-                let socket_addr = SocketAddr {
-                    ip: match addr.ip() {
-                        std::net::IpAddr::V4(ipv4) => ipv4.octets(),
-                        std::net::IpAddr::V6(_) => [0, 0, 0, 0], // Ignore IPv6 for embedded
-                    },
-                    port: addr.port(),
-                };
+            // Try to accept with zero timeout - returns immediately if no connection is pending
+            match timeout(Duration::ZERO, self.inner.accept()).await {
+                Ok(Ok((stream, addr))) => {
+                    let socket_addr = SocketAddr {
+                        ip: match addr.ip() {
+                            std::net::IpAddr::V4(ipv4) => ipv4.octets(),
+                            std::net::IpAddr::V6(_) => [0, 0, 0, 0], // Ignore IPv6 for embedded
+                        },
+                        port: addr.port(),
+                    };
 
-                let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
-                Ok((tokio_stream, socket_addr))
+                    let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
+                    Ok((tokio_stream, socket_addr))
+                }
+                Ok(Err(_)) => Err(NetworkError::IoError),
+                Err(_) => Err(NetworkError::NoPendingConnection), // Timeout - no connection pending
             }
-            Ok(Err(_)) => Err(NetworkError::IoError),
-            Err(_) => Err(NetworkError::NoPendingConnection), // Timeout - no connection pending
         }
     }
 }
@@ -230,8 +226,10 @@ impl Logger for StdLogger {
 pub struct TokioDelay;
 
 impl Delay for TokioDelay {
-    async fn sleep_ms(&self, millis: u64) {
-        use tokio::time::{Duration, sleep};
-        sleep(Duration::from_millis(millis)).await;
+    fn sleep_ms<'a>(&'a self, millis: u64) -> impl core::future::Future<Output = ()> + Send + 'a {
+        async move {
+            use tokio::time::{sleep, Duration};
+            sleep(Duration::from_millis(millis)).await;
+        }
     }
 }

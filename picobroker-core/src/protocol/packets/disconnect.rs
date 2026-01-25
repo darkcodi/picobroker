@@ -35,6 +35,12 @@ impl PacketEncoder for DisconnectPacket {
     }
 }
 
+impl core::fmt::Display for DisconnectPacket {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "DisconnectPacket {{ }}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -41,6 +41,16 @@ impl PacketEncoder for PubRecPacket {
     }
 }
 
+impl core::fmt::Display for PubRecPacket {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "PubRecPacket {{ packet_id: {} }}",
+            self.packet_id
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

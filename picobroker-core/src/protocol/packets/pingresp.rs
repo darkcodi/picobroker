@@ -35,6 +35,12 @@ impl PacketEncoder for PingRespPacket {
     }
 }
 
+impl core::fmt::Display for PingRespPacket {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PingRespPacket {{ }}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

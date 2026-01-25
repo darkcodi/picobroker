@@ -85,6 +85,16 @@ impl PacketEncoder for ConnAckPacket {
     }
 }
 
+impl core::fmt::Display for ConnAckPacket {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "ConnAckPacket {{ session_present: {}, return_code: {:?} }}",
+            self.session_present, self.return_code
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

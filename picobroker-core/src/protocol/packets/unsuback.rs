@@ -41,6 +41,16 @@ impl PacketEncoder for UnsubAckPacket {
     }
 }
 
+impl core::fmt::Display for UnsubAckPacket {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "UnsubAckPacket {{ packet_id: {} }}",
+            self.packet_id
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

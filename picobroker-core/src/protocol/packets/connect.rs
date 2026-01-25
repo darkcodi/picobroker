@@ -299,6 +299,22 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     }
 }
 
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "ConnectPacket {{ client_id: {}, keep_alive: {}, connect_flags: {:08b}, will_topic: {:?}, will_payload: {:?}, username: {:?}, password: {:?} }}",
+            self.client_id,
+            self.keep_alive,
+            self.connect_flags.bits(),
+            self.will_topic,
+            self.will_payload,
+            self.username,
+            self.password
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

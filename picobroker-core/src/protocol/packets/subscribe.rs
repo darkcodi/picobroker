@@ -86,6 +86,16 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
     }
 }
 
+impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for SubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "SubscribePacket {{ packet_id: {}, topic_filter: {}, requested_qos: {:?} }}",
+            self.packet_id, self.topic_filter, self.requested_qos
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

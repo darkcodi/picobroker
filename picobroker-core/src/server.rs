@@ -1,4 +1,4 @@
-use crate::{BrokerError, Delay, Logger, PicoBroker, TaskSpawner, TcpListener, TcpStream, TimeSource};
+use crate::{BrokerError, Delay, Logger, Packet, PacketEncoder, PicoBroker, SocketAddr, TaskSpawner, TcpListener, TcpStream, TimeSource};
 use crate::format_heapless;
 
 /// MQTT Broker Server
@@ -96,11 +96,16 @@ impl<
                     Ok(session_id) => {
                         self.logger.info(format_heapless!(128; "Registered new client with session ID {}", session_id).as_str());
 
+                        // let mut client_to_broker_queue: heapless::spsc::Queue<ClientToBrokerMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE> = heapless::spsc::Queue::new();
+                        // let mut broker_to_client_queue: heapless::spsc::Queue<BrokerToClientMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE> = heapless::spsc::Queue::new();
+                        // let (client_tx, broker_rx) = client_to_broker_queue.split();
+                        // let (broker_tx, client_rx) = broker_to_client_queue.split();
+
                         // Spawn client handler task
                         // Note: We move the stream into the task
                         let logger = self.logger.clone();
                         match self.spawner.spawn(async move {
-                            Self::client_handler_task(stream, logger).await;
+                            Self::client_handler_task(socket_addr, stream, logger).await;
                         }) {
                             Ok(_) => {
                                 self.logger.info(format_heapless!(128; "Spawned client handler task for client {}", session_id).as_str());
@@ -129,10 +134,73 @@ impl<
         }
     }
 
-    async fn client_handler_task<S>(_stream: S, logger: L)
+    async fn client_handler_task<'rx, 'tx, S>(socket_addr: SocketAddr, mut stream: S, logger: L)
     where
         S: TcpStream,
     {
-        logger.info("Client handler task started");
+        logger.info(format_heapless!(128; "Client handler task started for {}", socket_addr).as_str());
+
+        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+        let mut should_disconnect = false;
+
+        loop {
+            // === READ FROM NETWORK ===
+            // Try to read packet header
+            match stream.read(&mut buffer[0..1]).await {
+                Ok(0) => {
+                    // EOF - client disconnected gracefully
+                    logger.info(format_heapless!(128; "Client {} disconnected (EOF)", socket_addr).as_str());
+                    should_disconnect = true;
+                }
+                Ok(_) => {
+                    
+                }
+                Err(_) => {
+                    // Network error
+                    logger.info(format_heapless!(128; "Client {} network error reading packet header", socket_addr).as_str());
+                    should_disconnect = true;
+                }
+            }
+
+            // // === WRITE TO NETWORK ===
+            // // Write message to network
+            // if rx.ready() {
+            //     if let Some(msg) = rx.dequeue() {
+            //         match msg {
+            //             BrokerToClientMessage::SendPacket(packet) => {
+            //                 logger.info(format_heapless!(128; "Client {} sending packet: {}", socket_addr, &packet).as_str());
+            //                 if let Ok(len) = packet.encode(&mut buffer) {
+            //                     if stream.write(&buffer[..len]).await.is_err() {
+            //                         logger.info(format_heapless!(128; "Client {} write error", socket_addr).as_str());
+            //                         should_disconnect = true;
+            //                     }
+            //                 }
+            //             }
+            //             BrokerToClientMessage::Disconnect => {
+            //                 logger.info(format_heapless!(128; "Client {} received disconnect message", socket_addr).as_str());
+            //                 should_disconnect = true;
+            //             }
+            //         }
+            //     }
+            // }
+
+            if should_disconnect {
+                // let _ = tx.enqueue(ClientToBrokerMessage::Disconnected);
+                break;
+            }
+        }
+
+        let _ = stream.close().await;
+        logger.info(format_heapless!(128; "Client handler task terminating for {}", socket_addr).as_str());
     }
+}
+
+enum ClientToBrokerMessage<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+    ReceivedPacket(Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
+    Disconnected,
+}
+
+enum BrokerToClientMessage<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
+    SendPacket(Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
+    Disconnect,
 }

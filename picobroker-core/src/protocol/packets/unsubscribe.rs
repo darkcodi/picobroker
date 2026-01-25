@@ -71,6 +71,16 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
     }
 }
 
+impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "UnsubscribePacket {{ packet_id: {}, topic_filter: {} }}",
+            self.packet_id, self.topic_filter
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -46,6 +46,16 @@ impl PacketEncoder for SubAckPacket {
     }
 }
 
+impl core::fmt::Display for SubAckPacket {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "SubAckPacket {{ packet_id: {}, granted_qos: {:?} }}",
+            self.packet_id, self.granted_qos
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

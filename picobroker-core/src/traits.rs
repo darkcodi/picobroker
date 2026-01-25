@@ -1,18 +1,16 @@
 /// TCP stream trait for Tokio
-#[allow(async_fn_in_trait)]
 pub trait TcpStream {
     /// Read data from the stream into the buffer
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, NetworkError>;
+    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> impl core::future::Future<Output = Result<usize, NetworkError>> + Send + 'a;
 
     /// Write data from the buffer to the stream
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, NetworkError>;
+    fn write<'a>(&'a mut self, buf: &'a [u8]) -> impl core::future::Future<Output = Result<usize, NetworkError>> + Send + 'a;
 
     /// Close the stream
-    async fn close(&mut self) -> Result<(), NetworkError>;
+    fn close<'a>(&'a mut self) -> impl core::future::Future<Output = Result<(), NetworkError>> + Send + 'a;
 }
 
 /// TCP listener trait for Tokio
-#[allow(async_fn_in_trait)]
 pub trait TcpListener {
     /// The stream type produced by this listener
     type Stream: TcpStream;
@@ -22,7 +20,7 @@ pub trait TcpListener {
     /// Returns immediately with an error if no connection is pending.
     /// This is used in the server main loop to allow periodic processing
     /// of client messages between connection attempts.
-    async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), NetworkError>;
+    fn try_accept<'a>(&'a mut self) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr), NetworkError>> + Send + 'a;
 }
 
 /// Socket address (IPv4)
@@ -117,8 +115,7 @@ pub trait Logger: Clone {
 }
 
 /// Delay trait for abstracting sleep/delay functionality
-#[allow(async_fn_in_trait)]
 pub trait Delay {
     /// Async sleep for the specified duration in milliseconds
-    async fn sleep_ms(&self, millis: u64);
+    fn sleep_ms<'a>(&'a self, millis: u64) -> impl core::future::Future<Output = ()> + Send + 'a;
 }

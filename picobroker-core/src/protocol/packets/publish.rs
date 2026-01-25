@@ -217,6 +217,21 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     }
 }
 
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "PublishPacket {{ topic_name: {}, packet_id: {:?}, qos: {:?}, dup: {}, retain: {}, payload: {} bytes }}",
+            self.topic_name,
+            self.packet_id,
+            self.qos,
+            self.dup,
+            self.retain,
+            self.payload.len()
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
