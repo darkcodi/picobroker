@@ -2,6 +2,8 @@
 //!
 //! no_std compatible error handling
 
+use crate::{NetworkError, PacketEncodingError};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrokerError {
     /// Client with the given ID is already connected
@@ -12,6 +14,10 @@ pub enum BrokerError {
     MaxSubscribersPerTopicReached { max_subscribers: usize },
     /// Maximum number of topics reached
     MaxTopicsReached { max_topics: usize },
+    /// Network error occurred
+    NetworkError { error: NetworkError },
+    /// Packet encoding/decoding error occurred
+    PacketEncodingError { error: PacketEncodingError },
 }
 
 impl core::fmt::Display for BrokerError {
@@ -33,8 +39,20 @@ impl core::fmt::Display for BrokerError {
             BrokerError::MaxTopicsReached { max_topics } => {
                 write!(f, "Maximum number of topics reached: {}", max_topics)
             }
+            BrokerError::NetworkError { error } => {
+                write!(f, "Network error occurred: {}", error)
+            },
+            BrokerError::PacketEncodingError { error } => {
+                write!(f, "Packet encoding/decoding error occurred: {}", error)
+            },
         }
     }
 }
 
 impl core::error::Error for BrokerError {}
+
+impl From<NetworkError> for BrokerError {
+    fn from(error: NetworkError) -> Self {
+        BrokerError::NetworkError { error }
+    }
+}

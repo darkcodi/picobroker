@@ -1,16 +1,18 @@
 /// TCP stream trait for Tokio
+#[allow(async_fn_in_trait)]
 pub trait TcpStream {
     /// Read data from the stream into the buffer
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> impl core::future::Future<Output = Result<usize, NetworkError>> + Send + 'a;
+    async fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, NetworkError>;
 
     /// Write data from the buffer to the stream
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> impl core::future::Future<Output = Result<usize, NetworkError>> + Send + 'a;
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, NetworkError>;
 
     /// Close the stream
-    fn close<'a>(&'a mut self) -> impl core::future::Future<Output = Result<(), NetworkError>> + Send + 'a;
+    async fn close(&mut self) -> Result<(), NetworkError>;
 }
 
 /// TCP listener trait for Tokio
+#[allow(async_fn_in_trait)]
 pub trait TcpListener {
     /// The stream type produced by this listener
     type Stream: TcpStream;
@@ -20,7 +22,7 @@ pub trait TcpListener {
     /// Returns immediately with an error if no connection is pending.
     /// This is used in the server main loop to allow periodic processing
     /// of client messages between connection attempts.
-    fn try_accept<'a>(&'a mut self) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr), NetworkError>> + Send + 'a;
+    async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), NetworkError>;
 }
 
 /// Socket address (IPv4)
@@ -39,20 +41,23 @@ impl core::fmt::Display for SocketAddr {
 /// Network error enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkError {
-    /// Failed to bind to the specified address
-    BindError,
-    /// No pending connection to accept
-    NoPendingConnection,
+    /// Connection closed
+    ConnectionClosed,
     /// I/O error occurred
     IoError,
+    /// No pending connection to accept
+    NoPendingConnection,
+    /// Operation would block
+    WouldBlock,
 }
 
 impl core::fmt::Display for NetworkError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            NetworkError::BindError => write!(f, "Failed to bind to the specified address"),
-            NetworkError::NoPendingConnection => write!(f, "No pending connection to accept"),
+            NetworkError::ConnectionClosed => write!(f, "Connection closed"),
             NetworkError::IoError => write!(f, "I/O error occurred"),
+            NetworkError::NoPendingConnection => write!(f, "No pending connection to accept"),
+            NetworkError::WouldBlock => write!(f, "Operation would block"),
         }
     }
 }
@@ -67,40 +72,8 @@ pub trait TimeSource {
     fn now_secs(&self) -> u64;
 }
 
-/// Trait for spawning async tasks across different runtimes
-///
-/// This trait abstracts task spawning, allowing picobroker-core to spawn
-/// concurrent client handler tasks without knowing the specific async runtime.
-pub trait TaskSpawner {
-    /// Spawn a new task that runs the given future to completion
-    fn spawn<F, O>(&self, future: F) -> Result<(), TaskSpawnError>
-    where
-        F: core::future::Future<Output = O> + Send + 'static,
-        O: Send + 'static;
-}
-
-/// Error that can occur when spawning a task
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskSpawnError {
-    /// No memory available to spawn task
-    NoMemory,
-    /// Task spawner is busy
-    Busy,
-}
-
-impl core::fmt::Display for TaskSpawnError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            TaskSpawnError::NoMemory => write!(f, "No memory available to spawn task"),
-            TaskSpawnError::Busy => write!(f, "Task spawner is busy"),
-        }
-    }
-}
-
-impl core::error::Error for TaskSpawnError {}
-
 /// Logging trait for abstracting logging functionality
-pub trait Logger: Clone {
+pub trait Logger {
     /// Log a debug message
     fn debug(&self, message: &str);
 
@@ -115,7 +88,8 @@ pub trait Logger: Clone {
 }
 
 /// Delay trait for abstracting sleep/delay functionality
+#[allow(async_fn_in_trait)]
 pub trait Delay {
     /// Async sleep for the specified duration in milliseconds
-    fn sleep_ms<'a>(&'a self, millis: u64) -> impl core::future::Future<Output = ()> + Send + 'a;
+    async fn sleep_ms(&self, millis: u64);
 }

@@ -1,4 +1,4 @@
-use crate::{BrokerError, Delay, Logger, Packet, PacketEncoder, PicoBroker, SocketAddr, TaskSpawner, TcpListener, TcpStream, TimeSource};
+use crate::{BrokerError, Delay, Logger, NetworkError, Packet, PacketEncoder, PicoBroker, TcpListener, TcpStream, TimeSource};
 use crate::format_heapless;
 
 /// MQTT Broker Server
@@ -11,7 +11,6 @@ use crate::format_heapless;
 ///
 /// - `TS`: Time source for tracking keep-alives
 /// - `TL`: TCP listener implementation
-/// - `SP`: Task spawner implementation
 /// - `L`: Logger implementation
 /// - `D`: Delay implementation
 /// - `MAX_TOPIC_NAME_LENGTH`: Maximum length of topic names
@@ -23,7 +22,6 @@ use crate::format_heapless;
 pub struct PicoBrokerServer<
     TS: TimeSource,
     TL: TcpListener,
-    SP: TaskSpawner,
     L: Logger,
     D: Delay,
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -35,7 +33,6 @@ pub struct PicoBrokerServer<
 > {
     time_source: TS,
     listener: TL,
-    spawner: SP,
     logger: L,
     delay: D,
     broker: PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
@@ -44,7 +41,6 @@ pub struct PicoBrokerServer<
 impl<
     TS: TimeSource,
     TL: TcpListener,
-    SP: TaskSpawner,
     L: Logger,
     D: Delay,
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -53,14 +49,13 @@ impl<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-> PicoBrokerServer<TS, TL, SP, L, D, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+> PicoBrokerServer<TS, TL, L, D, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new MQTT broker server
-    pub fn new(time_source: TS, listener: TL, spawner: SP, logger: L, delay: D) -> Self {
+    pub fn new(time_source: TS, listener: TL, logger: L, delay: D) -> Self {
         Self {
             time_source,
             listener,
-            spawner,
             logger,
             delay,
             broker: PicoBroker::new(),
@@ -96,24 +91,6 @@ impl<
                     Ok(session_id) => {
                         self.logger.info(format_heapless!(128; "Registered new client with session ID {}", session_id).as_str());
 
-                        // let mut client_to_broker_queue: heapless::spsc::Queue<ClientToBrokerMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE> = heapless::spsc::Queue::new();
-                        // let mut broker_to_client_queue: heapless::spsc::Queue<BrokerToClientMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE> = heapless::spsc::Queue::new();
-                        // let (client_tx, broker_rx) = client_to_broker_queue.split();
-                        // let (broker_tx, client_rx) = broker_to_client_queue.split();
-
-                        // Spawn client handler task
-                        // Note: We move the stream into the task
-                        let logger = self.logger.clone();
-                        match self.spawner.spawn(async move {
-                            Self::client_handler_task(socket_addr, stream, logger).await;
-                        }) {
-                            Ok(_) => {
-                                self.logger.info(format_heapless!(128; "Spawned client handler task for client {}", session_id).as_str());
-                            },
-                            Err(task_spawn_error) => {
-                                self.logger.error(format_heapless!(128; "Failed to spawn client handler task: {}", task_spawn_error).as_str());
-                            }
-                        }
                     },
                     Err(e) => {
                         self.logger.error(format_heapless!(128; "Failed to register new client: {}", e).as_str());
@@ -134,73 +111,30 @@ impl<
         }
     }
 
-    async fn client_handler_task<'rx, 'tx, S>(socket_addr: SocketAddr, mut stream: S, logger: L)
-    where
-        S: TcpStream,
-    {
-        logger.info(format_heapless!(128; "Client handler task started for {}", socket_addr).as_str());
+    async fn try_read_packet_from_stream<S: TcpStream>(&self, stream: &mut S) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+        let mut header_buffer = [0u8; MAX_PAYLOAD_SIZE];
 
-        let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
-        let mut should_disconnect = false;
-
-        loop {
-            // === READ FROM NETWORK ===
-            // Try to read packet header
-            match stream.read(&mut buffer[0..1]).await {
-                Ok(0) => {
-                    // EOF - client disconnected gracefully
-                    logger.info(format_heapless!(128; "Client {} disconnected (EOF)", socket_addr).as_str());
-                    should_disconnect = true;
-                }
-                Ok(_) => {
-                    
-                }
-                Err(_) => {
-                    // Network error
-                    logger.info(format_heapless!(128; "Client {} network error reading packet header", socket_addr).as_str());
-                    should_disconnect = true;
+        match stream.try_read(&mut header_buffer).await {
+            Ok(bytes_read) => {
+                if bytes_read > 0 {
+                    let slice = &header_buffer[..bytes_read];
+                    let maybe_packet = Packet::decode(slice);
+                    match maybe_packet {
+                        Ok(packet) => Ok(Some(packet)),
+                        Err(e) => {
+                            self.logger.error(format_heapless!(128; "Failed to decode packet: {}", e).as_str());
+                            Err(BrokerError::PacketEncodingError { error: e })
+                        }
+                    }
+                } else {
+                    self.logger.info("Connection closed by peer");
+                    Err(BrokerError::NetworkError { error: NetworkError::ConnectionClosed })
                 }
             }
-
-            // // === WRITE TO NETWORK ===
-            // // Write message to network
-            // if rx.ready() {
-            //     if let Some(msg) = rx.dequeue() {
-            //         match msg {
-            //             BrokerToClientMessage::SendPacket(packet) => {
-            //                 logger.info(format_heapless!(128; "Client {} sending packet: {}", socket_addr, &packet).as_str());
-            //                 if let Ok(len) = packet.encode(&mut buffer) {
-            //                     if stream.write(&buffer[..len]).await.is_err() {
-            //                         logger.info(format_heapless!(128; "Client {} write error", socket_addr).as_str());
-            //                         should_disconnect = true;
-            //                     }
-            //                 }
-            //             }
-            //             BrokerToClientMessage::Disconnect => {
-            //                 logger.info(format_heapless!(128; "Client {} received disconnect message", socket_addr).as_str());
-            //                 should_disconnect = true;
-            //             }
-            //         }
-            //     }
-            // }
-
-            if should_disconnect {
-                // let _ = tx.enqueue(ClientToBrokerMessage::Disconnected);
-                break;
+            Err(e) => {
+                self.logger.error(format_heapless!(128; "Failed to read from stream: {}", e).as_str());
+                Err(BrokerError::NetworkError { error: e })
             }
         }
-
-        let _ = stream.close().await;
-        logger.info(format_heapless!(128; "Client handler task terminating for {}", socket_addr).as_str());
     }
-}
-
-enum ClientToBrokerMessage<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
-    ReceivedPacket(Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
-    Disconnected,
-}
-
-enum BrokerToClientMessage<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
-    SendPacket(Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
-    Disconnect,
 }
