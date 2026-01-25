@@ -57,11 +57,19 @@ mod tests {
 
     fn roundtrip_test(bytes: &[u8]) -> SubAckPacket {
         let result = SubAckPacket::decode(bytes);
-        assert!(result.is_ok(), "Failed to decode packet: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to decode packet: {:?}",
+            result.err()
+        );
         let packet = result.unwrap();
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
         let encode_result = packet.encode(&mut buffer);
-        assert!(encode_result.is_ok(), "Failed to encode packet: {:?}", encode_result.err());
+        assert!(
+            encode_result.is_ok(),
+            "Failed to encode packet: {:?}",
+            encode_result.err()
+        );
         let encoded_size = encode_result.unwrap();
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");

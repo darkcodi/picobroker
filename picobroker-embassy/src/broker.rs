@@ -18,4 +18,3 @@ pub type EmbassyPicoBroker<
     MAX_TOPICS,
     MAX_SUBSCRIBERS_PER_TOPIC,
 >;
-

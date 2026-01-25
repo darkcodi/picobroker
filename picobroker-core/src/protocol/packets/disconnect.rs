@@ -1,4 +1,6 @@
-use crate::protocol::packets::{PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst};
+use crate::protocol::packets::{
+    PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
+};
 use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -35,9 +37,9 @@ impl PacketEncoder for DisconnectPacket {
 
 #[cfg(test)]
 mod tests {
-    use core::mem::size_of;
-    use crate::DisconnectPacket;
     use super::*;
+    use crate::DisconnectPacket;
+    use core::mem::size_of;
 
     const MAX_PAYLOAD_SIZE: usize = 128;
 

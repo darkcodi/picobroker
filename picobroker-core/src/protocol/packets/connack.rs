@@ -1,4 +1,6 @@
-use crate::protocol::packets::{PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst};
+use crate::protocol::packets::{
+    PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
+};
 use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[repr(u8)]
@@ -51,7 +53,11 @@ impl PacketEncoder for ConnAckPacket {
         Self::validate_buffer_size(buffer.len())?;
         buffer[0] = self.header_first_byte();
         buffer[1] = 2u8;
-        buffer[2] = if self.session_present { 0b0000_0001 } else { 0b0000_0000 };
+        buffer[2] = if self.session_present {
+            0b0000_0001
+        } else {
+            0b0000_0000
+        };
         buffer[3] = self.return_code as u8;
         Ok(4)
     }
@@ -65,7 +71,11 @@ impl PacketEncoder for ConnAckPacket {
         let session_present = match session_present_byte {
             0b0000_0000 => false,
             0b0000_0001 => true,
-            _ => return Err(PacketEncodingError::InvalidSessionPresentFlag {flag: session_present_byte}),
+            _ => {
+                return Err(PacketEncodingError::InvalidSessionPresentFlag {
+                    flag: session_present_byte,
+                })
+            }
         };
         let return_code = ConnectReturnCode::try_from(bytes[3])?;
         Ok(Self {
@@ -77,9 +87,9 @@ impl PacketEncoder for ConnAckPacket {
 
 #[cfg(test)]
 mod tests {
-    use core::mem::size_of;
-    use crate::ConnAckPacket;
     use super::*;
+    use crate::ConnAckPacket;
+    use core::mem::size_of;
 
     const MAX_PAYLOAD_SIZE: usize = 128;
 
@@ -92,12 +102,30 @@ mod tests {
     fn test_connack_packet_roundtrip() {
         assert!(!roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).session_present);
         assert!(roundtrip_test(&[0x20, 0x02, 0x01, 0x00]).session_present);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).return_code, ConnectReturnCode::Accepted);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x01]).return_code, ConnectReturnCode::UnacceptableProtocolVersion);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x02]).return_code, ConnectReturnCode::IdentifierRejected);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x03]).return_code, ConnectReturnCode::ServerUnavailable);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x04]).return_code, ConnectReturnCode::BadUserNameOrPassword);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x05]).return_code, ConnectReturnCode::NotAuthorized);
+        assert_eq!(
+            roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).return_code,
+            ConnectReturnCode::Accepted
+        );
+        assert_eq!(
+            roundtrip_test(&[0x20, 0x02, 0x00, 0x01]).return_code,
+            ConnectReturnCode::UnacceptableProtocolVersion
+        );
+        assert_eq!(
+            roundtrip_test(&[0x20, 0x02, 0x00, 0x02]).return_code,
+            ConnectReturnCode::IdentifierRejected
+        );
+        assert_eq!(
+            roundtrip_test(&[0x20, 0x02, 0x00, 0x03]).return_code,
+            ConnectReturnCode::ServerUnavailable
+        );
+        assert_eq!(
+            roundtrip_test(&[0x20, 0x02, 0x00, 0x04]).return_code,
+            ConnectReturnCode::BadUserNameOrPassword
+        );
+        assert_eq!(
+            roundtrip_test(&[0x20, 0x02, 0x00, 0x05]).return_code,
+            ConnectReturnCode::NotAuthorized
+        );
     }
 
     fn roundtrip_test(bytes: &[u8]) -> ConnAckPacket {

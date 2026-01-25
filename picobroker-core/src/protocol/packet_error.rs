@@ -5,7 +5,10 @@ pub enum PacketEncodingError {
     /// Client identifier is empty in CONNECT, which is not allowed in persistent session
     ClientIdEmpty,
     /// Client identifier length exceeded maximum allowed length
-    ClientIdLengthExceeded { max_length: usize, actual_length: usize },
+    ClientIdLengthExceeded {
+        max_length: usize,
+        actual_length: usize,
+    },
     /// Incomplete packet (not enough data)
     IncompletePacket { buffer_size: usize },
     /// Invalid connect flags in CONNECT
@@ -25,7 +28,10 @@ pub enum PacketEncodingError {
     /// Missing Packet Identifier where one is required
     MissingPacketId,
     /// Password length exceeded maximum allowed length
-    PasswordLengthExceeded { max_length: usize, actual_length: usize },
+    PasswordLengthExceeded {
+        max_length: usize,
+        actual_length: usize,
+    },
     /// Payload size exceeded maximum allowed size
     PayloadTooLarge { max_size: usize, actual_size: usize },
     /// Invalid QoS level
@@ -33,11 +39,17 @@ pub enum PacketEncodingError {
     /// Topic name is empty
     TopicEmpty,
     /// Topic name length exceeded maximum allowed length
-    TopicNameLengthExceeded { max_length: usize, actual_length: usize },
+    TopicNameLengthExceeded {
+        max_length: usize,
+        actual_length: usize,
+    },
     /// Unsupported protocol level in CONNECT
     UnsupportedProtocolLevel { level: u8 },
     /// Username length exceeded maximum allowed length
-    UsernameLengthExceeded { max_length: usize, actual_length: usize },
+    UsernameLengthExceeded {
+        max_length: usize,
+        actual_length: usize,
+    },
 }
 
 impl core::fmt::Display for PacketEncodingError {
@@ -45,51 +57,98 @@ impl core::fmt::Display for PacketEncodingError {
         match self {
             PacketEncodingError::BufferTooSmall { buffer_size } => {
                 write!(f, "Buffer too small for packet: size {}", buffer_size)
-            },
+            }
             PacketEncodingError::ClientIdEmpty => write!(f, "Client ID is empty in CONNECT packet"),
-            PacketEncodingError::ClientIdLengthExceeded { max_length, actual_length } => {
-                write!(f, "Client ID length exceeded: length {}, max {}", actual_length, max_length)
-            },
+            PacketEncodingError::ClientIdLengthExceeded {
+                max_length,
+                actual_length,
+            } => {
+                write!(
+                    f,
+                    "Client ID length exceeded: length {}, max {}",
+                    actual_length, max_length
+                )
+            }
             PacketEncodingError::IncompletePacket { buffer_size } => {
                 write!(f, "Incomplete packet: buffer size {}", buffer_size)
-            },
+            }
             PacketEncodingError::InvalidConnectFlags { flags } => {
                 write!(f, "Invalid connect flags in CONNECT packet: {}", flags)
-            },
+            }
             PacketEncodingError::InvalidConnectReturnCode { return_code } => {
                 write!(f, "Invalid connect return code in CONNACK: {}", return_code)
-            },
+            }
             PacketEncodingError::InvalidPacketLength { expected, actual } => {
-                write!(f, "Invalid packet length: expected {}, got {}", expected, actual)
-            },
+                write!(
+                    f,
+                    "Invalid packet length: expected {}, got {}",
+                    expected, actual
+                )
+            }
             PacketEncodingError::InvalidPacketType { packet_type } => {
                 write!(f, "Invalid packet type: {}", packet_type)
-            },
-            PacketEncodingError::InvalidProtocolName => write!(f, "Invalid protocol name in CONNECT packet"),
+            }
+            PacketEncodingError::InvalidProtocolName => {
+                write!(f, "Invalid protocol name in CONNECT packet")
+            }
             PacketEncodingError::InvalidSessionPresentFlag { flag } => {
-                write!(f, "Invalid session present flag in CONNACK packet: {}", flag)
-            },
+                write!(
+                    f,
+                    "Invalid session present flag in CONNACK packet: {}",
+                    flag
+                )
+            }
             PacketEncodingError::InvalidUtf8String => write!(f, "Invalid UTF-8 string"),
-            PacketEncodingError::MissingPacketId => write!(f, "Missing Packet Identifier where one is required"),
-            PacketEncodingError::PasswordLengthExceeded { max_length, actual_length } => {
-                write!(f, "Password length exceeded: length {}, max {}", actual_length, max_length)
-            },
-            PacketEncodingError::PayloadTooLarge { max_size, actual_size } => {
-                write!(f, "Payload too large: size {}, max {}", actual_size, max_size)
-            },
+            PacketEncodingError::MissingPacketId => {
+                write!(f, "Missing Packet Identifier where one is required")
+            }
+            PacketEncodingError::PasswordLengthExceeded {
+                max_length,
+                actual_length,
+            } => {
+                write!(
+                    f,
+                    "Password length exceeded: length {}, max {}",
+                    actual_length, max_length
+                )
+            }
+            PacketEncodingError::PayloadTooLarge {
+                max_size,
+                actual_size,
+            } => {
+                write!(
+                    f,
+                    "Payload too large: size {}, max {}",
+                    actual_size, max_size
+                )
+            }
             PacketEncodingError::InvalidQosLevel { level } => {
                 write!(f, "Invalid QoS level: {}", level)
-            },
+            }
             PacketEncodingError::TopicEmpty => write!(f, "Topic name is empty"),
-            PacketEncodingError::TopicNameLengthExceeded { max_length, actual_length } => {
-                write!(f, "Topic name length exceeded: length {}, max {}", actual_length, max_length)
-            },
+            PacketEncodingError::TopicNameLengthExceeded {
+                max_length,
+                actual_length,
+            } => {
+                write!(
+                    f,
+                    "Topic name length exceeded: length {}, max {}",
+                    actual_length, max_length
+                )
+            }
             PacketEncodingError::UnsupportedProtocolLevel { level } => {
                 write!(f, "Unsupported protocol level in CONNECT packet: {}", level)
-            },
-            PacketEncodingError::UsernameLengthExceeded { max_length, actual_length } => {
-                write!(f, "Username length exceeded: length {}, max {}", actual_length, max_length)
-            },
+            }
+            PacketEncodingError::UsernameLengthExceeded {
+                max_length,
+                actual_length,
+            } => {
+                write!(
+                    f,
+                    "Username length exceeded: length {}, max {}",
+                    actual_length, max_length
+                )
+            }
         }
     }
 }

@@ -15,7 +15,8 @@ impl<const N: usize> Default for HeaplessString<N> {
 
 impl<const N: usize> core::fmt::Display for HeaplessString<N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let s = core::str::from_utf8(&self.data[..self.length as usize]).map_err(|_| core::fmt::Error)?;
+        let s = core::str::from_utf8(&self.data[..self.length as usize])
+            .map_err(|_| core::fmt::Error)?;
         write!(f, "{}", s)
     }
 }
@@ -37,7 +38,7 @@ impl<const N: usize> TryFrom<&str> for HeaplessString<N> {
     }
 }
 
-impl <const N: usize> HeaplessString<N> {
+impl<const N: usize> HeaplessString<N> {
     pub const fn new() -> Self {
         Self {
             length: 0,
@@ -91,7 +92,8 @@ impl <const N: usize> HeaplessString<N> {
         }
         let mut buf = [0u8; 4];
         ch.encode_utf8(&mut buf);
-        self.data[self.length as usize..self.length as usize + ch_len].copy_from_slice(&buf[..ch_len]);
+        self.data[self.length as usize..self.length as usize + ch_len]
+            .copy_from_slice(&buf[..ch_len]);
         self.length += ch_len as u8;
         Ok(())
     }
@@ -285,7 +287,10 @@ impl<T: Default, const N: usize> IntoIterator for HeaplessVec<T, N> {
     type IntoIter = HeaplessVecIntoIterator<T, N>;
 
     fn into_iter(self) -> Self::IntoIter {
-        HeaplessVecIntoIterator { vec: self, index: 0 }
+        HeaplessVecIntoIterator {
+            vec: self,
+            index: 0,
+        }
     }
 }
 

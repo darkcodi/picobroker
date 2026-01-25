@@ -11,7 +11,9 @@ pub struct EmbassyTcpStream<'a> {
 }
 
 impl<'a> EmbassyTcpStream<'a> {
-    pub async fn from_socket(_socket: embassy_net::tcp::TcpSocket<'a>) -> Result<Self, BrokerError> {
+    pub async fn from_socket(
+        _socket: embassy_net::tcp::TcpSocket<'a>,
+    ) -> Result<Self, BrokerError> {
         // TODO: Implement when Embassy dependencies are available
         Err(BrokerError::IoError)
     }

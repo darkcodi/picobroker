@@ -1,7 +1,7 @@
 //! Tokio networking implementation
 
-use picobroker_core::{TcpListener, TcpStream};
 use picobroker_core::{BrokerError, SocketAddr};
+use picobroker_core::{TcpListener, TcpStream};
 use tokio::net::TcpStream as TokioTcpStreamInner;
 
 /// Tokio TCP stream wrapper
@@ -36,12 +36,18 @@ impl TcpStream for TokioTcpStream {
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, BrokerError> {
         use tokio::io::AsyncWriteExt;
-        self.inner.write(buf).await.map_err(|_| BrokerError::IoError)
+        self.inner
+            .write(buf)
+            .await
+            .map_err(|_| BrokerError::IoError)
     }
 
     async fn close(&mut self) -> Result<(), BrokerError> {
         use tokio::io::AsyncWriteExt;
-        self.inner.shutdown().await.map_err(|_| BrokerError::IoError)
+        self.inner
+            .shutdown()
+            .await
+            .map_err(|_| BrokerError::IoError)
     }
 }
 
@@ -67,7 +73,11 @@ impl TcpListener for TokioTcpListener {
     type Stream = TokioTcpStream;
 
     async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr), BrokerError> {
-        let (stream, addr) = self.inner.accept().await.map_err(|_| BrokerError::AcceptConnectionError)?;
+        let (stream, addr) = self
+            .inner
+            .accept()
+            .await
+            .map_err(|_| BrokerError::AcceptConnectionError)?;
 
         let socket_addr = SocketAddr {
             ip: match addr.ip() {

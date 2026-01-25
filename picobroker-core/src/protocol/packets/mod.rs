@@ -13,7 +13,6 @@ mod subscribe;
 mod unsuback;
 mod unsubscribe;
 
-use crate::{variable_length_length, PacketEncodingError, PacketType};
 pub use crate::protocol::packets::connack::ConnAckPacket;
 pub use crate::protocol::packets::connect::ConnectPacket;
 pub use crate::protocol::packets::disconnect::DisconnectPacket;
@@ -28,6 +27,7 @@ pub use crate::protocol::packets::suback::SubAckPacket;
 pub use crate::protocol::packets::subscribe::SubscribePacket;
 pub use crate::protocol::packets::unsuback::UnsubAckPacket;
 pub use crate::protocol::packets::unsubscribe::UnsubscribePacket;
+use crate::{variable_length_length, PacketEncodingError, PacketType};
 
 pub trait PacketTypeConst {
     const PACKET_TYPE: PacketType;
@@ -36,7 +36,9 @@ pub trait PacketTypeConst {
         let type_byte = header_first_byte >> 4;
         let packet_type = PacketType::from(type_byte);
         if packet_type != Self::PACKET_TYPE {
-            return Err(PacketEncodingError::InvalidPacketType { packet_type: type_byte });
+            return Err(PacketEncodingError::InvalidPacketType {
+                packet_type: type_byte,
+            });
         }
         Ok(())
     }
@@ -60,7 +62,7 @@ pub trait PacketFlagsDynamic {
     fn flags(&self) -> u8;
 }
 
-impl <T: PacketFlagsConst> PacketFlagsDynamic for T {
+impl<T: PacketFlagsConst> PacketFlagsDynamic for T {
     fn flags(&self) -> u8 {
         Self::PACKET_FLAGS
     }
@@ -71,9 +73,7 @@ trait PacketFixedSize {
 
     fn validate_buffer_size(buffer_size: usize) -> Result<(), PacketEncodingError> {
         if buffer_size < Self::PACKET_SIZE {
-            return Err(PacketEncodingError::BufferTooSmall {
-                buffer_size,
-            });
+            return Err(PacketEncodingError::BufferTooSmall { buffer_size });
         }
         Ok(())
     }
@@ -124,7 +124,9 @@ pub enum Packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usiz
     Disconnect(DisconnectPacket),
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeDynamic for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeDynamic
+    for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn packet_type(&self) -> PacketType {
         match self {
             Packet::Connect(_) => PacketType::Connect,
@@ -145,7 +147,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTy
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic
+    for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn flags(&self) -> u8 {
         match self {
             Packet::Connect(packet) => packet.flags(),
@@ -166,7 +170,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFl
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder
+    for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         match self {
             Packet::Connect(packet) => packet.encode(buffer),

@@ -1,9 +1,9 @@
+mod heapless;
+mod packet_error;
 mod packet_type;
 mod packets;
 mod qos;
 mod utils;
-mod packet_error;
-mod heapless;
 
 pub use crate::protocol::packets::ConnAckPacket;
 pub use crate::protocol::packets::ConnectPacket;
@@ -21,10 +21,10 @@ pub use crate::protocol::packets::SubAckPacket;
 pub use crate::protocol::packets::SubscribePacket;
 pub use crate::protocol::packets::UnsubAckPacket;
 pub use crate::protocol::packets::UnsubscribePacket;
-pub use packet_type::PacketType;
+pub use heapless::{HeaplessString, HeaplessVec};
 pub use packet_error::PacketEncodingError;
+pub use packet_type::PacketType;
 pub use qos::QoS;
 pub use utils::{
     read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
 };
-pub use heapless::{HeaplessString, HeaplessVec};

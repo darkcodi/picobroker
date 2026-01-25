@@ -1,8 +1,11 @@
+use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::utils::{read_binary, read_string, write_binary, write_string};
-use crate::{read_variable_length, write_variable_length, ClientId, PacketEncodingError, PacketType, TopicName};
-use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::HeaplessString;
+use crate::{
+    read_variable_length, write_variable_length, ClientId, PacketEncodingError, PacketType,
+    TopicName,
+};
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
 pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
@@ -12,22 +15,34 @@ pub const _MQTT_5_0_PROTOCOL_LEVEL: u8 = 5; // MQTT 5.0
 pub struct ConnectFlags(u8);
 
 impl ConnectFlags {
-    pub const RESERVED:  Self = Self(0b_0000_0001);
+    pub const RESERVED: Self = Self(0b_0000_0001);
     pub const CLEAN_SESSION: Self = Self(0b_0000_0010);
-    pub const WILL_FLAG:  Self = Self(0b_0000_0100);
-    pub const WILL_QOS_1:  Self = Self(0b_0000_1000);
-    pub const WILL_QOS_2:  Self = Self(0b_0001_0000);
-    pub const WILL_RETAIN:  Self = Self(0b_0010_0000);
-    pub const PASSWORD:  Self = Self(0b_0100_0000);
-    pub const USERNAME:  Self = Self(0b_1000_0000);
+    pub const WILL_FLAG: Self = Self(0b_0000_0100);
+    pub const WILL_QOS_1: Self = Self(0b_0000_1000);
+    pub const WILL_QOS_2: Self = Self(0b_0001_0000);
+    pub const WILL_RETAIN: Self = Self(0b_0010_0000);
+    pub const PASSWORD: Self = Self(0b_0100_0000);
+    pub const USERNAME: Self = Self(0b_1000_0000);
     pub const ALL_FLAGS: Self = Self(0b_1111_1110);
 
-    pub const fn empty() -> Self { Self(0) }
-    pub const fn bits(self) -> u8 { self.0 }
-    pub const fn contains(self, other: Self) -> bool { (self.0 & other.0) == other.0 }
-    pub fn insert(&mut self, other: Self) { self.0 |= other.0; }
-    pub fn remove(&mut self, other: Self) { self.0 &= !other.0; }
-    pub fn toggle(&mut self, other: Self) { self.0 ^= other.0; }
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+    pub const fn contains(self, other: Self) -> bool {
+        (self.0 & other.0) == other.0
+    }
+    pub fn insert(&mut self, other: Self) {
+        self.0 |= other.0;
+    }
+    pub fn remove(&mut self, other: Self) {
+        self.0 &= !other.0;
+    }
+    pub fn toggle(&mut self, other: Self) {
+        self.0 ^= other.0;
+    }
 }
 
 /// Fixed Header
@@ -57,15 +72,21 @@ pub struct ConnectPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub password: Option<HeaplessVec<u8, MAX_TOPIC_NAME_LENGTH>>,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst
+    for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     const PACKET_TYPE: PacketType = PacketType::Connect;
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsConst for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsConst
+    for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     const PACKET_FLAGS: u8 = 0b0000;
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder
+    for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         // calculate remaining length
         let mut remaining_length = 0;
@@ -187,12 +208,10 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }
         let client_id = HeaplessString::try_from(client_id)
             .map(ClientId::from)
-            .map_err(|_| {
-                PacketEncodingError::ClientIdLengthExceeded {
-                    max_length: MAX_TOPIC_NAME_LENGTH,
-                    actual_length: client_id.len(),
-                }
-        })?;
+            .map_err(|_| PacketEncodingError::ClientIdLengthExceeded {
+                max_length: MAX_TOPIC_NAME_LENGTH,
+                actual_length: client_id.len(),
+            })?;
 
         // extract optional fields (will topic, will payload, username, password) as needed
         let mut will_topic: Option<TopicName<MAX_TOPIC_NAME_LENGTH>> = None;
@@ -203,14 +222,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             if will_topic_str.is_empty() {
                 return Err(PacketEncodingError::TopicEmpty);
             }
-            will_topic = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
-                .map(TopicName::new)
-                .map_err(|_| {
-                    PacketEncodingError::TopicNameLengthExceeded {
+            will_topic = Some(
+                HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
+                    .map(TopicName::new)
+                    .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: will_topic_str.len(),
-                    }
-            })?);
+                    })?,
+            );
 
             // extract will payload
             let will_payload_bytes = read_binary(bytes, &mut offset)?;
@@ -222,12 +241,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                 });
             }
             // Note: MQTT 3.1.1 spec does not limit will payload size, but we enforce MAX_PAYLOAD_SIZE here
-            will_payload_vec.extend_from_slice(will_payload_bytes).map_err(|_| {
-                PacketEncodingError::PayloadTooLarge {
+            will_payload_vec
+                .extend_from_slice(will_payload_bytes)
+                .map_err(|_| PacketEncodingError::PayloadTooLarge {
                     max_size: MAX_PAYLOAD_SIZE,
                     actual_size: will_payload_bytes.len(),
-                }
-            })?;
+                })?;
             will_payload = Some(will_payload_vec);
         }
 
@@ -235,13 +254,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         let mut username: Option<HeaplessString<MAX_TOPIC_NAME_LENGTH>> = None;
         if username_flag {
             let username_str = read_string(bytes, &mut offset)?;
-            username = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str)
-                .map_err(|_| {
+            username = Some(
+                HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str).map_err(|_| {
                     PacketEncodingError::UsernameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: username_str.len(),
                     }
-                })?);
+                })?,
+            );
         }
 
         // extract password
@@ -249,12 +269,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         if password_flag {
             let password_bytes = read_binary(bytes, &mut offset)?;
             let mut password_vec = HeaplessVec::<u8, MAX_TOPIC_NAME_LENGTH>::new();
-            password_vec.extend_from_slice(password_bytes).map_err(|_| {
-                PacketEncodingError::PasswordLengthExceeded {
+            password_vec
+                .extend_from_slice(password_bytes)
+                .map_err(|_| PacketEncodingError::PasswordLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: password_bytes.len(),
-                }
-            })?;
+                })?;
             password = Some(password_vec);
         }
 
@@ -316,7 +336,9 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn decode_test(bytes: &[u8]) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, PacketEncodingError> {
+    fn decode_test(
+        bytes: &[u8],
+    ) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, PacketEncodingError> {
         ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
     }
 
@@ -422,7 +444,10 @@ mod tests {
     fn test_connect_flag_reserved_bit_set() {
         let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 03 00 3C 00 03 61 62 63");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidConnectFlags { flags: 3 })));
+        assert!(matches!(
+            result,
+            Err(PacketEncodingError::InvalidConnectFlags { flags: 3 })
+        ));
     }
 
     // ===== CONNECT FLAGS: WILL FLAG =====
@@ -485,7 +510,8 @@ mod tests {
 
     #[test]
     fn test_connect_flag_username_set() {
-        let bytes = hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
+        let bytes =
+            hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::USERNAME));
     }
@@ -561,7 +587,8 @@ mod tests {
 
     #[test]
     fn test_client_id_unicode() {
-        let bytes = hex_to_bytes("10 15 00 04 4D 51 54 54 04 02 00 3C 00 09 E4 BD A0 E5 A5 BD E4 B8 96");
+        let bytes =
+            hex_to_bytes("10 15 00 04 4D 51 54 54 04 02 00 3C 00 09 E4 BD A0 E5 A5 BD E4 B8 96");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.as_str(), "你好世");
     }
@@ -572,7 +599,10 @@ mod tests {
     fn test_will_topic_valid() {
         let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
+        assert_eq!(
+            packet.will_topic.as_ref().map(|t| t.as_str()),
+            Some("willtp")
+        );
     }
 
     // ===== WILL PAYLOAD FIELD TESTS =====
@@ -581,12 +611,17 @@ mod tests {
     fn test_will_payload_valid() {
         let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.will_payload.as_ref().map(|p| p.as_slice()), Some(b"willmsg".as_ref()));
+        assert_eq!(
+            packet.will_payload.as_ref().map(|p| p.as_slice()),
+            Some(b"willmsg".as_ref())
+        );
     }
 
     #[test]
     fn test_will_payload_empty() {
-        let bytes = hex_to_bytes("10 19 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 00");
+        let bytes = hex_to_bytes(
+            "10 19 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 00",
+        );
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.will_payload.as_ref().unwrap().len(), 0);
     }
@@ -595,7 +630,8 @@ mod tests {
 
     #[test]
     fn test_username_value_user1() {
-        let bytes = hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
+        let bytes =
+            hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("user1"));
     }
@@ -616,7 +652,9 @@ mod tests {
 
     #[test]
     fn test_username_unicode() {
-        let bytes = hex_to_bytes("10 17 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 06 C3 B1 C3 A1 C3 A9");
+        let bytes = hex_to_bytes(
+            "10 17 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 06 C3 B1 C3 A1 C3 A9",
+        );
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().unwrap().as_str(), "ñáé");
     }
@@ -627,12 +665,17 @@ mod tests {
     fn test_password_value_pass1() {
         let bytes = hex_to_bytes("10 1D 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 05 70 61 73 73 31");
         let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.password.as_ref().map(|p| p.as_slice()), Some(b"pass1".as_ref()));
+        assert_eq!(
+            packet.password.as_ref().map(|p| p.as_slice()),
+            Some(b"pass1".as_ref())
+        );
     }
 
     #[test]
     fn test_password_empty() {
-        let bytes = hex_to_bytes("10 18 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 00");
+        let bytes = hex_to_bytes(
+            "10 18 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 00",
+        );
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.password.as_ref().unwrap().len(), 0);
     }
@@ -648,7 +691,10 @@ mod tests {
     fn test_password_binary_data() {
         let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 08 00 01 FF FE 00 FF 01 02");
         let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.password.as_ref().unwrap().as_slice(), &[0x00, 0x01, 0xFF, 0xFE, 0x00, 0xFF, 0x01, 0x02]);
+        assert_eq!(
+            packet.password.as_ref().unwrap().as_slice(),
+            &[0x00, 0x01, 0xFF, 0xFE, 0x00, 0xFF, 0x01, 0x02]
+        );
     }
 
     // ===== REMAINING LENGTH FIELD TESTS =====

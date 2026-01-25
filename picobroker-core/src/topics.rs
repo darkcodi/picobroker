@@ -2,8 +2,8 @@
 //!
 //! Manages topic subscriptions
 
-use crate::{BrokerError, ClientId, PacketEncodingError};
 use crate::protocol::{HeaplessString, HeaplessVec};
+use crate::{BrokerError, ClientId, PacketEncodingError};
 
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.
@@ -28,11 +28,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_N
     type Error = PacketEncodingError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let topic_str =
-            HeaplessString::try_from(value).map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
+        let topic_str = HeaplessString::try_from(value).map_err(|_| {
+            PacketEncodingError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: value.len(),
-            })?;
+            }
+        })?;
         Ok(TopicName(topic_str))
     }
 }

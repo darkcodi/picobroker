@@ -1,5 +1,5 @@
-use crate::{BrokerError, PacketEncodingError};
 use crate::protocol::{HeaplessString, HeaplessVec};
+use crate::{BrokerError, PacketEncodingError};
 
 const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -9,8 +9,7 @@ const MAX_CLIENT_ID_LENGTH: usize = 23;
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClientId(HeaplessString<MAX_CLIENT_ID_LENGTH>);
 
-impl From<HeaplessString<MAX_CLIENT_ID_LENGTH>> for ClientId
-{
+impl From<HeaplessString<MAX_CLIENT_ID_LENGTH>> for ClientId {
     fn from(value: HeaplessString<MAX_CLIENT_ID_LENGTH>) -> Self {
         ClientId(value)
     }
@@ -26,11 +25,12 @@ impl TryFrom<&str> for ClientId {
     type Error = PacketEncodingError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let client_id_str =
-            HeaplessString::try_from(value).map_err(|_| PacketEncodingError::ClientIdLengthExceeded {
+        let client_id_str = HeaplessString::try_from(value).map_err(|_| {
+            PacketEncodingError::ClientIdLengthExceeded {
                 max_length: MAX_CLIENT_ID_LENGTH,
                 actual_length: value.len(),
-            })?;
+            }
+        })?;
         Ok(ClientId(client_id_str))
     }
 }
@@ -43,15 +43,13 @@ impl core::ops::Deref for ClientId {
     }
 }
 
-impl core::ops::DerefMut for ClientId
-{
+impl core::ops::DerefMut for ClientId {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl core::fmt::Display for ClientId
-{
+impl core::fmt::Display for ClientId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
     }
@@ -80,11 +78,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(
-        id: ClientId,
-        keep_alive_secs: u16,
-        current_time: u64,
-    ) -> Self {
+    pub fn new(id: ClientId, keep_alive_secs: u16, current_time: u64) -> Self {
         Self {
             id,
             keep_alive_secs,
@@ -115,8 +109,7 @@ pub struct ClientRegistry<const MAX_CLIENTS: usize> {
     clients: HeaplessVec<Option<Client>, MAX_CLIENTS>,
 }
 
-impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
-{
+impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS> {
     /// Create a new client registry
     pub fn new() -> Self {
         Self {
@@ -165,11 +158,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     }
 
     /// Update client activity timestamp
-    pub fn update_activity(
-        &mut self,
-        id: &ClientId,
-        current_time: u64,
-    ) -> bool {
+    pub fn update_activity(&mut self, id: &ClientId, current_time: u64) -> bool {
         if let Some(index) = self.find_index(id) {
             if let Some(Some(client)) = self.clients.get_mut(index) {
                 client.update_activity(current_time);
@@ -180,10 +169,7 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
     }
 
     /// Get list of expired clients
-    pub fn get_expired_clients(
-        &self,
-        current_time: u64,
-    ) -> HeaplessVec<ClientId, MAX_CLIENTS> {
+    pub fn get_expired_clients(&self, current_time: u64) -> HeaplessVec<ClientId, MAX_CLIENTS> {
         let mut expired = HeaplessVec::new();
         for client in self.clients.iter().flatten() {
             if client.is_expired(current_time) {

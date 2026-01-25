@@ -1,4 +1,6 @@
-use crate::protocol::packets::{PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst};
+use crate::protocol::packets::{
+    PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
+};
 use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -35,9 +37,9 @@ impl PacketEncoder for PingReqPacket {
 
 #[cfg(test)]
 mod tests {
-    use core::mem::size_of;
-    use crate::PingReqPacket;
     use super::*;
+    use crate::PingReqPacket;
+    use core::mem::size_of;
 
     const MAX_PAYLOAD_SIZE: usize = 128;
 
@@ -64,4 +66,3 @@ mod tests {
         packet
     }
 }
-

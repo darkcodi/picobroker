@@ -1,8 +1,8 @@
+use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeConst};
 use crate::protocol::qos::QoS;
 use crate::{PacketEncodingError, TopicName};
-use crate::protocol::heapless::{HeaplessVec, HeaplessString};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct PublishFlags {
@@ -42,21 +42,28 @@ pub struct PublishPacket<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_S
     pub retain: bool,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketTypeConst
+    for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     const PACKET_TYPE: PacketType = PacketType::Publish;
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFlagsDynamic
+    for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn flags(&self) -> u8 {
         PublishFlags {
             dup: self.dup,
             qos: self.qos,
             retain: self.retain,
-        }.publish_header_byte()
+        }
+        .publish_header_byte()
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder
+    for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
 
@@ -71,17 +78,21 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 2. Write header byte (type + flags)
         if offset >= buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size: buffer.len(),
+            });
         }
         buffer[offset] = PublishFlags {
             dup: self.dup,
             qos: self.qos,
             retain: self.retain,
-        }.publish_header_byte();
+        }
+        .publish_header_byte();
         offset += 1;
 
         // 3. Write variable length encoding
-        let var_len_bytes = crate::protocol::utils::write_variable_length(remaining_length, &mut buffer[offset..])?;
+        let var_len_bytes =
+            crate::protocol::utils::write_variable_length(remaining_length, &mut buffer[offset..])?;
         offset += var_len_bytes;
 
         // 4. Write topic name
@@ -90,7 +101,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 5. Write packet ID if QoS > 0
         if self.qos != QoS::AtMostOnce {
             if offset + 2 > buffer.len() {
-                return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
+                return Err(PacketEncodingError::BufferTooSmall {
+                    buffer_size: buffer.len(),
+                });
             }
             let pid = self.packet_id.ok_or(PacketEncodingError::MissingPacketId)?;
             let pid_bytes = pid.to_be_bytes();
@@ -101,7 +114,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 6. Write payload
         if offset + self.payload.len() > buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
+            return Err(PacketEncodingError::BufferTooSmall {
+                buffer_size: buffer.len(),
+            });
         }
         buffer[offset..offset + self.payload.len()].copy_from_slice(&self.payload);
         offset += self.payload.len();
@@ -114,7 +129,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 1. Validate packet type
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket { buffer_size: bytes.len() });
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let header_byte = bytes[offset];
         offset += 1;
@@ -128,7 +145,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         let publish_flags = PublishFlags::from_nibble(flags_nibble)?;
 
         // 3. Read remaining length
-        let (remaining_length, var_len_bytes) = crate::protocol::utils::read_variable_length(&bytes[offset..])?;
+        let (remaining_length, var_len_bytes) =
+            crate::protocol::utils::read_variable_length(&bytes[offset..])?;
         offset += var_len_bytes;
 
         // Track remaining bytes for validation
@@ -149,7 +167,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 5. Read packet ID if QoS > 0
         let packet_id = if publish_flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
-                return Err(PacketEncodingError::IncompletePacket { buffer_size: bytes.len() });
+                return Err(PacketEncodingError::IncompletePacket {
+                    buffer_size: bytes.len(),
+                });
             }
             let pid = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
             if pid == 0 {
@@ -164,13 +184,17 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 6. Read payload
         let payload_end = start_offset + remaining_length;
         if payload_end > bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket { buffer_size: bytes.len() });
+            return Err(PacketEncodingError::IncompletePacket {
+                buffer_size: bytes.len(),
+            });
         }
         let payload_bytes = &bytes[offset..payload_end];
         let mut payload = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
-        payload.extend_from_slice(payload_bytes).map_err(|_| PacketEncodingError::PayloadTooLarge {
-            max_size: MAX_PAYLOAD_SIZE,
-            actual_size: payload_bytes.len(),
+        payload.extend_from_slice(payload_bytes).map_err(|_| {
+            PacketEncodingError::PayloadTooLarge {
+                max_size: MAX_PAYLOAD_SIZE,
+                actual_size: payload_bytes.len(),
+            }
         })?;
 
         // 7. Validate remaining length matched actual data
@@ -204,11 +228,19 @@ mod tests {
 
     fn roundtrip_test(bytes: &[u8]) -> PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         let result = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
-        assert!(result.is_ok(), "Failed to decode packet: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to decode packet: {:?}",
+            result.err()
+        );
         let packet = result.unwrap();
         let mut buffer = [0u8; 256];
         let encode_result = packet.encode(&mut buffer);
-        assert!(encode_result.is_ok(), "Failed to encode packet: {:?}", encode_result.err());
+        assert!(
+            encode_result.is_ok(),
+            "Failed to encode packet: {:?}",
+            encode_result.err()
+        );
         let encoded_size = encode_result.unwrap();
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
@@ -235,8 +267,8 @@ mod tests {
         // QoS 0, topic="sensor/temp" (11 bytes), payload="hello" (5 bytes)
         // remaining length = 2 (topic len) + 11 (topic) + 5 (payload) = 18
         let bytes: &[u8] = &[
-            0x30,       // QoS 0
-            0x12,       // remaining length = 18
+            0x30, // QoS 0
+            0x12, // remaining length = 18
             0x00, 0x0B, // topic length = 11
             // topic "sensor/temp"
             0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x2F, 0x74, 0x65, 0x6D, 0x70,
@@ -304,7 +336,10 @@ mod tests {
     #[test]
     fn test_topic_simple() {
         // topic "sensors/temp" (12 bytes), remaining length = 2 + 12 = 14
-        let bytes = [0x30, 0x0E, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65, 0x6D, 0x70];
+        let bytes = [
+            0x30, 0x0E, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65,
+            0x6D, 0x70,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_name.as_str(), "sensors/temp");
     }
@@ -316,9 +351,8 @@ mod tests {
             0x30, 0x17, // header: type + remaining length = 23
             0x00, 0x15, // topic length = 21
             // "home/livingroom/light"
-            0x68, 0x6F, 0x6D, 0x65, 0x2F, 0x6C, 0x69, 0x76, 0x69, 0x6E,
-            0x67, 0x72, 0x6F, 0x6F, 0x6D, 0x2F, 0x6C, 0x69, 0x67, 0x68,
-            0x74
+            0x68, 0x6F, 0x6D, 0x65, 0x2F, 0x6C, 0x69, 0x76, 0x69, 0x6E, 0x67, 0x72, 0x6F, 0x6F,
+            0x6D, 0x2F, 0x6C, 0x69, 0x67, 0x68, 0x74,
         ];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.topic_name.as_str(), "home/livingroom/light");
@@ -330,7 +364,7 @@ mod tests {
         let bytes = [
             0x30, 0x08, // header
             0x00, 0x06, // topic length = 6
-            0xC3, 0xB1, 0xC3, 0xA1, 0xC3, 0xA9 // "ñáé"
+            0xC3, 0xB1, 0xC3, 0xA1, 0xC3, 0xA9, // "ñáé"
         ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_name.as_str(), "ñáé");
@@ -369,7 +403,7 @@ mod tests {
         bytes[2] = 0x00; // topic length MSB
         bytes[3] = 0x01; // topic length LSB
         bytes[4] = 0x61; // "a"
-        // payload "hello"
+                         // payload "hello"
         bytes[5] = b'h';
         bytes[6] = b'e';
         bytes[7] = b'l';
@@ -385,12 +419,12 @@ mod tests {
     fn test_payload_binary() {
         // topic "a" (1 byte), payload 5 bytes, remaining length = 2 + 1 + 5 = 8
         let bytes: &[u8] = &[
-            0x30,       // QoS 0
-            0x08,       // remaining length = 8
+            0x30, // QoS 0
+            0x08, // remaining length = 8
             0x00, 0x01, // topic length = 1
-            0x61,       // topic "a"
+            0x61, // topic "a"
             // binary payload: 0x00, 0x01, 0x02, 0xFF, 0xFE
-            0x00, 0x01, 0x02, 0xFF, 0xFE
+            0x00, 0x01, 0x02, 0xFF, 0xFE,
         ];
 
         let packet = roundtrip_test(bytes);
@@ -417,10 +451,8 @@ mod tests {
     #[test]
     fn test_example_b() {
         let bytes: &[u8] = &[
-            0x32, 0x14,
-            0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65, 0x6D, 0x70,
-            0x00, 0x0A,
-            0x32, 0x32, 0x2E, 0x35,
+            0x32, 0x14, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65,
+            0x6D, 0x70, 0x00, 0x0A, 0x32, 0x32, 0x2E, 0x35,
         ];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.qos, QoS::AtLeastOnce);
@@ -431,12 +463,7 @@ mod tests {
 
     #[test]
     fn test_example_c() {
-        let bytes: &[u8] = &[
-            0x35, 0x08,
-            0x00, 0x03, 0x61, 0x2F, 0x62,
-            0x12, 0x34,
-            0x58,
-        ];
+        let bytes: &[u8] = &[0x35, 0x08, 0x00, 0x03, 0x61, 0x2F, 0x62, 0x12, 0x34, 0x58];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.qos, QoS::ExactlyOnce);
         assert!(packet.retain);
@@ -447,11 +474,7 @@ mod tests {
 
     #[test]
     fn test_example_d() {
-        let bytes: &[u8] = &[
-            0x3A, 0x05,
-            0x00, 0x01, 0x74,
-            0x00, 0x01,
-        ];
+        let bytes: &[u8] = &[0x3A, 0x05, 0x00, 0x01, 0x74, 0x00, 0x01];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.qos, QoS::AtLeastOnce);
         assert!(packet.dup);

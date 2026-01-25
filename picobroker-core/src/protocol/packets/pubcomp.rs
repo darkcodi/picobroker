@@ -1,4 +1,6 @@
-use crate::protocol::packets::{PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst};
+use crate::protocol::packets::{
+    PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
+};
 use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]

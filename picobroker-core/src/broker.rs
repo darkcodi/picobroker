@@ -3,9 +3,9 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use crate::client::{ClientId, ClientRegistry};
-use crate::BrokerError;
 use crate::time::TimeSource;
 use crate::topics::TopicRegistry;
+use crate::BrokerError;
 
 /// MQTT broker (core sync logic)
 ///
@@ -38,14 +38,7 @@ impl<
         const MAX_CLIENTS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    >
-    PicoBroker<
-        T,
-        MAX_TOPIC_NAME_LENGTH,
-        MAX_CLIENTS,
-        MAX_TOPICS,
-        MAX_SUBSCRIBERS_PER_TOPIC,
-    >
+    > PicoBroker<T, MAX_TOPIC_NAME_LENGTH, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new MQTT broker with the given time source
     pub fn new(time_source: T) -> Self {
@@ -59,15 +52,9 @@ impl<
     /// Register a new client
     ///
     /// Returns the client ID that should be used for subsequent operations.
-    pub fn register_client(
-        &mut self,
-        id: ClientId,
-        keep_alive: u16,
-    ) -> Result<(), BrokerError> {
+    pub fn register_client(&mut self, id: ClientId, keep_alive: u16) -> Result<(), BrokerError> {
         let current_time = self.time_source.now_secs();
-        self
-            .clients
-            .register(id, keep_alive, current_time)?;
+        self.clients.register(id, keep_alive, current_time)?;
         Ok(())
     }
 

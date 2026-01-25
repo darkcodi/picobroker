@@ -1,7 +1,7 @@
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{read_string, write_string};
-use crate::{PacketEncodingError, PacketType, TopicName};
 use crate::protocol::HeaplessString;
+use crate::{PacketEncodingError, PacketType, TopicName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
@@ -9,15 +9,21 @@ pub struct UnsubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
     pub topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketTypeConst for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketTypeConst
+    for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>
+{
     const PACKET_TYPE: PacketType = PacketType::Unsubscribe;
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketFlagsConst for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketFlagsConst
+    for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>
+{
     const PACKET_FLAGS: u8 = 0b0010;
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
+    for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>
+{
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
         let mut offset = 0;
         if offset + 2 > buffer.len() {
@@ -54,11 +60,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for UnsubscribePacket<MAX
         }
         let topic_name = HeaplessString::try_from(topic_filter)
             .map(TopicName::new)
-            .map_err(|_| {
-                PacketEncodingError::TopicNameLengthExceeded {
-                    max_length: MAX_TOPIC_NAME_LENGTH,
-                    actual_length: topic_filter.len(),
-                }
+            .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
+                max_length: MAX_TOPIC_NAME_LENGTH,
+                actual_length: topic_filter.len(),
             })?;
         Ok(Self {
             packet_id,
@@ -78,11 +82,19 @@ mod tests {
 
     fn roundtrip_test(bytes: &[u8]) -> UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
         let result = UnsubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes);
-        assert!(result.is_ok(), "Failed to decode packet: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to decode packet: {:?}",
+            result.err()
+        );
         let packet = result.unwrap();
         let mut buffer = [0u8; 128];
         let encode_result = packet.encode(&mut buffer);
-        assert!(encode_result.is_ok(), "Failed to encode packet: {:?}", encode_result.err());
+        assert!(
+            encode_result.is_ok(),
+            "Failed to encode packet: {:?}",
+            encode_result.err()
+        );
         let encoded_size = encode_result.unwrap();
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
@@ -90,7 +102,9 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn decode_test(bytes: &[u8]) -> Result<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>, PacketEncodingError> {
+    fn decode_test(
+        bytes: &[u8],
+    ) -> Result<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>, PacketEncodingError> {
         UnsubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes)
     }
 
@@ -100,7 +114,10 @@ mod tests {
     fn test_unsubscribe_packet_struct_size() {
         // Should be 34 bytes: 2 for packet_id + 32 for topic_filter (HeaplessString with MAX_TOPIC_NAME_LENGTH=30)
         // HeaplessString<30> is 32 bytes (30 bytes array + 2 bytes for length)
-        assert_eq!(core::mem::size_of::<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>>(), 34);
+        assert_eq!(
+            core::mem::size_of::<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>>(),
+            34
+        );
     }
 
     // ===== PACKET ID FIELD TESTS =====
@@ -123,14 +140,20 @@ mod tests {
 
     #[test]
     fn test_topic_filter_simple() {
-        let bytes = [0x00, 0x01, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65, 0x6D, 0x70];
+        let bytes = [
+            0x00, 0x01, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65,
+            0x6D, 0x70,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_filter.as_str(), "sensors/temp");
     }
 
     #[test]
     fn test_topic_filter_multi_level() {
-        let bytes = [0x00, 0x01, 0x00, 0x15, 0x68, 0x6F, 0x6D, 0x65, 0x2F, 0x6C, 0x69, 0x76, 0x69, 0x6E, 0x67, 0x72, 0x6F, 0x6F, 0x6D, 0x2F, 0x6C, 0x69, 0x67, 0x68, 0x74];
+        let bytes = [
+            0x00, 0x01, 0x00, 0x15, 0x68, 0x6F, 0x6D, 0x65, 0x2F, 0x6C, 0x69, 0x76, 0x69, 0x6E,
+            0x67, 0x72, 0x6F, 0x6F, 0x6D, 0x2F, 0x6C, 0x69, 0x67, 0x68, 0x74,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_filter.as_str(), "home/livingroom/light");
     }
@@ -138,12 +161,17 @@ mod tests {
     #[test]
     fn test_topic_filter_with_wildcards() {
         // Single-level wildcard
-        let bytes = [0x00, 0x01, 0x00, 0x0E, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x2B, 0x2F, 0x74, 0x65, 0x6D, 0x70];
+        let bytes = [
+            0x00, 0x01, 0x00, 0x0E, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x2B, 0x2F,
+            0x74, 0x65, 0x6D, 0x70,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_filter.as_str(), "sensors/+/temp");
 
         // Multi-level wildcard
-        let bytes = [0x00, 0x01, 0x00, 0x09, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x23];
+        let bytes = [
+            0x00, 0x01, 0x00, 0x09, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x23,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_filter.as_str(), "sensors/#");
     }
@@ -209,7 +237,10 @@ mod tests {
     #[test]
     fn test_roundtrip_normal_packet() {
         // Normal packet: packet_id=1234, topic="sensors/temp"
-        let bytes = [0x12, 0x34, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65, 0x6D, 0x70];
+        let bytes = [
+            0x12, 0x34, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65,
+            0x6D, 0x70,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 0x1234);
         assert_eq!(packet.topic_filter.as_str(), "sensors/temp");
@@ -218,7 +249,10 @@ mod tests {
     #[test]
     fn test_roundtrip_max_packet_id() {
         // Max packet_id: packet_id=65535, topic="sensors/temp"
-        let bytes = [0xFF, 0xFF, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65, 0x6D, 0x70];
+        let bytes = [
+            0xFF, 0xFF, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65,
+            0x6D, 0x70,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 65535);
         assert_eq!(packet.topic_filter.as_str(), "sensors/temp");
@@ -236,7 +270,9 @@ mod tests {
     #[test]
     fn test_roundtrip_wildcard_packet() {
         // Wildcard packet: packet_id=500, topic="sensors/#"
-        let bytes = [0x01, 0xF4, 0x00, 0x09, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x23];
+        let bytes = [
+            0x01, 0xF4, 0x00, 0x09, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x23,
+        ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 500);
         assert_eq!(packet.topic_filter.as_str(), "sensors/#");

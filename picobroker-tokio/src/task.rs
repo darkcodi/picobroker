@@ -34,8 +34,7 @@ impl TaskSpawner for TokioTaskSpawner {
         F: core::future::Future<Output = O> + Send + 'static,
         O: Send + 'static,
     {
-        self._runtime
-            .spawn(future);
+        self._runtime.spawn(future);
         Ok(())
     }
 }
