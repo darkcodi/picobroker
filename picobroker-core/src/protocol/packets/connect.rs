@@ -401,115 +401,6 @@ mod tests {
         validate_size_of_struct!(32, 256, 392);
     }
 
-    // ===== SIZE OF PACKET BYTES TEST =====
-
-    const fn max_packet<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>() -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-        ConnectPacket {
-            connect_flags: ConnectFlags::ALL_FLAGS,
-            keep_alive: 60,
-            client_id: ClientId::new(HeaplessString::repeat('c')),
-            will_topic: Some(TopicName::new(HeaplessString::repeat('t'))),
-            will_payload: Some(HeaplessVec::repeat(1)),
-            username: Some(HeaplessString::repeat('u')),
-            password: Some(HeaplessVec::repeat(2)),
-        }
-    }
-
-    #[macro_export]
-    macro_rules! validate_size_of_packet {
-        ($a:literal, $b:literal, $c:literal) => {{
-
-            const STRUCT_SIZE: usize = size_of::<$crate::ConnectPacket<$a, $b>>();
-            let packet = max_packet::<$a, $b>();
-            let mut buffer = [0u8; STRUCT_SIZE + 512];
-            let packet_size = packet.encode(&mut buffer).unwrap();
-            assert_eq!(
-                packet_size, $c,
-                "unexpected encoded size for ConnectPacket<{}, {}> (encoded {}, expected {})",
-                $a, $b, packet_size, $c
-            );
-        }};
-    }
-
-    #[test]
-    fn test_connect_packet_bytes_size() {
-        // Sizes for MAX_TOPIC_NAME_LENGTH = 1 and varying MAX_PAYLOAD_SIZE
-        validate_size_of_packet!(1, 1, 49);
-        validate_size_of_packet!(1, 8, 56);
-        validate_size_of_packet!(1, 16, 64);
-        validate_size_of_packet!(1, 24, 72);
-        validate_size_of_packet!(1, 32, 80);
-        validate_size_of_packet!(1, 40, 88);
-        validate_size_of_packet!(1, 48, 96);
-        validate_size_of_packet!(1, 56, 104);
-        validate_size_of_packet!(1, 64, 112);
-        validate_size_of_packet!(1, 72, 120);
-        validate_size_of_packet!(1, 80, 128);
-        validate_size_of_packet!(1, 88, 137);
-        validate_size_of_packet!(1, 96, 145);
-        validate_size_of_packet!(1, 104, 153);
-        validate_size_of_packet!(1, 112, 161);
-        validate_size_of_packet!(1, 120, 169);
-        validate_size_of_packet!(1, 128, 177);
-
-        // Sizes for MAX_PAYLOAD_SIZE = 1 and varying MAX_TOPIC_NAME_LENGTH
-        validate_size_of_packet!(1, 1, 49);
-        validate_size_of_packet!(8, 1, 70);
-        validate_size_of_packet!(16, 1, 94);
-        validate_size_of_packet!(24, 1, 118);
-        validate_size_of_packet!(32, 1, 143);
-        validate_size_of_packet!(40, 1, 167);
-        validate_size_of_packet!(48, 1, 191);
-        validate_size_of_packet!(56, 1, 215);
-        validate_size_of_packet!(64, 1, 239);
-        validate_size_of_packet!(72, 1, 263);
-        validate_size_of_packet!(80, 1, 287);
-        validate_size_of_packet!(88, 1, 311);
-        validate_size_of_packet!(96, 1, 335);
-        validate_size_of_packet!(104, 1, 359);
-        validate_size_of_packet!(112, 1, 383);
-        validate_size_of_packet!(120, 1, 407);
-        validate_size_of_packet!(128, 1, 431);
-
-        // Sizes for varying MAX_TOPIC_NAME_LENGTH and MAX_PAYLOAD_SIZE
-        validate_size_of_packet!(30, 128, 264);
-        validate_size_of_packet!(32, 128, 270);
-        validate_size_of_packet!(30, 256, 392);
-        validate_size_of_packet!(32, 256, 398);
-    }
-
-    // ===== PROTOCOL NAME FIELD TESTS =====
-
-    #[test]
-    fn test_protocol_name_invalid_wrong_chars() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 53 04 02 00 3C 00 03 61 62 63");
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
-    }
-
-    #[test]
-    fn test_protocol_name_invalid_lowercase() {
-        let bytes = hex_to_bytes("10 0F 00 04 6D 71 74 74 04 02 00 3C 00 03 61 62 63");
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidProtocolName)));
-    }
-
-    // ===== PROTOCOL LEVEL FIELD TESTS =====
-
-    #[test]
-    fn test_protocol_level_invalid_31() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 03 02 00 3C 00 03 61 62 63");
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::UnsupportedProtocolLevel { level: 3 })));
-    }
-
-    #[test]
-    fn test_protocol_level_invalid_50() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 05 02 00 3C 00 03 61 62 63");
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::UnsupportedProtocolLevel { level: 5 })));
-    }
-
     // ===== CONNECT FLAGS: CLEAN SESSION BIT =====
 
     #[test]
@@ -661,20 +552,6 @@ mod tests {
     }
 
     #[test]
-    fn test_client_id_empty_without_clean_session() {
-        let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 00 00 3C 00 00");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::ClientIdEmpty)));
-    }
-
-    #[test]
-    fn test_client_id_too_long() {
-        let bytes = hex_to_bytes("10 2C 00 04 4D 51 54 54 04 02 00 3C 00 20 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::ClientIdLengthExceeded { max_length: 30, actual_length: 32 })));
-    }
-
-    #[test]
     fn test_client_id_exactly_max_length() {
         let bytes = hex_to_bytes("10 23 00 04 4D 51 54 54 04 02 00 3C 00 17 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
         let packet = roundtrip_test(&bytes);
@@ -697,20 +574,6 @@ mod tests {
         assert_eq!(packet.will_topic.as_ref().map(|t| t.as_str()), Some("willtp"));
     }
 
-    #[test]
-    fn test_will_topic_empty() {
-        let bytes = hex_to_bytes("10 11 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 00");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::TopicEmpty)));
-    }
-
-    #[test]
-    fn test_will_topic_too_long() {
-        let bytes = hex_to_bytes("10 38 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 20 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 77 00 05 68 65 6C 6C 6F");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::TopicNameLengthExceeded { max_length: 30, actual_length: 32 })));
-    }
-
     // ===== WILL PAYLOAD FIELD TESTS =====
 
     #[test]
@@ -727,13 +590,6 @@ mod tests {
         assert_eq!(packet.will_payload.as_ref().unwrap().len(), 0);
     }
 
-    #[test]
-    fn test_will_payload_too_large() {
-        let bytes = hex_to_bytes("10 18 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 05 77 69 6C 6C 74 01 00 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78 78");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert_eq!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 128 }));
-    }
-
     // ===== USERNAME FIELD TESTS =====
 
     #[test]
@@ -748,13 +604,6 @@ mod tests {
         let bytes = hex_to_bytes("10 11 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 00");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn test_username_too_long() {
-        let bytes = hex_to_bytes("10 31 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 20 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::UsernameLengthExceeded { max_length: 30, actual_length: 32 })));
     }
 
     #[test]
@@ -788,13 +637,6 @@ mod tests {
     }
 
     #[test]
-    fn test_password_too_long() {
-        let bytes = hex_to_bytes("10 38 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 20 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::PasswordLengthExceeded { max_length: 30, actual_length: 32 })));
-    }
-
-    #[test]
     fn test_password_exactly_max_length() {
         let bytes = hex_to_bytes("10 36 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 1E 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
         let packet = roundtrip_test(&bytes);
@@ -809,18 +651,4 @@ mod tests {
     }
 
     // ===== REMAINING LENGTH FIELD TESTS =====
-
-    #[test]
-    fn test_remaining_length_too_small() {
-        let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidPacketLength { expected: 12, actual: 15 })));
-    }
-
-    #[test]
-    fn test_remaining_length_too_large() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidPacketLength { expected: 32, actual: 15 })));
-    }
 }

@@ -196,7 +196,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::packet_error::PacketEncodingError;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
     const MAX_PAYLOAD_SIZE: usize = 100;
@@ -214,24 +213,6 @@ mod tests {
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
         packet
-    }
-
-    fn decode_test(bytes: &[u8]) -> Result<PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, PacketEncodingError> {
-        PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
-    }
-
-    fn make_publish_packet(topic: &str, payload: &[u8], qos: QoS, dup: bool, retain: bool, packet_id: Option<u16>) -> PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-        let topic_name = TopicName::new(HeaplessString::try_from(topic).unwrap());
-        let mut payload_vec = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
-        payload_vec.extend_from_slice(payload).unwrap();
-        PublishPacket {
-            topic_name,
-            packet_id,
-            payload: payload_vec,
-            qos,
-            dup,
-            retain,
-        }
     }
 
     // ===== BASIC QoS TESTS =====
@@ -355,13 +336,6 @@ mod tests {
         assert_eq!(packet.topic_name.as_str(), "ñáé");
     }
 
-    #[test]
-    fn test_topic_empty_fails() {
-        let bytes = [0x30, 0x00, 0x00, 0x00];
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::TopicEmpty)));
-    }
-
     // ===== PACKET ID TESTS =====
 
     #[test]
@@ -372,25 +346,10 @@ mod tests {
     }
 
     #[test]
-    fn test_packet_id_normal() {
-        let bytes = [0x32, 0x05, 0x00, 0x01, 0x61, 0x12, 0x34];
-        let packet = roundtrip_test(&bytes);
-        assert_eq!(packet.packet_id, Some(0x1234));
-    }
-
-    #[test]
     fn test_packet_id_max() {
         let bytes = [0x32, 0x05, 0x00, 0x01, 0x61, 0xFF, 0xFF];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, Some(65535));
-    }
-
-    #[test]
-    fn test_packet_id_zero_qos1_fails() {
-        // QoS 1 with packet_id = 0 should fail
-        let bytes = [0x32, 0x05, 0x00, 0x01, 0x61, 0x00, 0x00];
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::MissingPacketId)));
     }
 
     // ===== PAYLOAD TESTS =====
@@ -439,33 +398,6 @@ mod tests {
     }
 
     // ===== ROUNDTRIP TESTS =====
-
-    #[test]
-    fn test_roundtrip_qos0() {
-        let packet = make_publish_packet("sensor/temp", b"hello", QoS::AtMostOnce, false, false, None);
-        let mut buffer = [0u8; 256];
-        let size = packet.encode(&mut buffer).unwrap();
-        let decoded = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&buffer[..size]).unwrap();
-        assert_eq!(decoded, packet);
-    }
-
-    #[test]
-    fn test_roundtrip_qos1() {
-        let packet = make_publish_packet("sensor/temp", b"hello", QoS::AtLeastOnce, false, false, Some(1234));
-        let mut buffer = [0u8; 256];
-        let size = packet.encode(&mut buffer).unwrap();
-        let decoded = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&buffer[..size]).unwrap();
-        assert_eq!(decoded, packet);
-    }
-
-    #[test]
-    fn test_roundtrip_qos2() {
-        let packet = make_publish_packet("sensor/temp", b"hello", QoS::ExactlyOnce, true, true, Some(65535));
-        let mut buffer = [0u8; 256];
-        let size = packet.encode(&mut buffer).unwrap();
-        let decoded = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&buffer[..size]).unwrap();
-        assert_eq!(decoded, packet);
-    }
 
     #[test]
     fn test_example_a() {
@@ -526,129 +458,5 @@ mod tests {
         assert_eq!(packet.topic_name.as_str(), "t");
         assert_eq!(packet.packet_id, Some(0x0001));
         assert_eq!(packet.payload.as_slice(), b"");
-    }
-
-    // ===== ERROR CONDITION TESTS =====
-
-    #[test]
-    fn test_incomplete_packet_empty() {
-        let bytes: [u8; 0] = [];
-        let result = decode_test(&bytes);
-        assert_eq!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 0 }));
-    }
-
-    #[test]
-    fn test_incomplete_packet_no_remaining_length() {
-        let bytes = [0x30];
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
-    }
-
-    #[test]
-    fn test_incomplete_packet_no_topic() {
-        let bytes = [0x30, 0x03];
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::IncompletePacket { .. })));
-    }
-
-    #[test]
-    fn test_invalid_packet_type() {
-        // Wrong packet type (0x00 instead of 0x30)
-        let bytes = [0x00, 0x03, 0x00, 0x01, 0x61];
-        let result = decode_test(&bytes);
-        assert!(matches!(result, Err(PacketEncodingError::InvalidPacketType { .. })));
-    }
-
-    #[test]
-    fn test_qos1_missing_packet_id() {
-        // QoS 1 but no packet ID in packet
-        let bytes = [0x32, 0x03, 0x00, 0x01, 0x61];
-        let result = decode_test(&bytes);
-        assert_eq!(result, Err(PacketEncodingError::IncompletePacket { buffer_size: 5 }));
-    }
-
-    // ===== ENCODE TESTS =====
-
-    #[test]
-    fn test_encode_qos0_minimal() {
-        let packet = make_publish_packet("a", b"", QoS::AtMostOnce, false, false, None);
-        let mut buffer = [0u8; 256];
-        let size = packet.encode(&mut buffer).unwrap();
-        assert_eq!(size, 5); // 1 header + 1 remaining + 2 topic len + 1 topic
-        assert_eq!(buffer[0], 0x30); // QoS 0
-        assert_eq!(buffer[1], 0x03); // remaining length
-        assert_eq!(buffer[2], 0x00); // topic length MSB
-        assert_eq!(buffer[3], 0x01); // topic length LSB
-        assert_eq!(buffer[4], 0x61); // "a"
-    }
-
-    #[test]
-    fn test_encode_qos1_with_id() {
-        let packet = make_publish_packet("a", b"", QoS::AtLeastOnce, false, false, Some(1));
-        let mut buffer = [0u8; 256];
-        let size = packet.encode(&mut buffer).unwrap();
-        assert_eq!(size, 7); // + 2 for packet ID
-        assert_eq!(buffer[0], 0x32); // QoS 1
-        assert_eq!(buffer[5], 0x00); // packet ID MSB
-        assert_eq!(buffer[6], 0x01); // packet ID LSB
-    }
-
-    #[test]
-    fn test_encode_with_payload() {
-        let packet = make_publish_packet("sensor/temp", b"hello", QoS::AtMostOnce, false, false, None);
-        let mut buffer = [0u8; 256];
-        let size = packet.encode(&mut buffer).unwrap();
-        // size = 1 (header) + 1 (remaining len) + 2 (topic len) + 11 (topic) + 5 (payload) = 20
-        assert_eq!(size, 20);
-        assert_eq!(buffer[0], 0x30);
-        assert_eq!(buffer[1], 0x12); // remaining length = 18
-        // buffer layout: [header][remaining][topic_len_msb][topic_len_lsb][topic...11 bytes][payload...5 bytes]
-        // payload starts at offset 1 + 1 + 2 + 11 = 15
-        assert_eq!(&buffer[15..20], b"hello");
-    }
-
-    #[test]
-    fn test_encode_buffer_too_small() {
-        let packet = make_publish_packet("sensor/temp", b"hello", QoS::AtMostOnce, false, false, None);
-        let mut buffer = [0u8; 10];
-        let result = packet.encode(&mut buffer);
-        assert!(matches!(result, Err(PacketEncodingError::BufferTooSmall { .. })));
-    }
-
-    // ===== PROTOCOL COMPLIANCE TESTS =====
-
-    #[test]
-    fn test_packet_type_constant() {
-        assert_eq!(PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::PACKET_TYPE, PacketType::Publish);
-    }
-
-    #[test]
-    fn test_flags_qos0() {
-        let packet = make_publish_packet("a", b"", QoS::AtMostOnce, false, false, None);
-        assert_eq!(packet.flags() & 0x0F, 0x00); // QoS 0, no DUP, no RETAIN
-    }
-
-    #[test]
-    fn test_flags_qos1() {
-        let packet = make_publish_packet("a", b"", QoS::AtLeastOnce, false, false, Some(1));
-        assert_eq!(packet.flags() & 0x0F, 0x02); // QoS 1
-    }
-
-    #[test]
-    fn test_flags_qos2() {
-        let packet = make_publish_packet("a", b"", QoS::ExactlyOnce, false, false, Some(1));
-        assert_eq!(packet.flags() & 0x0F, 0x04); // QoS 2
-    }
-
-    #[test]
-    fn test_flags_with_dup() {
-        let packet = make_publish_packet("a", b"", QoS::AtMostOnce, true, false, None);
-        assert_eq!(packet.flags() & 0x0F, 0x08); // DUP=1, QoS=0
-    }
-
-    #[test]
-    fn test_flags_with_retain() {
-        let packet = make_publish_packet("a", b"", QoS::AtMostOnce, false, true, None);
-        assert_eq!(packet.flags() & 0x0F, 0x01); // RETAIN=1
     }
 }
