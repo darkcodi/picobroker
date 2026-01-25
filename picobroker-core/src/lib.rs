@@ -63,6 +63,7 @@ pub use protocol::{
 };
 pub use traits::{TaskSpawnError, TaskSpawner};
 pub use traits::{TimeSource, Delay, Logger};
+pub use traits::{Sender, Receiver, SendError, TrySendError, TryRecvError};
 pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};
 pub use protocol::HeaplessString;
 pub use protocol::HeaplessVec;

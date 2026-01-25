@@ -83,114 +83,79 @@ impl<
         L: Clone + Send + 'static,
     {
         self.logger.info("Starting server main loop");
+
         loop {
             // 1. Try to accept a connection (non-blocking)
-            // Note: This returns immediately if no connection is pending
             if let Ok((mut stream, socket_addr)) = self.listener.try_accept().await {
                 self.logger.info(format_heapless!(128; "Received new connection from {}", socket_addr).as_str());
 
-                const KEEP_ALIVE_SECS: u16 = 60; // Default non-configurable keep-alive for new clients
+                const KEEP_ALIVE_SECS: u16 = 60;
                 let current_time = self.time_source.now_secs();
-                let maybe_session_id = self.broker.register_new_client(socket_addr, KEEP_ALIVE_SECS, current_time);
-                match maybe_session_id {
+
+                match self.broker.register_new_client(socket_addr, KEEP_ALIVE_SECS, current_time) {
                     Ok(session_id) => {
                         self.logger.info(format_heapless!(128; "Registered new client with session ID {}", session_id).as_str());
 
-                        // For now, we can't use SPSC queues with 'static task requirement
-                        // This is a known limitation - we'll need to store queues in the server struct
-                        // TODO: Implement proper queue storage in PicoBrokerServer to resolve lifetime issues
-                        self.logger.info("SPSC queues implemented but not yet integrated due to 'static lifetime requirement");
-
-                        // Spawn client handler task without queues for now
+                        // Spawn client handler task
                         let logger = self.logger.clone();
                         match self.spawner.spawn(async move {
-                            Self::client_handler_task(socket_addr, stream, logger).await;
+                            Self::client_handler_task(session_id, stream, logger).await;
                         }) {
                             Ok(_) => {
                                 self.logger.info(format_heapless!(128; "Spawned client handler task for client {}", session_id).as_str());
-                            },
-                            Err(task_spawn_error) => {
-                                self.logger.error(format_heapless!(128; "Failed to spawn client handler task: {}", task_spawn_error).as_str());
+                            }
+                            Err(e) => {
+                                self.logger.error(format_heapless!(128; "Failed to spawn client handler task: {}", e).as_str());
                             }
                         }
-                    },
+                    }
                     Err(e) => {
                         self.logger.error(format_heapless!(128; "Failed to register new client: {}", e).as_str());
-                        self.logger.error("Closing connection");
                         let _ = stream.close().await;
                     }
-                };
+                }
             }
 
-            // // 2. Process client messages (round-robin through all sessions)
-            // self.process_client_messages().await?;
-            //
-            // // 3. Check for expired clients (keep-alive timeout)
-            // self.process_expired_clients();
-
-            // 4. Small yield to prevent busy-waiting
+            // 2. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
         }
     }
 
-    async fn client_handler_task<S>(socket_addr: SocketAddr, mut stream: S, logger: L)
+    async fn client_handler_task<S>(session_id: usize, mut stream: S, logger: L)
     where
         S: TcpStream,
     {
-        logger.info(format_heapless!(128; "Client handler task started for {}", socket_addr).as_str());
+        logger.info(format_heapless!(128; "Client handler task started for session {}", session_id).as_str());
 
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
         let mut should_disconnect = false;
 
         loop {
             // === READ FROM NETWORK ===
-            // Try to read packet header
             match stream.read(&mut buffer[0..1]).await {
                 Ok(0) => {
                     // EOF - client disconnected gracefully
-                    logger.info(format_heapless!(128; "Client {} disconnected (EOF)", socket_addr).as_str());
+                    logger.info(format_heapless!(128; "Client {} disconnected (EOF)", session_id).as_str());
                     should_disconnect = true;
                 }
                 Ok(_) => {
                     // TODO: Parse and handle packet
+                    logger.debug(format_heapless!(128; "Client {} received data", session_id).as_str());
                 }
                 Err(_) => {
                     // Network error
-                    logger.info(format_heapless!(128; "Client {} network error reading packet header", socket_addr).as_str());
+                    logger.info(format_heapless!(128; "Client {} network error", session_id).as_str());
                     should_disconnect = true;
                 }
             }
 
-            // // === WRITE TO NETWORK ===
-            // // Write message to network
-            // if rx.ready() {
-            //     if let Some(msg) = rx.dequeue() {
-            //         match msg {
-            //             BrokerToClientMessage::SendPacket(packet) => {
-            //                 logger.info(format_heapless!(128; "Client {} sending packet: {}", socket_addr, &packet).as_str());
-            //                 if let Ok(len) = packet.encode(&mut buffer) {
-            //                     if stream.write(&buffer[..len]).await.is_err() {
-            //                         logger.info(format_heapless!(128; "Client {} write error", socket_addr).as_str());
-            //                         should_disconnect = true;
-            //                     }
-            //                 }
-            //             }
-            //             BrokerToClientMessage::Disconnect => {
-            //                 logger.info(format_heapless!(128; "Client {} received disconnect message", socket_addr).as_str());
-            //                 should_disconnect = true;
-            //             }
-            //         }
-            //     }
-            // }
-
             if should_disconnect {
-                // let _ = tx.enqueue(ClientToBrokerMessage::Disconnected);
                 break;
             }
         }
 
         let _ = stream.close().await;
-        logger.info(format_heapless!(128; "Client handler task terminating for {}", socket_addr).as_str());
+        logger.info(format_heapless!(128; "Client handler task terminating for session {}", session_id).as_str());
     }
 }
 

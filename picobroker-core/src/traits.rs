@@ -119,3 +119,40 @@ pub trait Delay {
     /// Async sleep for the specified duration in milliseconds
     fn sleep_ms<'a>(&'a self, millis: u64) -> impl core::future::Future<Output = ()> + Send + 'a;
 }
+
+/// Error types for channel operations
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendError<T> {
+    Full(T),
+    Closed(T),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TrySendError<T> {
+    Full(T),
+    Closed(T),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TryRecvError {
+    Empty,
+    Closed,
+}
+
+/// Async channel sender trait
+pub trait Sender<T>: Send + 'static {
+    /// Check if channel is closed
+    fn is_closed(&self) -> bool;
+
+    /// Close the channel
+    fn close(&self);
+
+    /// Try to send without blocking
+    fn try_send(&self, msg: T) -> Result<(), TrySendError<T>>;
+}
+
+/// Async channel receiver trait
+pub trait Receiver<T>: Send + 'static {
+    /// Try to receive without blocking
+    fn try_recv(&mut self) -> Result<T, TryRecvError>;
+}
