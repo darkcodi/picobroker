@@ -1,4 +1,4 @@
-use crate::{BrokerError, Delay, Logger, Packet, PicoBroker, SocketAddr, TaskSpawner, TcpListener, TcpStream, TimeSource};
+use crate::{BrokerError, Delay, Logger, Packet, PacketEncoder, PicoBroker, SocketAddr, TaskSpawner, TcpListener, TcpStream, TimeSource};
 use crate::format_heapless;
 
 /// MQTT Broker Server
@@ -96,12 +96,13 @@ impl<
                     Ok(session_id) => {
                         self.logger.info(format_heapless!(128; "Registered new client with session ID {}", session_id).as_str());
 
-                        // For now, we can't use SPSC queues with 'static task requirement
-                        // This is a known limitation - we'll need to store queues in the server struct
-                        // TODO: Implement proper queue storage in PicoBrokerServer to resolve lifetime issues
-                        self.logger.info("SPSC queues implemented but not yet integrated due to 'static lifetime requirement");
+                        // let mut client_to_broker_queue: heapless::spsc::Queue<ClientToBrokerMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE> = heapless::spsc::Queue::new();
+                        // let mut broker_to_client_queue: heapless::spsc::Queue<BrokerToClientMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, QUEUE_SIZE> = heapless::spsc::Queue::new();
+                        // let (client_tx, broker_rx) = client_to_broker_queue.split();
+                        // let (broker_tx, client_rx) = broker_to_client_queue.split();
 
-                        // Spawn client handler task without queues for now
+                        // Spawn client handler task
+                        // Note: We move the stream into the task
                         let logger = self.logger.clone();
                         match self.spawner.spawn(async move {
                             Self::client_handler_task(socket_addr, stream, logger).await;
@@ -133,7 +134,7 @@ impl<
         }
     }
 
-    async fn client_handler_task<S>(socket_addr: SocketAddr, mut stream: S, logger: L)
+    async fn client_handler_task<'rx, 'tx, S>(socket_addr: SocketAddr, mut stream: S, logger: L)
     where
         S: TcpStream,
     {
@@ -152,7 +153,7 @@ impl<
                     should_disconnect = true;
                 }
                 Ok(_) => {
-                    // TODO: Parse and handle packet
+                    
                 }
                 Err(_) => {
                     // Network error
@@ -199,25 +200,7 @@ enum ClientToBrokerMessage<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD
     Disconnected,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display for ClientToBrokerMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            ClientToBrokerMessage::ReceivedPacket(packet) => write!(f, "ReceivedPacket: {:?}", packet),
-            ClientToBrokerMessage::Disconnected => write!(f, "Disconnected"),
-        }
-    }
-}
-
 enum BrokerToClientMessage<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> {
     SendPacket(Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>),
     Disconnect,
-}
-
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display for BrokerToClientMessage<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            BrokerToClientMessage::SendPacket(packet) => write!(f, "SendPacket: {:?}", packet),
-            BrokerToClientMessage::Disconnect => write!(f, "Disconnect"),
-        }
-    }
 }
