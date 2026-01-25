@@ -36,7 +36,7 @@ mod server;
 pub use broker::PicoBroker;
 pub use server::PicoBrokerServer;
 pub use broker_error::BrokerError;
-pub use client::{ClientId, ClientRegistry};
+pub use client::ClientId;
 pub use traits::{TcpListener, TcpStream, SocketAddr, NetworkError};
 pub use protocol::ConnAckPacket;
 pub use protocol::ConnectPacket;

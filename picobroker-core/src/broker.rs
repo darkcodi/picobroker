@@ -2,8 +2,6 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
-use crate::client::{ClientRegistry};
-use crate::{BrokerError, SocketAddr};
 use crate::topics::TopicRegistry;
 
 /// MQTT broker (core logic)
@@ -28,8 +26,7 @@ pub struct PicoBroker<
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
-    clients: ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS>,
-    topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
+    pub topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
 impl<
@@ -44,14 +41,7 @@ impl<
     /// Create a new MQTT broker with the given time source
     pub fn new() -> Self {
         Self {
-            clients: ClientRegistry::new(),
             topics: TopicRegistry::new(),
         }
-    }
-
-    /// Register a new client with the broker
-    pub fn register_new_client(&mut self, socket_addr: SocketAddr, keep_alive_secs: u16, current_time: u64) -> Result<usize, BrokerError> {
-        let session_id = self.clients.register_new_client(socket_addr, keep_alive_secs, current_time)?;
-        Ok(session_id)
     }
 }
