@@ -29,33 +29,19 @@ impl TokioTcpStream {
 }
 
 impl TcpStream for TokioTcpStream {
-    fn read<'a, 'b>(
-        &'a mut self,
-        buf: &'b mut [u8],
-    ) -> impl core::future::Future<Output = Result<usize, BrokerError>> + 'a
-    where
-        'b: 'a,
-    {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, BrokerError> {
         use tokio::io::AsyncReadExt;
-        async move { self.inner.read(buf).await.map_err(|_| BrokerError::IoError) }
+        self.inner.read(buf).await.map_err(|_| BrokerError::IoError)
     }
 
-    fn write<'a, 'b>(
-        &'a mut self,
-        buf: &'b [u8],
-    ) -> impl core::future::Future<Output = Result<usize, BrokerError>> + 'a
-    where
-        'b: 'a,
-    {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, BrokerError> {
         use tokio::io::AsyncWriteExt;
-        async move { self.inner.write(buf).await.map_err(|_| BrokerError::IoError) }
+        self.inner.write(buf).await.map_err(|_| BrokerError::IoError)
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> impl core::future::Future<Output = Result<(), BrokerError>> + 'a {
+    async fn close(&mut self) -> Result<(), BrokerError> {
         use tokio::io::AsyncWriteExt;
-        async move { self.inner.shutdown().await.map_err(|_| BrokerError::IoError) }
+        self.inner.shutdown().await.map_err(|_| BrokerError::IoError)
     }
 }
 
@@ -80,23 +66,19 @@ impl TokioTcpListener {
 impl TcpListener for TokioTcpListener {
     type Stream = TokioTcpStream;
 
-    fn accept<'a>(
-        &'a mut self,
-    ) -> impl core::future::Future<Output = Result<(Self::Stream, SocketAddr), BrokerError>> + 'a {
-        async move {
-            let (stream, addr) = self.inner.accept().await.map_err(|_| BrokerError::AcceptConnectionError)?;
+    async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr), BrokerError> {
+        let (stream, addr) = self.inner.accept().await.map_err(|_| BrokerError::AcceptConnectionError)?;
 
-            let socket_addr = SocketAddr {
-                ip: match addr.ip() {
-                    std::net::IpAddr::V4(ipv4) => ipv4.octets(),
-                    std::net::IpAddr::V6(_) => [0, 0, 0, 0], // Ignore IPv6 for embedded
-                },
-                port: addr.port(),
-            };
+        let socket_addr = SocketAddr {
+            ip: match addr.ip() {
+                std::net::IpAddr::V4(ipv4) => ipv4.octets(),
+                std::net::IpAddr::V6(_) => [0, 0, 0, 0], // Ignore IPv6 for embedded
+            },
+            port: addr.port(),
+        };
 
-            let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
+        let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
 
-            Ok((tokio_stream, socket_addr))
-        }
+        Ok((tokio_stream, socket_addr))
     }
 }

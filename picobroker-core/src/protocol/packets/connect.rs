@@ -186,7 +186,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             return Err(PacketEncodingError::ClientIdEmpty);
         }
         let client_id = HeaplessString::try_from(client_id)
-            .map(|s| ClientId::from(s))
+            .map(ClientId::from)
             .map_err(|_| {
                 PacketEncodingError::ClientIdLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
@@ -204,7 +204,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                 return Err(PacketEncodingError::TopicEmpty);
             }
             will_topic = Some(HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
-                .map(|s| TopicName::new(s))
+                .map(TopicName::new)
                 .map_err(|_| {
                     PacketEncodingError::TopicNameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
@@ -300,7 +300,7 @@ mod tests {
     }
 
     fn roundtrip_test(bytes: &[u8]) -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
+        let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
         if let Err(ref e) = result {
             panic!("Failed to decode packet: {:?}", e);
         }
@@ -315,6 +315,7 @@ mod tests {
         packet
     }
 
+    #[allow(dead_code)]
     fn decode_test(bytes: &[u8]) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, PacketEncodingError> {
         ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
     }

@@ -56,7 +56,7 @@ mod tests {
     // ===== HELPER FUNCTIONS =====
 
     fn roundtrip_test(bytes: &[u8]) -> SubAckPacket {
-        let result = SubAckPacket::decode(&bytes);
+        let result = SubAckPacket::decode(bytes);
         assert!(result.is_ok(), "Failed to decode packet: {:?}", result.err());
         let packet = result.unwrap();
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
@@ -68,6 +68,7 @@ mod tests {
         packet
     }
 
+    #[allow(dead_code)]
     fn decode_test(bytes: &[u8]) -> Result<SubAckPacket, PacketEncodingError> {
         SubAckPacket::decode(bytes)
     }

@@ -300,7 +300,7 @@ impl<
         let mut removed_count = 0;
 
         // Remove client from all topics
-        for mut entry in &mut self.topics {
+        for entry in &mut self.topics {
             if entry.remove_subscriber(&id) {
                 removed_count += 1;
             }

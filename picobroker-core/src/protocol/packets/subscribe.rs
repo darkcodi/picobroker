@@ -66,7 +66,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
             });
         }
         let topic_name = HeaplessString::try_from(topic_filter)
-            .map(|s| TopicName::new(s))
+            .map(TopicName::new)
             .map_err(|_| {
                 PacketEncodingError::TopicNameLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
@@ -94,7 +94,7 @@ mod tests {
     // ===== HELPER FUNCTIONS =====
 
     fn roundtrip_test(bytes: &[u8]) -> SubscribePacket<MAX_TOPIC_NAME_LENGTH> {
-        let result = SubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(&bytes);
+        let result = SubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes);
         assert!(result.is_ok(), "Failed to decode packet: {:?}", result.err());
         let packet = result.unwrap();
         let mut buffer = [0u8; 128];
@@ -106,6 +106,7 @@ mod tests {
         packet
     }
 
+    #[allow(dead_code)]
     fn decode_test(bytes: &[u8]) -> Result<SubscribePacket<MAX_TOPIC_NAME_LENGTH>, PacketEncodingError> {
         SubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes)
     }

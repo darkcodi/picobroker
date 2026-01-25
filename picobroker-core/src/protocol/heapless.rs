@@ -302,8 +302,8 @@ impl<T: Default, const N: usize> Iterator for HeaplessVecIntoIterator<T, N> {
             return None;
         }
 
-        // Use core::mem::replace to swap out the element with Default::default()
-        let item = core::mem::replace(&mut self.vec.data[self.index as usize], T::default());
+        // Use core::mem::take to swap out the element with Default::default()
+        let item = core::mem::take(&mut self.vec.data[self.index as usize]);
         self.index += 1;
 
         // If we've consumed all elements, update the length

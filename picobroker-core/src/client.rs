@@ -171,11 +171,9 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
         current_time: u64,
     ) -> bool {
         if let Some(index) = self.find_index(id) {
-            if let Some(client) = self.clients.get_mut(index) {
-                if let Some(client) = client {
-                    client.update_activity(current_time);
-                    return true;
-                }
+            if let Some(Some(client)) = self.clients.get_mut(index) {
+                client.update_activity(current_time);
+                return true;
             }
         }
         false
@@ -187,11 +185,9 @@ impl<const MAX_CLIENTS: usize> ClientRegistry<MAX_CLIENTS>
         current_time: u64,
     ) -> HeaplessVec<ClientId, MAX_CLIENTS> {
         let mut expired = HeaplessVec::new();
-        for client in &self.clients {
-            if let Some(client) = client {
-                if client.is_expired(current_time) {
-                    let _ = expired.push(client.id.clone());
-                }
+        for client in self.clients.iter().flatten() {
+            if client.is_expired(current_time) {
+                let _ = expired.push(client.id.clone());
             }
         }
         expired

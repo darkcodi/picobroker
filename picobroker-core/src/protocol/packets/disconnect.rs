@@ -52,7 +52,7 @@ mod tests {
     }
 
     fn roundtrip_test(bytes: &[u8]) -> DisconnectPacket {
-        let result = DisconnectPacket::decode(&bytes);
+        let result = DisconnectPacket::decode(bytes);
         assert!(result.is_ok(), "Failed to decode packet");
         let packet = result.unwrap();
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];

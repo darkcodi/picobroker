@@ -90,8 +90,8 @@ mod tests {
 
     #[test]
     fn test_connack_packet_roundtrip() {
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).session_present, false);
-        assert_eq!(roundtrip_test(&[0x20, 0x02, 0x01, 0x00]).session_present, true);
+        assert!(!roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).session_present);
+        assert!(roundtrip_test(&[0x20, 0x02, 0x01, 0x00]).session_present);
         assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x00]).return_code, ConnectReturnCode::Accepted);
         assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x01]).return_code, ConnectReturnCode::UnacceptableProtocolVersion);
         assert_eq!(roundtrip_test(&[0x20, 0x02, 0x00, 0x02]).return_code, ConnectReturnCode::IdentifierRejected);
@@ -101,7 +101,7 @@ mod tests {
     }
 
     fn roundtrip_test(bytes: &[u8]) -> ConnAckPacket {
-        let result = ConnAckPacket::decode(&bytes);
+        let result = ConnAckPacket::decode(bytes);
         assert!(result.is_ok(), "Failed to decode packet");
         let packet = result.unwrap();
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];

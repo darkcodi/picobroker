@@ -92,7 +92,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             if offset + 2 > buffer.len() {
                 return Err(PacketEncodingError::BufferTooSmall { buffer_size: buffer.len() });
             }
-            let pid = self.packet_id.ok_or_else(|| PacketEncodingError::MissingPacketId)?;
+            let pid = self.packet_id.ok_or(PacketEncodingError::MissingPacketId)?;
             let pid_bytes = pid.to_be_bytes();
             buffer[offset] = pid_bytes[0];
             buffer[offset + 1] = pid_bytes[1];
@@ -120,7 +120,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         offset += 1;
         let packet_type = (header_byte >> 4) & 0x0F;
         if packet_type != PacketType::Publish as u8 {
-            return Err(PacketEncodingError::InvalidPacketType { packet_type }.into());
+            return Err(PacketEncodingError::InvalidPacketType { packet_type });
         }
 
         // 2. Parse flags from header byte
@@ -140,7 +140,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             return Err(PacketEncodingError::TopicEmpty);
         }
         let topic_name = HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(topic_str)
-            .map(|s| TopicName::new(s))
+            .map(TopicName::new)
             .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: topic_str.len(),
@@ -203,7 +203,7 @@ mod tests {
     // ===== HELPER FUNCTIONS =====
 
     fn roundtrip_test(bytes: &[u8]) -> PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
-        let result = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
+        let result = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
         assert!(result.is_ok(), "Failed to decode packet: {:?}", result.err());
         let packet = result.unwrap();
         let mut buffer = [0u8; 256];
@@ -407,9 +407,9 @@ mod tests {
             0x68, 0x69, // Payload ("hi")
         ];
         let packet = roundtrip_test(bytes);
-        assert_eq!(packet.dup, false);
+        assert!(!packet.dup);
         assert_eq!(packet.qos, QoS::AtMostOnce);
-        assert_eq!(packet.retain, false);
+        assert!(!packet.retain);
         assert_eq!(packet.topic_name.as_str(), "test");
         assert_eq!(packet.payload.as_slice(), b"hi");
     }
@@ -439,7 +439,7 @@ mod tests {
         ];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.qos, QoS::ExactlyOnce);
-        assert_eq!(packet.retain, true);
+        assert!(packet.retain);
         assert_eq!(packet.topic_name.as_str(), "a/b");
         assert_eq!(packet.packet_id, Some(0x1234));
         assert_eq!(packet.payload.as_slice(), b"X");
@@ -454,7 +454,7 @@ mod tests {
         ];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.qos, QoS::AtLeastOnce);
-        assert_eq!(packet.dup, true);
+        assert!(packet.dup);
         assert_eq!(packet.topic_name.as_str(), "t");
         assert_eq!(packet.packet_id, Some(0x0001));
         assert_eq!(packet.payload.as_slice(), b"");
