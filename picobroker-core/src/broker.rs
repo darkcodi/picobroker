@@ -3,8 +3,8 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use crate::topics::TopicRegistry;
-use crate::server::{ClientRegistry, ClientSession};
-use crate::{ClientId, BrokerError, TopicName, TopicSubscription};
+use crate::client::{ClientRegistry, ClientSession};
+use crate::{ClientId, BrokerError, TopicName, TopicSubscription, ClientState};
 use crate::protocol::HeaplessVec;
 
 /// MQTT broker (core logic)
@@ -153,7 +153,7 @@ impl<
     pub fn set_session_state(
         &mut self,
         client_id: &ClientId,
-        state: crate::server::ClientState,
+        state: ClientState,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
             session.state = state;
@@ -341,7 +341,7 @@ impl<
             session.keep_alive_secs = connect.keep_alive;
 
             // Update state
-            session.state = crate::server::ClientState::Connected;
+            session.state = ClientState::Connected;
 
             // Queue CONNACK
             let connack = crate::Packet::ConnAck(crate::ConnAckPacket::default());
@@ -379,7 +379,7 @@ impl<
         &mut self,
         client_id: &ClientId,
     ) -> Result<(), BrokerError> {
-        self.set_session_state(client_id, crate::server::ClientState::Disconnected)
+        self.set_session_state(client_id, ClientState::Disconnected)
     }
 
     // ===== Master Processing Method (Mutable) =====
