@@ -2,8 +2,10 @@
 //!
 //! Manages topic subscriptions
 
-use crate::protocol::{HeaplessString, HeaplessVec};
-use crate::{BrokerError, ClientId, PacketEncodingError};
+use crate::broker_error::BrokerError;
+use crate::client::ClientId;
+use crate::protocol::heapless::{HeaplessString, HeaplessVec};
+use crate::protocol::packet_error::PacketEncodingError;
 
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.

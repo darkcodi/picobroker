@@ -1,7 +1,10 @@
+use crate::protocol::heapless::HeaplessString;
+use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{read_string, write_string};
-use crate::protocol::HeaplessString;
-use crate::{PacketEncodingError, PacketType, QoS, TopicName};
+use crate::protocol::packet_type::PacketType;
+use crate::protocol::qos::QoS;
+use crate::topics::TopicName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
@@ -162,6 +165,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for SubscribePacket<
 mod tests {
     use super::*;
     use crate::protocol::packet_error::PacketEncodingError;
+    use crate::protocol::qos::QoS;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
 

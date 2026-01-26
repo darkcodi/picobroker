@@ -1,11 +1,10 @@
-use crate::protocol::heapless::HeaplessVec;
+use crate::client::ClientId;
+use crate::protocol::heapless::{HeaplessString, HeaplessVec};
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
-use crate::protocol::utils::{read_binary, read_string, write_binary, write_string};
-use crate::protocol::HeaplessString;
-use crate::{
-    read_variable_length, write_variable_length, ClientId, PacketEncodingError, PacketType,
-    TopicName,
-};
+use crate::protocol::utils::{read_binary, read_string, read_variable_length, write_binary, write_string, write_variable_length};
+use crate::topics::TopicName;
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
 pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4; // MQTT 3.1.1
@@ -317,6 +316,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fm
 
 #[cfg(test)]
 mod tests {
+    use crate::protocol::packets::ConnectPacket;
     use super::*;
     use crate::protocol::packet_error::PacketEncodingError;
     use crate::protocol::utils::hex_to_bytes;
@@ -373,7 +373,7 @@ mod tests {
         ($a:literal, $b:literal, $c:literal) => {{
             use ::core::mem::size_of;
 
-            let actual = size_of::<$crate::ConnectPacket<$a, $b>>();
+            let actual = size_of::<$crate::protocol::packets::ConnectPacket<$a, $b>>();
 
             assert_eq!(
                 actual, $c,

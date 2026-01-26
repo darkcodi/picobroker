@@ -2,10 +2,12 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
-use crate::topics::TopicRegistry;
-use crate::client::{ClientRegistry, ClientSession};
-use crate::{ClientId, BrokerError, TopicName, TopicSubscription, ClientState};
-use crate::protocol::HeaplessVec;
+use crate::broker_error::BrokerError;
+use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
+use crate::client::{ClientId, ClientRegistry, ClientState};
+use crate::protocol::heapless::HeaplessVec;
+use crate::protocol::packets::{ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket, SubAckPacket};
+use crate::protocol::qos::QoS;
 
 /// MQTT broker (core logic)
 ///
@@ -200,7 +202,7 @@ impl<
     pub fn queue_rx_packet(
         &mut self,
         client_id: &ClientId,
-        packet: crate::Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
             session.queue_rx_packet(packet)
@@ -213,7 +215,7 @@ impl<
     pub fn queue_tx_packet(
         &mut self,
         client_id: &ClientId,
-        packet: crate::Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
             session.queue_tx_packet(packet)
@@ -226,7 +228,7 @@ impl<
     pub fn dequeue_rx_packet(
         &mut self,
         client_id: &ClientId,
-    ) -> Option<crate::Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
+    ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
         self.client_registry.find_session_by_client_id(client_id)?.dequeue_rx_packet()
     }
 
@@ -234,7 +236,7 @@ impl<
     pub fn dequeue_tx_packet(
         &mut self,
         client_id: &ClientId,
-    ) -> Option<crate::Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
+    ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
         self.client_registry.find_session_by_client_id(client_id)?.dequeue_tx_packet()
     }
 
@@ -249,7 +251,7 @@ impl<
     pub fn publish_message(
         &mut self,
         publisher_id: &ClientId,
-        publish: crate::PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+        publish: PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<usize, BrokerError> {
         // Get subscribers for this topic
         let subscribers = self.topics.get_subscribers(&publish.topic_name);
@@ -258,7 +260,7 @@ impl<
         let mut routed_count = 0usize;
         for subscriber_id in &subscribers {
             if let Some(session) = self.client_registry.find_session_by_client_id(subscriber_id) {
-                let packet = crate::Packet::Publish(publish.clone());
+                let packet = Packet::Publish(publish.clone());
                 if session.queue_tx_packet(packet).is_ok() {
                     routed_count += 1;
                 }
@@ -266,12 +268,12 @@ impl<
         }
 
         // Send PUBACK if QoS > 0
-        if publish.qos > crate::QoS::AtMostOnce && publish.packet_id.is_some() {
-            let mut puback = crate::PubAckPacket::default();
+        if publish.qos > QoS::AtMostOnce && publish.packet_id.is_some() {
+            let mut puback = PubAckPacket::default();
             puback.packet_id = publish.packet_id.unwrap();
 
             if let Some(session) = self.client_registry.find_session_by_client_id(publisher_id) {
-                let _ = session.queue_tx_packet(crate::Packet::PubAck(puback));
+                let _ = session.queue_tx_packet(Packet::PubAck(puback));
             }
         }
 
@@ -289,7 +291,7 @@ impl<
         client_id: &ClientId,
         topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
         packet_id: u16,
-        requested_qos: crate::QoS,
+        requested_qos: QoS,
     ) -> Result<(), BrokerError> {
         let subscription = TopicSubscription::Exact(topic_filter);
 
@@ -297,22 +299,22 @@ impl<
             Ok(()) => {
                 // Success - send SUBACK with granted QoS
                 if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
-                    let suback = crate::SubAckPacket {
+                    let suback = SubAckPacket {
                         packet_id,
                         granted_qos: requested_qos,
                     };
-                    let _ = session.queue_tx_packet(crate::Packet::SubAck(suback));
+                    let _ = session.queue_tx_packet(Packet::SubAck(suback));
                 }
                 Ok(())
             }
             Err(e) => {
                 // Failure - send SUBACK with failure QoS
                 if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
-                    let suback = crate::SubAckPacket {
+                    let suback = SubAckPacket {
                         packet_id,
-                        granted_qos: crate::QoS::from_u8(0x80).unwrap_or(crate::QoS::AtMostOnce),
+                        granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
                     };
-                    let _ = session.queue_tx_packet(crate::Packet::SubAck(suback));
+                    let _ = session.queue_tx_packet(Packet::SubAck(suback));
                 }
                 Err(e)
             }
@@ -329,7 +331,7 @@ impl<
     pub fn handle_connect(
         &mut self,
         client_id: &ClientId,
-        connect: &crate::ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+        connect: &ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
             // Update client_id if provided
@@ -344,7 +346,7 @@ impl<
             session.state = ClientState::Connected;
 
             // Queue CONNACK
-            let connack = crate::Packet::ConnAck(crate::ConnAckPacket::default());
+            let connack = Packet::ConnAck(ConnAckPacket::default());
             let _ = session.queue_tx_packet(connack);
 
             Ok(())
@@ -363,7 +365,7 @@ impl<
         client_id: &ClientId,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
-            let pingresp = crate::Packet::PingResp(crate::PingRespPacket::default());
+            let pingresp = Packet::PingResp(PingRespPacket::default());
             session.queue_tx_packet(pingresp)
         } else {
             Err(BrokerError::ClientNotFound)
@@ -395,7 +397,7 @@ impl<
     ///
     /// Returns the number of packets processed.
     pub fn process_all_client_packets(&mut self) -> Result<usize, BrokerError> {
-        use crate::Packet;
+        use Packet;
 
         // Collect client IDs (avoid holding mutable reference during iteration)
         let mut client_ids = [const { None }; 16];

@@ -10,6 +10,8 @@
 pub use picobroker_core::*;
 
 use tokio::net::TcpStream as TokioTcpStreamInner;
+use picobroker_core::server::PicoBrokerServer;
+use picobroker_core::traits::{Delay, NetworkError, SocketAddr, TcpListener, TcpStream, TimeSource};
 
 const DEFAULT_MAX_TOPIC_NAME_LENGTH: usize = 32;
 const DEFAULT_MAX_PAYLOAD_SIZE: usize = 128;

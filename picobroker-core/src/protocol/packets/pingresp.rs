@@ -1,7 +1,9 @@
 use crate::protocol::packets::{
     PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
 };
-use crate::{read_variable_length, PacketEncodingError, PacketType};
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::packet_type::PacketType;
+use crate::protocol::utils::read_variable_length;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PingRespPacket;
@@ -44,7 +46,6 @@ impl core::fmt::Display for PingRespPacket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PingRespPacket;
     use core::mem::size_of;
 
     const MAX_PAYLOAD_SIZE: usize = 128;

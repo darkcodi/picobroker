@@ -2,7 +2,8 @@ use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeConst};
 use crate::protocol::qos::QoS;
-use crate::{PacketEncodingError, TopicName};
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::topics::TopicName;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct PublishFlags {

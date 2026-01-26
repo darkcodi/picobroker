@@ -1,6 +1,8 @@
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::qos::QoS;
-use crate::{read_variable_length, PacketEncodingError, PacketType};
+use crate::protocol::utils::read_variable_length;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubAckPacket {

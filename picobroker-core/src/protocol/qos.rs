@@ -1,4 +1,4 @@
-use crate::PacketEncodingError;
+use crate::protocol::packet_error::PacketEncodingError;
 
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]

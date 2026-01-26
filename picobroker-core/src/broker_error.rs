@@ -2,7 +2,8 @@
 //!
 //! no_std compatible error handling
 
-use crate::{NetworkError, PacketEncodingError};
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::traits::NetworkError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrokerError {

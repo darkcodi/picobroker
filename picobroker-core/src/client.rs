@@ -1,7 +1,10 @@
 use core::fmt::Write;
 use log::{error, info};
-use crate::protocol::{HeaplessString, HeaplessVec};
-use crate::{BrokerError, NetworkError, Packet, PacketEncodingError};
+use crate::broker_error::BrokerError;
+use crate::protocol::heapless::{HeaplessString, HeaplessVec};
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::packets::Packet;
+use crate::traits::NetworkError;
 
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
 

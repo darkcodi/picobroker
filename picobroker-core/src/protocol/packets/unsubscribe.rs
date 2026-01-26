@@ -1,7 +1,9 @@
+use crate::protocol::heapless::HeaplessString;
+use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{read_string, read_variable_length, write_string, write_variable_length};
-use crate::protocol::HeaplessString;
-use crate::{PacketEncodingError, PacketType, TopicName};
+use crate::topics::TopicName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsubscribePacket<const MAX_TOPIC_NAME_LENGTH: usize> {
