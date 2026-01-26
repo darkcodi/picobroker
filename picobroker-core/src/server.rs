@@ -310,6 +310,25 @@ impl<
                     match session.stream.write(&encoded_packet).await {
                         Ok(bytes_written) => {
                             info!("Sent {} bytes to client {}", bytes_written, session.session_id);
+
+                            // Flush immediately to ensure packet is transmitted
+                            match session.stream.flush().await {
+                                Ok(()) => {
+                                    info!("Flushed stream for client {}", session.session_id);
+                                }
+                                Err(e) => {
+                                    error!("Error flushing stream for client {}: {}", session.session_id, e);
+
+                                    // Flush is critical - mark session as disconnected
+                                    session.state = ClientState::Disconnected;
+
+                                    if remove_count < sessions_to_remove.len() {
+                                        sessions_to_remove[remove_count] = Some(session.session_id);
+                                        remove_count += 1;
+                                    }
+                                    break; // Stop processing this session
+                                }
+                            }
                         }
                         Err(e) => {
                             error!("Error writing packet to client {}: {}", session.session_id, e);

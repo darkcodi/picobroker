@@ -7,6 +7,9 @@ pub trait TcpStream {
     /// Write data from the buffer to the stream
     async fn write(&mut self, buf: &[u8]) -> Result<usize, NetworkError>;
 
+    /// Flush the stream to ensure all buffered data is transmitted
+    async fn flush(&mut self) -> Result<(), NetworkError>;
+
     /// Close the stream
     async fn close(&mut self) -> Result<(), NetworkError>;
 }

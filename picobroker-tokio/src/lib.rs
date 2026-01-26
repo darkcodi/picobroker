@@ -90,6 +90,16 @@ impl TcpStream for TokioTcpStream {
             })
     }
 
+    async fn flush(&mut self) -> Result<(), NetworkError> {
+        use tokio::io::AsyncWriteExt;
+        self.inner
+            .flush()
+            .await
+            .map_err(|_| {
+                NetworkError::IoError
+            })
+    }
+
     async fn close(&mut self) -> Result<(), NetworkError> {
         use tokio::io::AsyncWriteExt;
         self.inner
