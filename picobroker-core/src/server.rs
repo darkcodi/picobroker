@@ -306,6 +306,7 @@ impl<
                         }
                     };
                     let encoded_packet = &buffer[..packet_size];
+                    info!("Encoded packet bytes: {}", bytes_to_hex::<256>(encoded_packet));
                     match session.stream.write(&encoded_packet).await {
                         Ok(bytes_written) => {
                             info!("Sent {} bytes to client {}", bytes_written, session.session_id);

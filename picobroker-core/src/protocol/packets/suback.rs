@@ -1,6 +1,6 @@
-use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
+use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::qos::QoS;
-use crate::{PacketEncodingError, PacketType};
+use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubAckPacket {
@@ -18,26 +18,36 @@ impl PacketFlagsConst for SubAckPacket {
 
 impl PacketEncoder for SubAckPacket {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
-        if buffer.len() < 3 {
+        if buffer.len() < 5 {
             return Err(PacketEncodingError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
+        buffer[0] = self.header_first_byte();
+        buffer[1] = 3u8; // Remaining length: packet_id (2 bytes) + granted_qos (1 byte)
         let pid_bytes = self.packet_id.to_be_bytes();
-        buffer[0] = pid_bytes[0];
-        buffer[1] = pid_bytes[1];
-        buffer[2] = self.granted_qos as u8;
-        Ok(3)
+        buffer[2] = pid_bytes[0];
+        buffer[3] = pid_bytes[1];
+        buffer[4] = self.granted_qos as u8;
+        Ok(5)
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
-        if bytes.len() < 3 {
+        if bytes.len() < 5 {
             return Err(PacketEncodingError::IncompletePacket {
                 buffer_size: bytes.len(),
             });
         }
-        let packet_id = u16::from_be_bytes([bytes[0], bytes[1]]);
-        let qos_value = bytes[2];
+        Self::validate_packet_type(bytes[0])?;
+        let (remaining_length, _) = read_variable_length(&bytes[1..])?;
+        if remaining_length != 3 {
+            return Err(PacketEncodingError::InvalidPacketLength {
+                expected: 3,
+                actual: remaining_length as usize,
+            });
+        }
+        let packet_id = u16::from_be_bytes([bytes[2], bytes[3]]);
+        let qos_value = bytes[4];
         let granted_qos = QoS::from_u8(qos_value)?;
         Ok(Self {
             packet_id,
@@ -103,21 +113,21 @@ mod tests {
 
     #[test]
     fn test_packet_id_zero() {
-        let bytes = [0x00, 0x00, 0x00];
+        let bytes = [0x90, 0x03, 0x00, 0x00, 0x00];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 0);
     }
 
     #[test]
     fn test_packet_id_one() {
-        let bytes = [0x00, 0x01, 0x00];
+        let bytes = [0x90, 0x03, 0x00, 0x01, 0x00];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 1);
     }
 
     #[test]
     fn test_packet_id_max() {
-        let bytes = [0xFF, 0xFF, 0x01];
+        let bytes = [0x90, 0x03, 0xFF, 0xFF, 0x01];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 65535);
     }
@@ -126,21 +136,21 @@ mod tests {
 
     #[test]
     fn test_granted_qos_0() {
-        let bytes = [0x00, 0x01, 0x00];
+        let bytes = [0x90, 0x03, 0x00, 0x01, 0x00];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.granted_qos, QoS::AtMostOnce);
     }
 
     #[test]
     fn test_granted_qos_1() {
-        let bytes = [0x00, 0x01, 0x01];
+        let bytes = [0x90, 0x03, 0x00, 0x01, 0x01];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.granted_qos, QoS::AtLeastOnce);
     }
 
     #[test]
     fn test_granted_qos_2() {
-        let bytes = [0x00, 0x01, 0x02];
+        let bytes = [0x90, 0x03, 0x00, 0x01, 0x02];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.granted_qos, QoS::ExactlyOnce);
     }
@@ -149,7 +159,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_qos0_packet_id_1() {
-        let bytes = [0x00, 0x01, 0x00];
+        let bytes = [0x90, 0x03, 0x00, 0x01, 0x00];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 1);
         assert_eq!(packet.granted_qos, QoS::AtMostOnce);
@@ -157,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_qos1_packet_id_1234() {
-        let bytes = [0x12, 0x34, 0x01];
+        let bytes = [0x90, 0x03, 0x12, 0x34, 0x01];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 0x1234);
         assert_eq!(packet.granted_qos, QoS::AtLeastOnce);
@@ -165,7 +175,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_qos2_packet_id_65535() {
-        let bytes = [0xFF, 0xFF, 0x02];
+        let bytes = [0x90, 0x03, 0xFF, 0xFF, 0x02];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 65535);
         assert_eq!(packet.granted_qos, QoS::ExactlyOnce);
