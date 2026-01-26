@@ -1,5 +1,6 @@
 use log::{error, info};
-use crate::{bytes_to_hex, BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PacketType, PicoBroker, PubAckPacket, QoS, SocketAddr, SubAckPacket, TcpListener, TcpStream, TimeSource, TopicSubscription};
+use core::fmt::Write as FmtWrite;
+use crate::{BrokerError, ClientId, ConnAckPacket, Delay, HeaplessString, NetworkError, Packet, PacketEncodingError, PacketEncoder, PingRespPacket, PicoBroker, PubAckPacket, QoS, read_variable_length, SocketAddr, SubAckPacket, TcpListener, TcpStream, TimeSource, TopicSubscription};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -132,27 +133,82 @@ impl<
 
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
-                match Self::try_read_packet_from_stream(&mut session.stream).await {
-                    Ok(Some(packet)) => {
-                        info!("Received packet from client {}: {:?}", session.session_id, packet);
-                        // Here you would process the packet (e.g., handle CONNECT, PUBLISH, SUBSCRIBE, etc.)
-                        session.update_activity(self.time_source.now_secs());
-                        let _ = session.queue_rx_packet(packet);
-                    }
-                    Ok(None) => {
-                        // No packet available, continue
-                    }
-                    Err(e) => {
-                        // All errors here are fatal (WouldBlock is already handled in try_read_packet_from_stream)
-                        error!("Error reading packet from client {}: {}", session.session_id, e);
+                // We need to avoid double mutable borrow
+                // The function needs both &mut stream and &mut session
+                // This is a fundamental limitation of Rust's borrow checker
+                // We'll need to restructure the function or use unsafe
+                // For now, let's work around by splitting differently
 
-                        // Mark session as disconnected for cleanup
-                        session.state = ClientState::Disconnected;
+                // Read into session's rx_buffer first
+                let remaining_space = MAX_PAYLOAD_SIZE - session.rx_buffer_len;
+                let bytes_read = if remaining_space > 0 {
+                    let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
+                    match session.stream.try_read(&mut read_buf[..remaining_space]).await {
+                        Ok(0) => {
+                            info!("Connection closed by peer (0 bytes read)");
+                            return Err(BrokerError::NetworkError {
+                                error: NetworkError::ConnectionClosed
+                            });
+                        }
+                        Ok(n) => {
+                            // Append to rx_buffer
+                            for i in 0..n {
+                                if session.rx_buffer.push(read_buf[i]).is_err() {
+                                    error!("RX buffer full, cannot append more data");
+                                    break;
+                                }
+                            }
+                            session.rx_buffer_len += n;
+                            Some(n)
+                        }
+                        Err(e) => {
+                            // Handle non-fatal errors
+                            if matches!(e, NetworkError::WouldBlock | NetworkError::TimedOut | NetworkError::Interrupted | NetworkError::InProgress) {
+                                None
+                            } else {
+                                return Err(BrokerError::NetworkError { error: e });
+                            }
+                        }
+                    }
+                } else {
+                    None
+                };
 
-                        // Remove session on any fatal error
-                        if remove_count < sessions_to_remove.len() {
-                            sessions_to_remove[remove_count] = Some(session.session_id);
-                            remove_count += 1;
+                // Now try to decode from the buffer
+                if bytes_read.is_some() || session.rx_buffer_len > 0 {
+                    // Try to decode packet
+                    let packet_result = Self::try_decode_from_buffer(session);
+
+                    match packet_result {
+                        Ok(Some(packet)) => {
+                            info!("Received packet from client {}: {:?}", session.session_id, packet);
+                            // Here you would process the packet (e.g., handle CONNECT, PUBLISH, SUBSCRIBE, etc.)
+                            session.update_activity(self.time_source.now_secs());
+                            let _ = session.queue_rx_packet(packet);
+                        }
+                        Ok(None) => {
+                            // No complete packet available, continue
+                        }
+                        Err(e) => {
+                            // Check if error is fatal
+                            let is_fatal = match e {
+                                BrokerError::NetworkError { error: NetworkError::ConnectionClosed } => true,
+                                BrokerError::NetworkError { error: NetworkError::IoError } => true,
+                                _ => false,
+                            };
+
+                            if is_fatal {
+                                error!("Fatal error reading packet from client {}: {}", session.session_id, e);
+                                session.state = ClientState::Disconnected;
+
+                                // Remove session on fatal error
+                                if remove_count < sessions_to_remove.len() {
+                                    sessions_to_remove[remove_count] = Some(session.session_id);
+                                    remove_count += 1;
+                                }
+                            } else {
+                                info!("Non-fatal error reading from client {}: {}", session.session_id, e);
+                            }
                         }
                     }
                 }
@@ -169,11 +225,68 @@ impl<
         Ok(())
     }
 
+    /// Try to decode a packet from the session's RX buffer
+    fn try_decode_from_buffer(session: &mut ClientSession<TL::Stream, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+        // Step 1: Check if we have enough data
+        if session.rx_buffer_len < 2 {
+            return Ok(None);
+        }
+
+        // Step 2: Decode Remaining Length
+        let remaining_length_result = read_variable_length(&session.rx_buffer.as_slice()[1..]);
+        let (remaining_length, var_int_len) = match remaining_length_result {
+            Ok((len, bytes)) => (len, bytes),
+            Err(PacketEncodingError::IncompletePacket { .. }) => {
+                return Ok(None);
+            }
+            Err(e) => {
+                error!("Invalid remaining length encoding: {}", e);
+                return Err(BrokerError::PacketEncodingError { error: e });
+            }
+        };
+
+        // Step 3: Calculate total packet size
+        let total_packet_size = 1 + var_int_len + remaining_length;
+
+        // Step 4: Check if we have complete packet
+        if total_packet_size > session.rx_buffer_len {
+            return Ok(None);
+        }
+
+        // Step 5: Decode packet
+        let packet_slice = &session.rx_buffer.as_slice()[..total_packet_size];
+        let packet_result = Packet::decode(packet_slice);
+
+        let packet = match packet_result {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Failed to decode packet: {}", e);
+                return Err(BrokerError::PacketEncodingError { error: e });
+            }
+        };
+
+        // Step 6: Remove decoded packet from buffer
+        for _ in 0..total_packet_size {
+            if !session.rx_buffer.is_empty() {
+                session.rx_buffer.remove(0);
+            }
+        }
+        session.rx_buffer_len = session.rx_buffer.len();
+
+        info!("Decoded packet, {} bytes remaining in buffer", session.rx_buffer_len);
+
+        Ok(Some(packet))
+    }
+
     async fn process_client_messages(&mut self) -> Result<(), BrokerError> {
         // Process messages from clients and route them via the broker
         // Collect client IDs and packets to route, then process in a second pass
         let mut messages_to_route: [Option<(ClientId, Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>)>; QUEUE_SIZE] = [const { None }; QUEUE_SIZE];
         let mut route_count = 0usize;
+
+        // Track sessions that need internal ClientIDs generated (session_id)
+        let mut needs_internal_id: [Option<usize>; 16] = [None; 16];
+        let mut needs_internal_id_count = 0usize;
 
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
@@ -182,9 +295,28 @@ impl<
                     match packet {
                         Packet::Connect(connect) => {
                             // Handle CONNECT packet
-                            info!("Client {} connected with ID {:?}", session.session_id, connect.client_id);
-                            session.client_id = Some(connect.client_id.clone());
+                            info!("Client {} connected with ID {:?}, keep-alive: {} seconds",
+                                  session.session_id, connect.client_id, connect.keep_alive);
+
+                            // Check if ClientID is empty and track for internal ID generation
+                            if connect.client_id.is_empty() {
+                                if needs_internal_id_count < needs_internal_id.len() {
+                                    needs_internal_id[needs_internal_id_count] = Some(session.session_id);
+                                    needs_internal_id_count += 1;
+                                }
+                                // For now, set a placeholder
+                                session.client_id = Some(ClientId::from(HeaplessString::<23>::try_from("pending-internal-id").unwrap_or(HeaplessString::new())));
+                            } else {
+                                session.client_id = Some(connect.client_id.clone());
+                            }
+
                             session.state = ClientState::Connected;
+
+                            // Extract and use keep_alive from CONNECT packet
+                            session.keep_alive_secs = connect.keep_alive;
+                            info!("Updated keep-alive for client {} to {} seconds",
+                                  session.session_id, connect.keep_alive);
+
                             // Send CONNACK response
                             let connack = Packet::ConnAck(ConnAckPacket::default());
                             let _ = session.queue_tx_packet(connack);
@@ -258,9 +390,18 @@ impl<
                         Packet::UnsubAck(_) => {}
                         Packet::PingReq(_) => {
                             // Handle PINGREQ packet - respond with PINGRESP
-                            info!("Client {} sent PINGREQ", session.session_id);
-                            // Note: PINGRESP packet type needs to be added to the Packet enum
-                            // For now, we'll just log it
+                            info!("Client {} sent PINGREQ, sending PINGRESP", session.session_id);
+
+                            // Create and queue PINGRESP packet
+                            let pingresp = Packet::PingResp(PingRespPacket::default());
+                            match session.queue_tx_packet(pingresp) {
+                                Ok(()) => {
+                                    info!("Queued PINGRESP for client {}", session.session_id);
+                                }
+                                Err(e) => {
+                                    error!("Failed to queue PINGRESP for client {}: {}", session.session_id, e);
+                                }
+                            }
                         }
                         Packet::PingResp(_) => {}
                         Packet::Disconnect(_) => {
@@ -270,6 +411,23 @@ impl<
                             // Mark session for removal by adding it to removal list
                             // We'll handle this in the next iteration
                         }
+                    }
+                }
+            }
+        }
+
+        // Generate internal ClientIDs for sessions that need them
+        for i in 0..needs_internal_id_count {
+            if let Some(session_id) = needs_internal_id[i] {
+                let internal_id = self.client_registry.generate_internal_client_id();
+                info!("Generated internal ID '{}' for session {}", internal_id, session_id);
+
+                // Find the session and update its client_id
+                if let Some(session) = self.client_registry.sessions.iter_mut().find(|s| {
+                    s.as_ref().map(|sess| sess.session_id == session_id).unwrap_or(false)
+                }) {
+                    if let Some(s) = session {
+                        s.client_id = Some(internal_id);
                     }
                 }
             }
@@ -306,43 +464,76 @@ impl<
                         }
                     };
                     let encoded_packet = &buffer[..packet_size];
-                    info!("Encoded packet bytes: {}", bytes_to_hex::<256>(encoded_packet));
-                    match session.stream.write(&encoded_packet).await {
-                        Ok(bytes_written) => {
-                            info!("Sent {} bytes to client {}", bytes_written, session.session_id);
+                    info!("Encoded packet: {} bytes", packet_size);
 
-                            // Flush immediately to ensure packet is transmitted
-                            match session.stream.flush().await {
-                                Ok(()) => {
-                                    info!("Flushed stream for client {}", session.session_id);
+                    // Write ALL bytes (handle partial writes)
+                    let mut total_written = 0usize;
+                    loop {
+                        match session.stream.write(&encoded_packet[total_written..]).await {
+                            Ok(0) => {
+                                // Wrote 0 bytes = connection closed
+                                error!("Write returned 0 bytes, connection closed");
+                                session.state = ClientState::Disconnected;
+                                if remove_count < sessions_to_remove.len() {
+                                    sessions_to_remove[remove_count] = Some(session.session_id);
+                                    remove_count += 1;
                                 }
-                                Err(e) => {
-                                    error!("Error flushing stream for client {}: {}", session.session_id, e);
+                                break; // Exit write loop
+                            }
+                            Ok(bytes_written) => {
+                                total_written += bytes_written;
+                                info!("Wrote {} bytes (total: {})", bytes_written, total_written);
 
-                                    // Flush is critical - mark session as disconnected
+                                if total_written >= packet_size {
+                                    // All bytes written, now flush
+                                    break;
+                                }
+                                // Continue writing remaining bytes
+                            }
+                            Err(e) => {
+                                // Check if non-fatal error
+                                let is_fatal = matches!(e,
+                                    NetworkError::ConnectionClosed | NetworkError::IoError
+                                );
+
+                                if is_fatal {
+                                    error!("Fatal error writing to client {}: {}",
+                                           session.session_id, e);
                                     session.state = ClientState::Disconnected;
-
                                     if remove_count < sessions_to_remove.len() {
                                         sessions_to_remove[remove_count] = Some(session.session_id);
                                         remove_count += 1;
                                     }
-                                    break; // Stop processing this session
+                                } else {
+                                    info!("Non-fatal write error, retrying: {}", e);
+                                    // Retry write (loop continues)
                                 }
+                                break; // Exit write loop on any error for now
                             }
                         }
-                        Err(e) => {
-                            error!("Error writing packet to client {}: {}", session.session_id, e);
+                    }
 
-                            // Mark session as disconnected
-                            session.state = ClientState::Disconnected;
-
-                            // Fatal error - mark for removal
-                            if remove_count < sessions_to_remove.len() {
-                                sessions_to_remove[remove_count] = Some(session.session_id);
-                                remove_count += 1;
+                    // Only flush if write succeeded and session is still connected
+                    if session.state != ClientState::Disconnected && total_written >= packet_size {
+                        match session.stream.flush().await {
+                            Ok(()) => {
+                                info!("Flushed stream for client {}", session.session_id);
                             }
-                            break; // Stop processing this session
+                            Err(e) => {
+                                error!("Error flushing stream: {}", e);
+                                session.state = ClientState::Disconnected;
+                                if remove_count < sessions_to_remove.len() {
+                                    sessions_to_remove[remove_count] = Some(session.session_id);
+                                    remove_count += 1;
+                                }
+                                break; // Stop processing this session
+                            }
                         }
+                    }
+
+                    // If disconnected, stop processing packets for this session
+                    if session.state == ClientState::Disconnected {
+                        break;
                     }
                 }
             }
@@ -356,41 +547,6 @@ impl<
         }
 
         Ok(())
-    }
-
-    async fn try_read_packet_from_stream<S: TcpStream>(stream: &mut S) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
-        let mut header_buffer = [0u8; MAX_PAYLOAD_SIZE];
-
-        match stream.try_read(&mut header_buffer).await {
-            Ok(bytes_read) => {
-                if bytes_read > 0 {
-                    let slice = &header_buffer[..bytes_read];
-                    let hex_repr = bytes_to_hex::<256>(slice);
-                    info!("Trying to decode packet: {}", &hex_repr);
-                    let packet_type = PacketType::from(slice[0]);
-                    info!("Detected packet type: {:?}", packet_type);
-                    let maybe_packet = Packet::decode(slice);
-                    match maybe_packet {
-                        Ok(packet) => Ok(Some(packet)),
-                        Err(e) => {
-                            error!("Failed to decode packet: {}", e);
-                            Err(BrokerError::PacketEncodingError { error: e })
-                        }
-                    }
-                } else {
-                    info!("Connection closed by peer");
-                    Err(BrokerError::NetworkError { error: NetworkError::ConnectionClosed })
-                }
-            }
-            Err(e) => {
-                if matches!(e, NetworkError::WouldBlock) {
-                    // No data available right now
-                    return Ok(None);
-                }
-                // logger.error(format_heapless!(128; "Failed to read from stream: {}", e).as_str());
-                Err(BrokerError::NetworkError { error: e })
-            }
-        }
     }
 }
 
@@ -436,6 +592,10 @@ pub struct ClientSession<
     /// Timestamp of last activity (seconds since epoch)
     pub last_activity: u64,
 
+    /// Persistent RX buffer for MQTT packet framing
+    pub rx_buffer: HeaplessVec<u8, MAX_PAYLOAD_SIZE>,
+    pub rx_buffer_len: usize,
+
     /// Receive queue (client -> broker)
     pub rx_queue: HeaplessVec<
         Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>,
@@ -462,6 +622,8 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
             state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
+            rx_buffer: HeaplessVec::new(),
+            rx_buffer_len: 0,
             rx_queue: HeaplessVec::new(),
             tx_queue: HeaplessVec::new(),
         }
@@ -477,6 +639,8 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
             state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
+            rx_buffer: HeaplessVec::new(),
+            rx_buffer_len: 0,
             rx_queue: HeaplessVec::new(),
             tx_queue: HeaplessVec::new(),
         }
@@ -537,6 +701,8 @@ pub struct ClientRegistry<
     >,
     /// Counter for generating unique session IDs
     next_session_id: usize,
+    /// Counter for generating internal client IDs
+    next_internal_client_id: u32,
 }
 
 impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
@@ -547,6 +713,7 @@ ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIEN
         Self {
             sessions: HeaplessVec::new(),
             next_session_id: 0,
+            next_internal_client_id: 0,
         }
     }
 
@@ -695,5 +862,22 @@ ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIEN
                 let _ = self.remove_session(session_id, broker);
             }
         }
+    }
+
+    /// Generate a unique internal client ID
+    ///
+    /// Used when client connects with empty ClientID (valid with Clean Session=1)
+    /// Returns a ClientId with format "internal-{number}"
+    pub fn generate_internal_client_id(&mut self) -> ClientId {
+        const MAX_CLIENT_ID_LENGTH: usize = 23;
+
+        let id = self.next_internal_client_id;
+        self.next_internal_client_id = self.next_internal_client_id.wrapping_add(1);
+
+        // Create string "internal-{id}"
+        let mut str_buf = HeaplessString::<MAX_CLIENT_ID_LENGTH>::new();
+        let _ = FmtWrite::write_fmt(&mut str_buf, format_args!("internal-{}", id));
+
+        ClientId::new(str_buf)
     }
 }

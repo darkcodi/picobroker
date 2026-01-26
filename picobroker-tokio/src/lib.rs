@@ -72,11 +72,18 @@ impl TokioTcpStream {
 
 impl TcpStream for TokioTcpStream {
     async fn try_read(&mut self, buf: &mut [u8]) -> Result<usize, NetworkError> {
+        use std::io::ErrorKind;
+
         // tokio's try_read is synchronous but non-blocking
         self.inner
             .try_read(buf)
-            .map_err(|_| {
-                NetworkError::IoError
+            .map_err(|e| {
+                match e.kind() {
+                    ErrorKind::WouldBlock => NetworkError::WouldBlock,
+                    ErrorKind::TimedOut => NetworkError::TimedOut,
+                    ErrorKind::Interrupted => NetworkError::Interrupted,
+                    _ => NetworkError::IoError,
+                }
             })
     }
 

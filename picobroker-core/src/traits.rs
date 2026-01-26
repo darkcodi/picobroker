@@ -52,6 +52,12 @@ pub enum NetworkError {
     NoPendingConnection,
     /// Operation would block
     WouldBlock,
+    /// Operation timed out
+    TimedOut,
+    /// Operation interrupted
+    Interrupted,
+    /// Operation in progress
+    InProgress,
 }
 
 impl core::fmt::Display for NetworkError {
@@ -61,6 +67,9 @@ impl core::fmt::Display for NetworkError {
             NetworkError::IoError => write!(f, "I/O error occurred"),
             NetworkError::NoPendingConnection => write!(f, "No pending connection to accept"),
             NetworkError::WouldBlock => write!(f, "Operation would block"),
+            NetworkError::TimedOut => write!(f, "Operation timed out"),
+            NetworkError::Interrupted => write!(f, "Operation interrupted"),
+            NetworkError::InProgress => write!(f, "Operation in progress"),
         }
     }
 }
