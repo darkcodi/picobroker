@@ -3,7 +3,7 @@ use crate::protocol::packets::{
 };
 use crate::{read_variable_length, PacketEncodingError, PacketType};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct PubAckPacket {
     pub packet_id: u16,
 }

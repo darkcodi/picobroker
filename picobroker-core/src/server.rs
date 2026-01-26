@@ -1,5 +1,5 @@
 use log::{error, info};
-use crate::{BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PicoBroker, SocketAddr, TcpListener, TcpStream, TimeSource};
+use crate::{BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PicoBroker, PubAckPacket, QoS, SocketAddr, TcpListener, TcpStream, TimeSource};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -105,10 +105,10 @@ impl<
 
             // 2. Process client messages (round-robin through all sessions)
             self.read_client_messages().await?;
-            
+
             // 3. Process messages from clients and route them via the broker
             self.process_client_messages().await?;
-            
+
             // 4. Write messages to clients
             self.write_client_messages().await?;
 
@@ -160,7 +160,34 @@ impl<
                             let _ = session.queue_tx_packet(connack);
                         }
                         Packet::ConnAck(_) => {}
-                        Packet::Publish(_) => {}
+                        Packet::Publish(publish) => {
+                            // Handle PUBLISH packet
+                            info!("Client {} published to topic {}: {:?}", session.session_id, publish.topic_name, publish.payload);
+                            let subscribers = self.broker.topics.get_subscribers(&publish.topic_name);
+                            for client_id in subscribers {
+                                info!("Routing message to subscriber {:?}", client_id);
+                                let session = self.client_registry.sessions.iter_mut().find(|s_opt| {
+                                    if let Some(s) = s_opt {
+                                        s.client_id.as_ref() == Some(&client_id)
+                                    } else {
+                                        false
+                                    }
+                                });
+                                if let Some(session) = session {
+                                    if let Some(s) = session {
+                                        let publish_packet = Packet::Publish(publish.clone());
+                                        let _ = s.queue_tx_packet(publish_packet);
+                                    }
+                                }
+                            }
+
+                            // Send PUBACK if QoS 1
+                            if publish.qos > QoS::AtMostOnce && publish.packet_id.is_some() {
+                                let mut puback = PubAckPacket::default();
+                                puback.packet_id = publish.packet_id.unwrap();
+                                let _ = session.queue_tx_packet(Packet::PubAck(puback));
+                            }
+                        }
                         Packet::PubAck(_) => {}
                         Packet::PubRec(_) => {}
                         Packet::PubRel(_) => {}
