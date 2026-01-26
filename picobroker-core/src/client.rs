@@ -4,7 +4,7 @@ use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::Packet;
 use crate::traits::NetworkError;
 use core::fmt::Write;
-use log::{error, info};
+use log::error;
 
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -78,8 +78,7 @@ pub enum ClientState {
 
 /// Client session with dual queues
 ///
-/// Maintains the communication channels between a client task
-/// and the broker, along with connection state.
+/// Manages the state and communication queues for a connected client
 #[derive(Debug, PartialEq, Eq)]
 pub struct ClientSession<
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -174,7 +173,7 @@ impl<
 
 /// Client registry
 ///
-/// Manages connected clients and their state
+/// Manages all client sessions
 #[derive(Debug, PartialEq, Eq)]
 pub struct ClientRegistry<
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -184,7 +183,7 @@ pub struct ClientRegistry<
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
-    /// Sessions with communication queues
+    /// Vector of client sessions
     sessions: HeaplessVec<
         Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
         MAX_CLIENTS,
@@ -303,10 +302,7 @@ impl<
         Ok(())
     }
 
-    /// Find a mutable session reference by ClientId
-    ///
-    /// Returns None if session not found or client_id is not set.
-    /// Uses linear search which is acceptable since MAX_CLIENTS is typically small (4-16).
+    /// Find a mutable reference to a client session by client ID
     pub fn find_session_by_client_id(
         &mut self,
         client_id: &ClientId,
@@ -322,21 +318,8 @@ impl<
             .and_then(|s_opt| s_opt.as_mut())
     }
 
-    /// Remove a session and cleanup its subscriptions
-    ///
-    /// This will:
-    /// 1. Remove the session from the registry
-    /// 2. Unsubscribe the client from all topics
-    /// 3. Close the network connection
-    pub fn remove_session(
-        &mut self,
-        client_id: &ClientId,
-        topics: &mut crate::topics::TopicRegistry<
-            MAX_TOPIC_NAME_LENGTH,
-            MAX_TOPICS,
-            MAX_SUBSCRIBERS_PER_TOPIC,
-        >,
-    ) -> Result<(), BrokerError> {
+    /// Remove a client session by client ID
+    pub fn remove_session(&mut self, client_id: &ClientId) -> Result<ClientId, BrokerError> {
         // Find the session index
         let session_idx = self.sessions.iter().position(|s| {
             s.as_ref()
@@ -347,12 +330,6 @@ impl<
         if let Some(idx) = session_idx {
             // Extract the client_id before removing
             let client_id = self.sessions[idx].as_ref().map(|s| s.client_id.clone());
-
-            // Cleanup subscriptions if client_id exists
-            if let Some(id) = &client_id {
-                topics.unregister_client(id.clone());
-                info!("Cleaned up subscriptions for client {:?}", id);
-            }
 
             // Remove from vector - replace with None and then shift
             // We can't use remove() because Option<ClientSession> doesn't implement Clone
@@ -366,7 +343,9 @@ impl<
             // Remove the last element which is now a duplicate
             let _ = self.sessions.pop();
 
-            Ok(())
+            client_id.ok_or(BrokerError::NetworkError {
+                error: NetworkError::ConnectionClosed,
+            })
         } else {
             error!("Session {} not found for removal", client_id);
             Err(BrokerError::NetworkError {
@@ -375,65 +354,33 @@ impl<
         }
     }
 
-    /// Cleanup expired sessions based on keep-alive timeout
-    ///
-    /// Removes all sessions where time since last activity exceeds 1.5x keep-alive.
-    pub fn cleanup_expired_sessions(
-        &mut self,
-        topics: &mut crate::topics::TopicRegistry<
-            MAX_TOPIC_NAME_LENGTH,
-            MAX_TOPICS,
-            MAX_SUBSCRIBERS_PER_TOPIC,
-        >,
-        current_time: u64,
-    ) {
-        // Use a simple array to collect expired session IDs
-        let mut expired_ids = [const { None }; 16]; // Stack-allocated, reasonable max
+    /// Get all expired sessions based on current time
+    pub fn get_expired_sessions(&self, current_time: u64) -> [Option<ClientId>; MAX_CLIENTS] {
+        let mut expired_ids = [const { None }; MAX_CLIENTS];
         let mut expired_count = 0usize;
 
-        // Collect expired session IDs
         for sess in (&self.sessions).into_iter().flatten() {
-            if sess.is_expired(current_time) {
+            if sess.is_expired(current_time) && expired_count < expired_ids.len() {
                 expired_ids[expired_count] = Some(sess.client_id.clone());
                 expired_count += 1;
             }
         }
 
-        // Remove each expired session
-        for session_id in expired_ids.iter().take(expired_count).flatten() {
-            info!("Removing expired session {}", session_id);
-            let _ = self.remove_session(session_id, topics);
-        }
+        expired_ids
     }
 
-    /// Cleanup zombie sessions (connections that have been closed but not yet removed)
-    ///
-    /// This is called before accepting new connections to ensure zombie slots are freed.
-    /// It checks for dead connections by attempting to detect socket errors.
-    pub fn cleanup_zombie_sessions(
-        &mut self,
-        topics: &mut crate::topics::TopicRegistry<
-            MAX_TOPIC_NAME_LENGTH,
-            MAX_TOPICS,
-            MAX_SUBSCRIBERS_PER_TOPIC,
-        >,
-    ) {
+    /// Get all zombie (disconnected) sessions
+    pub fn get_zombie_sessions(&self) -> [Option<ClientId>; MAX_CLIENTS] {
         let mut zombie_ids = [const { None }; MAX_CLIENTS];
         let mut zombie_count = 0usize;
 
-        // Check each session for dead connections
         for sess in (&self.sessions).into_iter().flatten() {
-            // Check if session state is Disconnected
             if sess.state == ClientState::Disconnected && zombie_count < zombie_ids.len() {
                 zombie_ids[zombie_count] = Some(sess.client_id.clone());
                 zombie_count += 1;
             }
         }
 
-        // Remove each zombie session
-        for client_id in zombie_ids.iter().take(zombie_count).flatten() {
-            info!("Removing zombie session {}", client_id);
-            let _ = self.remove_session(client_id, topics);
-        }
+        zombie_ids
     }
 }

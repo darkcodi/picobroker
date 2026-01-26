@@ -111,20 +111,40 @@ impl<
 
     /// Remove a client session and cleanup subscriptions
     pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.client_registry
-            .remove_session(client_id, &mut self.topics)
+        // Remove from client registry first
+        let removed_id = self.client_registry.remove_session(client_id)?;
+
+        // Log before cleanup (since unregister_client takes ownership)
+        log::info!("Cleaned up subscriptions for client {:?}", removed_id);
+
+        // Then cleanup subscriptions from topic registry
+        self.topics.unregister_client(removed_id);
+
+        Ok(())
     }
 
     /// Cleanup zombie sessions (connected but without active connection)
     pub fn cleanup_zombie_sessions(&mut self) {
-        self.client_registry
-            .cleanup_zombie_sessions(&mut self.topics);
+        // Get list of zombie sessions
+        let zombie_ids = self.client_registry.get_zombie_sessions();
+
+        // Remove each zombie session completely (client + topics)
+        for client_id in zombie_ids.iter().flatten() {
+            log::info!("Removing zombie session {}", client_id);
+            let _ = self.remove_client(client_id);
+        }
     }
 
     /// Cleanup expired sessions (keep-alive timeout)
     pub fn cleanup_expired_sessions(&mut self, current_time: u64) {
-        self.client_registry
-            .cleanup_expired_sessions(&mut self.topics, current_time);
+        // Get list of expired sessions
+        let expired_ids = self.client_registry.get_expired_sessions(current_time);
+
+        // Remove each expired session completely (client + topics)
+        for client_id in expired_ids.iter().flatten() {
+            log::info!("Removing expired session {}", client_id);
+            let _ = self.remove_client(client_id);
+        }
     }
 
     // ===== Topic Operations =====
