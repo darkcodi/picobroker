@@ -169,10 +169,27 @@ impl<
                         }
                         Err(e) => {
                             // Handle non-fatal errors
-                            if matches!(e, NetworkError::WouldBlock | NetworkError::TimedOut | NetworkError::Interrupted | NetworkError::InProgress) {
+                            let is_non_fatal = matches!(e,
+                                NetworkError::WouldBlock |
+                                NetworkError::TimedOut |
+                                NetworkError::Interrupted |
+                                NetworkError::InProgress
+                            );
+
+                            if is_non_fatal {
                                 None
                             } else {
-                                return Err(BrokerError::NetworkError { error: e });
+                                // Fatal error - mark session for removal
+                                error!("Fatal error reading from client {}: {}", session.session_id, e);
+                                session.state = ClientState::Disconnected;
+
+                                // Remove session on fatal error
+                                if remove_count < sessions_to_remove.len() {
+                                    sessions_to_remove[remove_count] = Some(session.session_id);
+                                    remove_count += 1;
+                                }
+
+                                None
                             }
                         }
                     }
