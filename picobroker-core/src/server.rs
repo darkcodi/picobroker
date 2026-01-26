@@ -1,5 +1,5 @@
 use log::{error, info};
-use crate::{BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncodingError, PacketEncoder, PingRespPacket, PicoBroker, PubAckPacket, QoS, read_variable_length, SubAckPacket, TcpListener, TcpStream, TimeSource, TopicSubscription};
+use crate::{BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncodingError, PacketEncoder, PingRespPacket, PicoBroker, PubAckPacket, QoS, read_variable_length, SubAckPacket, TcpListener, TcpStream, TimeSource, TopicName, TopicSubscription};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -35,14 +35,6 @@ pub struct PicoBrokerServer<
     listener: TL,
     delay: D,
     broker: PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
-    client_registry: ClientRegistry<
-        MAX_TOPIC_NAME_LENGTH,
-        MAX_PAYLOAD_SIZE,
-        QUEUE_SIZE,
-        MAX_CLIENTS,
-        MAX_TOPICS,
-        MAX_SUBSCRIBERS_PER_TOPIC,
-    >,
     streams: HeaplessVec<(ClientId, Option<TL::Stream>), MAX_CLIENTS>,
     rx_buffers: HeaplessVec<ClientReadBuffer<MAX_PAYLOAD_SIZE>, MAX_CLIENTS>,
 }
@@ -66,7 +58,6 @@ impl<
             listener,
             delay,
             broker: PicoBroker::new(),
-            client_registry: ClientRegistry::new(),
             streams: HeaplessVec::new(),
             rx_buffers: HeaplessVec::new(),
         }
@@ -97,11 +88,11 @@ impl<
                 let current_time = self.time_source.now_secs();
 
                 // Proactively cleanup any dead/zombie sessions before accepting new connection
-                self.client_registry.cleanup_zombie_sessions(&mut self.broker);
+                self.broker.cleanup_zombie_sessions();
 
                 let time = self.time_source.now_secs();
                 let client_id = ClientId::generate(time);
-                match self.client_registry.register_new_client(client_id.clone(), KEEP_ALIVE_SECS, current_time) {
+                match self.broker.register_client(client_id.clone(), KEEP_ALIVE_SECS, current_time) {
                     Ok(_) => {
                         info!("Registered new client with client id {}", client_id);
                         self.set_stream(client_id, stream);
@@ -115,7 +106,7 @@ impl<
             }
 
             // 2. Clean up disconnected sessions before attempting to read
-            self.client_registry.cleanup_zombie_sessions(&mut self.broker);
+            self.broker.cleanup_zombie_sessions();
 
             // 3. Process client messages (round-robin through all sessions)
             self.read_client_messages().await?;
@@ -127,7 +118,7 @@ impl<
             self.write_client_messages().await?;
 
             // 6. Check for expired clients (keep-alive timeout)
-            self.client_registry.cleanup_expired_sessions(&mut self.broker, self.time_source.now_secs());
+            self.broker.cleanup_expired_sessions(self.time_source.now_secs());
 
             // 7. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
@@ -196,7 +187,7 @@ impl<
         let mut client_ids: [Option<ClientId>; 16] = [const { None }; 16];
         let mut client_count = 0usize;
 
-        for session_option in self.client_registry.sessions.iter() {
+        for session_option in self.broker.sessions().iter() {
             if let Some(session) = session_option {
                 if client_count < client_ids.len() {
                     client_ids[client_count] = Some(session.client_id.clone());
@@ -262,7 +253,7 @@ impl<
 
                 // Handle disconnection
                 if should_disconnect {
-                    self.client_registry.mark_disconnected(client_id.clone());
+                    self.broker.mark_client_disconnected(client_id.clone());
                 }
 
                 // Step 2: Append to buffer
@@ -283,7 +274,7 @@ impl<
                             Ok(Some(packet)) => {
                                 info!("Received packet from client {}: {:?}", client_id, packet);
                                 // Find session mutably to update it
-                                if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                                if let Some(session) = self.broker.find_session(client_id) {
                                     session.update_activity(self.time_source.now_secs());
                                     let _ = session.queue_rx_packet(packet);
                                 }
@@ -300,7 +291,7 @@ impl<
 
                                 if is_fatal {
                                     error!("Fatal error reading packet from client {}: {}", client_id, e);
-                                    if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                                    if let Some(session) = self.broker.find_session(client_id) {
                                         session.state = ClientState::Disconnected;
                                     }
 
@@ -321,7 +312,7 @@ impl<
         // Remove sessions that had fatal errors
         for i in 0..remove_count {
             if let Some(client_id) = &sessions_to_remove[i] {
-                let _ = self.client_registry.remove_session(client_id, &mut self.broker);
+                let _ = self.broker.remove_client(client_id);
                 self.remove_rx_buffer(client_id);
                 self.remove_stream(client_id);
             }
@@ -388,7 +379,14 @@ impl<
         let mut messages_to_route: [Option<(ClientId, Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>)>; QUEUE_SIZE] = [const { None }; QUEUE_SIZE];
         let mut route_count = 0usize;
 
-        for session_option in self.client_registry.sessions.iter_mut() {
+        // Collect subscribe requests to process later (use tuples to avoid generic parameter issues)
+        let mut subscribe_client_ids: [Option<ClientId>; 16] = [const { None }; 16];
+        let mut subscribe_topic_filters: [Option<TopicName<MAX_TOPIC_NAME_LENGTH>>; 16] = [const { None }; 16];
+        let mut subscribe_packet_ids: [Option<u16>; 16] = [const { None }; 16];
+        let mut subscribe_qos: [Option<QoS>; 16] = [const { None }; 16];
+        let mut subscribe_count = 0usize;
+
+        for session_option in self.broker.sessions_mut().iter_mut() {
             if let Some(session) = session_option {
                 while let Some(packet) = session.dequeue_rx_packet() {
                     info!("Processing packet from client {}: {:?}", session.client_id, packet);
@@ -443,21 +441,21 @@ impl<
                             // Handle PUBLISH packet
                             info!("Client {} published to topic {}: {:?}", session.client_id, publish.topic_name, publish.payload);
 
-                            // Get subscribers for this topic
-                            let subscribers = self.broker.topics.get_subscribers(&publish.topic_name);
-
-                            // Collect routing tasks for later processing
-                            for client_id in subscribers {
-                                if route_count < messages_to_route.len() {
-                                    messages_to_route[route_count] = Some((client_id, Packet::Publish(publish.clone())));
-                                    route_count += 1;
-                                }
+                            // Collect for routing after loop ends (avoid borrowing broker while sessions is borrowed)
+                            if route_count < messages_to_route.len() {
+                                messages_to_route[route_count] = Some((session.client_id.clone(), Packet::Publish(publish)));
+                                route_count += 1;
                             }
 
                             // Send PUBACK if QoS 1
-                            if publish.qos > QoS::AtMostOnce && publish.packet_id.is_some() {
+                            let publish_ref = if let Packet::Publish(ref p) = messages_to_route[route_count - 1].as_ref().unwrap().1 {
+                                p
+                            } else {
+                                unreachable!()
+                            };
+                            if publish_ref.qos > QoS::AtMostOnce && publish_ref.packet_id.is_some() {
                                 let mut puback = PubAckPacket::default();
-                                puback.packet_id = publish.packet_id.unwrap();
+                                puback.packet_id = publish_ref.packet_id.unwrap();
                                 let _ = session.queue_tx_packet(Packet::PubAck(puback));
                             }
                         }
@@ -466,35 +464,17 @@ impl<
                         Packet::PubRel(_) => {}
                         Packet::PubComp(_) => {}
                         Packet::Subscribe(subscribe) => {
-                            // Handle SUBSCRIBE packet
+                            // Handle SUBSCRIBE packet - collect for later processing
                             info!("Client {} subscribing to topic {} with QoS {:?}",
                                   session.client_id, subscribe.topic_filter, subscribe.requested_qos);
 
-                            // Subscribe to the topic
-                            let topic_subscription = TopicSubscription::Exact(subscribe.topic_filter.clone());
-                            match self.broker.topics.subscribe(session.client_id.clone(), topic_subscription) {
-                                Ok(()) => {
-                                    info!("Client {} successfully subscribed to {}",
-                                          session.client_id, subscribe.topic_filter);
-
-                                    // Send SUBACK with granted QoS (for now, grant the requested QoS)
-                                    let suback = SubAckPacket {
-                                        packet_id: subscribe.packet_id,
-                                        granted_qos: subscribe.requested_qos,
-                                    };
-                                    let _ = session.queue_tx_packet(Packet::SubAck(suback));
-                                }
-                                Err(e) => {
-                                    error!("Failed to subscribe client {} to topic {}: {}",
-                                           session.client_id, subscribe.topic_filter, e);
-
-                                    // Send SUBACK with failure QoS (0x80 indicates failure)
-                                    let suback = SubAckPacket {
-                                        packet_id: subscribe.packet_id,
-                                        granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
-                                    };
-                                    let _ = session.queue_tx_packet(Packet::SubAck(suback));
-                                }
+                            // Collect subscribe request for processing after loop
+                            if subscribe_count < subscribe_client_ids.len() {
+                                subscribe_client_ids[subscribe_count] = Some(session.client_id.clone());
+                                subscribe_topic_filters[subscribe_count] = Some(subscribe.topic_filter.clone());
+                                subscribe_packet_ids[subscribe_count] = Some(subscribe.packet_id);
+                                subscribe_qos[subscribe_count] = Some(subscribe.requested_qos);
+                                subscribe_count += 1;
                             }
                         }
                         Packet::SubAck(_) => {}
@@ -528,12 +508,60 @@ impl<
             }
         }
 
-        // Route collected messages to subscribers
+        // Route collected messages to subscribers (now sessions is no longer borrowed)
         for i in 0..route_count {
-            if let Some((client_id, packet)) = &messages_to_route[i] {
-                if let Some(target_session) = self.client_registry.find_session_by_client_id(client_id) {
-                    let _ = target_session.queue_tx_packet(packet.clone());
-                    info!("Routed message to subscriber {:?}", client_id);
+            if let Some((_publisher_id, packet)) = &messages_to_route[i] {
+                if let Packet::Publish(publish) = packet {
+                    // Get subscribers for this topic
+                    let subscribers = self.broker.get_topic_subscribers(&publish.topic_name);
+
+                    // Route to each subscriber
+                    for subscriber_id in subscribers {
+                        if let Some(target_session) = self.broker.find_session(&subscriber_id) {
+                            let _ = target_session.queue_tx_packet(packet.clone());
+                            info!("Routed message to subscriber {:?}", subscriber_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Process collected subscribe requests (now sessions is no longer borrowed)
+        for i in 0..subscribe_count {
+            if let (Some(client_id), Some(topic_filter), Some(packet_id), Some(requested_qos)) = (
+                &subscribe_client_ids[i],
+                &subscribe_topic_filters[i],
+                subscribe_packet_ids[i],
+                subscribe_qos[i],
+            ) {
+                let topic_subscription = TopicSubscription::Exact(topic_filter.clone());
+                match self.broker.subscribe_client(client_id.clone(), topic_subscription) {
+                    Ok(()) => {
+                        info!("Client {} successfully subscribed to {}",
+                              client_id, topic_filter);
+
+                        // Send SUBACK
+                        if let Some(session) = self.broker.find_session(client_id) {
+                            let suback = SubAckPacket {
+                                packet_id,
+                                granted_qos: requested_qos,
+                            };
+                            let _ = session.queue_tx_packet(Packet::SubAck(suback));
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to subscribe client {} to topic {}: {}",
+                               client_id, topic_filter, e);
+
+                        // Send SUBACK with failure QoS
+                        if let Some(session) = self.broker.find_session(client_id) {
+                            let suback = SubAckPacket {
+                                packet_id,
+                                granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
+                            };
+                            let _ = session.queue_tx_packet(Packet::SubAck(suback));
+                        }
+                    }
                 }
             }
         }
@@ -553,7 +581,7 @@ impl<
         let mut client_ids: [Option<ClientId>; 16] = [const { None }; 16];
         let mut client_count = 0usize;
 
-        for session_option in self.client_registry.sessions.iter() {
+        for session_option in self.broker.sessions().iter() {
             if let Some(session) = session_option {
                 if client_count < client_ids.len() {
                     client_ids[client_count] = Some(session.client_id.clone());
@@ -565,7 +593,7 @@ impl<
         // Then collect packets from each client
         for i in 0..client_count {
             if let Some(client_id) = &client_ids[i] {
-                if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                if let Some(session) = self.broker.find_session(client_id) {
                     while let Some(packet) = session.dequeue_tx_packet() {
                         if packet_count < packets_to_send.len() {
                             packets_to_send[packet_count] = Some((client_id.clone(), packet));
@@ -597,7 +625,7 @@ impl<
 
                 if !stream_exists {
                     error!("No stream found for client {}", client_id);
-                    if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                    if let Some(session) = self.broker.find_session(client_id) {
                         session.state = ClientState::Disconnected;
                     }
                     if remove_count < sessions_to_remove.len() {
@@ -654,7 +682,7 @@ impl<
                 }
 
                 if should_disconnect {
-                    if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                    if let Some(session) = self.broker.find_session(client_id) {
                         session.state = ClientState::Disconnected;
                     }
                     if remove_count < sessions_to_remove.len() {
@@ -674,7 +702,7 @@ impl<
                             }
                             Err(e) => {
                                 error!("Error flushing stream: {}", e);
-                                if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                                if let Some(session) = self.broker.find_session(client_id) {
                                     session.state = ClientState::Disconnected;
                                 }
                                 if remove_count < sessions_to_remove.len() {
@@ -691,7 +719,7 @@ impl<
         // Remove sessions that had fatal errors
         for i in 0..remove_count {
             if let Some(client_id) = &sessions_to_remove[i] {
-                let _ = self.client_registry.remove_session(client_id, &mut self.broker);
+                let _ = self.broker.remove_client(client_id);
                 self.remove_rx_buffer(client_id);
                 self.remove_stream(client_id);
             }
@@ -872,7 +900,7 @@ pub struct ClientRegistry<
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     /// Sessions with communication queues
-    sessions: HeaplessVec<
+    pub sessions: HeaplessVec<
         Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
         MAX_CLIENTS
     >,
@@ -914,7 +942,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     ///
     /// Returns None if session not found or client_id is not set.
     /// Uses linear search which is acceptable since MAX_CLIENTS is typically small (4-16).
-    fn find_session_by_client_id(
+    pub fn find_session_by_client_id(
         &mut self,
         client_id: &ClientId
     ) -> Option<&mut ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
@@ -935,8 +963,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     pub fn remove_session(
         &mut self,
         client_id: &ClientId,
-        broker: &mut PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
-                                MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        topics: &mut crate::topics::TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
     ) -> Result<(), BrokerError> {
         // Find the session index
         let session_idx = self.sessions.iter().position(|s| {
@@ -951,7 +978,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
 
             // Cleanup subscriptions if client_id exists
             if let Some(id) = &client_id {
-                broker.topics.unregister_client(id.clone());
+                topics.unregister_client(id.clone());
                 info!("Cleaned up subscriptions for client {:?}", id);
             }
 
@@ -981,8 +1008,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// Removes all sessions where time since last activity exceeds 1.5x keep-alive.
     pub fn cleanup_expired_sessions(
         &mut self,
-        broker: &mut PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
-                                MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
+        topics: &mut crate::topics::TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
         current_time: u64
     ) {
         // Use a simple array to collect expired session IDs
@@ -1003,7 +1029,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
         for i in 0..expired_count {
             if let Some(session_id) = &expired_ids[i] {
                 info!("Removing expired session {}", session_id);
-                let _ = self.remove_session(session_id, broker);
+                let _ = self.remove_session(session_id, topics);
             }
         }
     }
@@ -1014,8 +1040,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// It checks for dead connections by attempting to detect socket errors.
     pub fn cleanup_zombie_sessions(
         &mut self,
-        broker: &mut PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
-                                MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        topics: &mut crate::topics::TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
     ) {
         let mut zombie_ids = [const { None }; MAX_CLIENTS];
         let mut zombie_count = 0usize;
@@ -1037,7 +1062,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
         for i in 0..zombie_count {
             if let Some(client_id) = &zombie_ids[i] {
                 info!("Removing zombie session {}", client_id);
-                let _ = self.remove_session(client_id, broker);
+                let _ = self.remove_session(client_id, topics);
             }
         }
     }

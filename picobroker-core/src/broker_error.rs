@@ -8,6 +8,8 @@ use crate::{NetworkError, PacketEncodingError};
 pub enum BrokerError {
     /// Client with the given ID is already connected
     ClientAlreadyConnected,
+    /// Client with the given ID was not found
+    ClientNotFound,
     /// Client's message queue is full
     ClientQueueFull { queue_size: usize },
     /// Maximum number of clients reached
@@ -27,6 +29,9 @@ impl core::fmt::Display for BrokerError {
         match self {
             BrokerError::ClientAlreadyConnected => {
                 write!(f, "Client with the given ID is already connected")
+            }
+            BrokerError::ClientNotFound => {
+                write!(f, "Client with the given ID was not found")
             }
             BrokerError::ClientQueueFull { queue_size } => {
                 write!(f, "Client's message queue is full (size: {})", queue_size)
