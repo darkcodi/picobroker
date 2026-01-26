@@ -319,21 +319,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fm
 mod tests {
     use super::*;
     use crate::protocol::packet_error::PacketEncodingError;
+    use crate::protocol::utils::hex_to_bytes;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
     const MAX_PAYLOAD_SIZE: usize = 128;
 
     // ===== HELPER FUNCTIONS =====
-
-    fn hex_to_bytes(hex: &str) -> HeaplessVec<u8, MAX_PAYLOAD_SIZE> {
-        let mut result = HeaplessVec::new();
-        for s in hex.split_whitespace() {
-            if let Ok(b) = u8::from_str_radix(s, 16) {
-                let _ = result.push(b);
-            }
-        }
-        result
-    }
 
     fn roundtrip_test(bytes: &[u8]) -> ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
@@ -444,21 +435,21 @@ mod tests {
 
     #[test]
     fn test_connect_flag_clean_session_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
     }
 
     #[test]
     fn test_connect_flag_clean_session_not_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 00 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 00 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::CLEAN_SESSION));
     }
 
     #[test]
     fn test_connect_flag_reserved_bit_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 03 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 03 00 3C 00 03 61 62 63");
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(
             result,
@@ -470,14 +461,14 @@ mod tests {
 
     #[test]
     fn test_connect_flag_will_flag_set() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
     }
 
     #[test]
     fn test_connect_flag_will_flag_not_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_FLAG));
     }
@@ -486,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_connect_flag_will_qos_0() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_QOS_2));
@@ -494,14 +485,14 @@ mod tests {
 
     #[test]
     fn test_connect_flag_will_qos_1() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 0E 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 0E 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_1));
     }
 
     #[test]
     fn test_connect_flag_will_qos_2() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 16 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 16 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_QOS_2));
     }
@@ -510,14 +501,14 @@ mod tests {
 
     #[test]
     fn test_connect_flag_will_retain_set() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 26 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 26 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
     }
 
     #[test]
     fn test_connect_flag_will_retain_not_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::WILL_RETAIN));
     }
@@ -527,14 +518,14 @@ mod tests {
     #[test]
     fn test_connect_flag_username_set() {
         let bytes =
-            hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
+            hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::USERNAME));
     }
 
     #[test]
     fn test_connect_flag_username_not_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::USERNAME));
     }
@@ -543,14 +534,14 @@ mod tests {
 
     #[test]
     fn test_connect_flag_password_set() {
-        let bytes = hex_to_bytes("10 1C 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 04 70 61 73 73");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 1C 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 04 70 61 73 73");
         let packet = roundtrip_test(&bytes);
         assert!(packet.connect_flags.contains(ConnectFlags::PASSWORD));
     }
 
     #[test]
     fn test_connect_flag_password_not_set() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert!(!packet.connect_flags.contains(ConnectFlags::PASSWORD));
     }
@@ -559,21 +550,21 @@ mod tests {
 
     #[test]
     fn test_keep_alive_value_60() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 60);
     }
 
     #[test]
     fn test_keep_alive_value_zero() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 00 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 00 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 0);
     }
 
     #[test]
     fn test_keep_alive_value_max() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 FF FF 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 FF FF 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.keep_alive, 65535);
     }
@@ -582,21 +573,21 @@ mod tests {
 
     #[test]
     fn test_client_id_value_abc() {
-        let bytes = hex_to_bytes("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.as_str(), "abc");
     }
 
     #[test]
     fn test_client_id_empty_with_clean_session() {
-        let bytes = hex_to_bytes("10 0C 00 04 4D 51 54 54 04 02 00 3C 00 00");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0C 00 04 4D 51 54 54 04 02 00 3C 00 00");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.as_str(), "");
     }
 
     #[test]
     fn test_client_id_exactly_max_length() {
-        let bytes = hex_to_bytes("10 23 00 04 4D 51 54 54 04 02 00 3C 00 17 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 23 00 04 4D 51 54 54 04 02 00 3C 00 17 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.len(), 23);
     }
@@ -604,7 +595,7 @@ mod tests {
     #[test]
     fn test_client_id_unicode() {
         let bytes =
-            hex_to_bytes("10 15 00 04 4D 51 54 54 04 02 00 3C 00 09 E4 BD A0 E5 A5 BD E4 B8 96");
+            hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 15 00 04 4D 51 54 54 04 02 00 3C 00 09 E4 BD A0 E5 A5 BD E4 B8 96");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.as_str(), "你好世");
     }
@@ -613,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_will_topic_valid() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert_eq!(
             packet.will_topic.as_ref().map(|t| t.as_str()),
@@ -625,7 +616,7 @@ mod tests {
 
     #[test]
     fn test_will_payload_valid() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 07 77 69 6C 6C 6D 73 67");
         let packet = roundtrip_test(&bytes);
         assert_eq!(
             packet.will_payload.as_ref().map(|p| p.as_slice()),
@@ -635,7 +626,7 @@ mod tests {
 
     #[test]
     fn test_will_payload_empty() {
-        let bytes = hex_to_bytes(
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>(
             "10 19 00 04 4D 51 54 54 04 06 00 3C 00 03 61 62 63 00 06 77 69 6C 6C 74 70 00 00",
         );
         let packet = roundtrip_test(&bytes);
@@ -647,28 +638,28 @@ mod tests {
     #[test]
     fn test_username_value_user1() {
         let bytes =
-            hex_to_bytes("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
+            hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 16 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 05 75 73 65 72 31");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().map(|s| s.as_str()), Some("user1"));
     }
 
     #[test]
     fn test_username_empty() {
-        let bytes = hex_to_bytes("10 11 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 00");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 11 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 00");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().unwrap().len(), 0);
     }
 
     #[test]
     fn test_username_exactly_max_length() {
-        let bytes = hex_to_bytes("10 2F 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 1E 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 2F 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 1E 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75 75");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.username.as_ref().unwrap().len(), 30);
     }
 
     #[test]
     fn test_username_unicode() {
-        let bytes = hex_to_bytes(
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>(
             "10 17 00 04 4D 51 54 54 04 82 00 3C 00 03 61 62 63 00 06 C3 B1 C3 A1 C3 A9",
         );
         let packet = roundtrip_test(&bytes);
@@ -679,7 +670,7 @@ mod tests {
 
     #[test]
     fn test_password_value_pass1() {
-        let bytes = hex_to_bytes("10 1D 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 05 70 61 73 73 31");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 1D 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 05 70 61 73 73 31");
         let packet = roundtrip_test(&bytes);
         assert_eq!(
             packet.password.as_ref().map(|p| p.as_slice()),
@@ -689,7 +680,7 @@ mod tests {
 
     #[test]
     fn test_password_empty() {
-        let bytes = hex_to_bytes(
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>(
             "10 18 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 00",
         );
         let packet = roundtrip_test(&bytes);
@@ -698,14 +689,14 @@ mod tests {
 
     #[test]
     fn test_password_exactly_max_length() {
-        let bytes = hex_to_bytes("10 36 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 1E 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 36 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 1E 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70 70");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.password.as_ref().unwrap().len(), 30);
     }
 
     #[test]
     fn test_password_binary_data() {
-        let bytes = hex_to_bytes("10 20 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 08 00 01 FF FE 00 FF 01 02");
+        let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 20 00 04 4D 51 54 54 04 C2 00 3C 00 03 61 62 63 00 05 75 73 65 72 31 00 08 00 01 FF FE 00 FF 01 02");
         let packet = roundtrip_test(&bytes);
         assert_eq!(
             packet.password.as_ref().unwrap().as_slice(),

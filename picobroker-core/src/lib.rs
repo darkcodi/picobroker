@@ -60,6 +60,7 @@ pub use protocol::UnsubAckPacket;
 pub use protocol::UnsubscribePacket;
 pub use protocol::{
     read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
+    hex_to_bytes, bytes_to_hex,
 };
 pub use traits::{TimeSource, Delay};
 pub use topics::{TopicEntry, TopicName, TopicRegistry, TopicSubscription};

@@ -1,5 +1,5 @@
 use log::{error, info};
-use crate::{BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PicoBroker, PubAckPacket, QoS, SocketAddr, TcpListener, TcpStream, TimeSource};
+use crate::{bytes_to_hex, BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PacketType, PicoBroker, PubAckPacket, QoS, SocketAddr, TcpListener, TcpStream, TimeSource};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -289,6 +289,10 @@ impl<
             Ok(bytes_read) => {
                 if bytes_read > 0 {
                     let slice = &header_buffer[..bytes_read];
+                    let hex_repr = bytes_to_hex::<256>(slice);
+                    info!("Trying to decode packet: {}", &hex_repr);
+                    let packet_type = PacketType::from(slice[0]);
+                    info!("Detected packet type: {:?}", packet_type);
                     let maybe_packet = Packet::decode(slice);
                     match maybe_packet {
                         Ok(packet) => Ok(Some(packet)),

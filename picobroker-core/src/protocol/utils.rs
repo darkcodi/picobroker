@@ -1,4 +1,6 @@
-use crate::PacketEncodingError;
+use core::fmt::Write;
+use crate::{HeaplessString, PacketEncodingError};
+use crate::protocol::HeaplessVec;
 
 pub const fn variable_length_length(value: usize) -> usize {
     if value < 128 {
@@ -177,4 +179,25 @@ pub fn write_binary(
     buffer[*offset..*offset + len].copy_from_slice(data);
     *offset += len;
     Ok(())
+}
+
+pub fn hex_to_bytes<const N: usize>(hex: &str) -> HeaplessVec<u8, N> {
+    let mut result = HeaplessVec::new();
+    for s in hex.split_whitespace() {
+        if let Ok(b) = u8::from_str_radix(s, 16) {
+            let _ = result.push(b);
+        }
+    }
+    result
+}
+
+pub fn bytes_to_hex<const N: usize>(bytes: &[u8]) -> HeaplessString<N> {
+    let mut result = HeaplessString::new();
+    for (i, byte) in bytes.iter().enumerate() {
+        if i > 0 {
+            let _ = result.push(' ');
+        }
+        let _ = core::write!(result, "{:02X}", byte);
+    }
+    result
 }

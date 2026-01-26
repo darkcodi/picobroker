@@ -28,4 +28,5 @@ pub use packet_type::PacketType;
 pub use qos::QoS;
 pub use utils::{
     read_string, read_variable_length, variable_length_length, write_string, write_variable_length,
+    hex_to_bytes, bytes_to_hex,
 };
