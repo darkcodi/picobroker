@@ -180,13 +180,21 @@ pub struct ClientRegistry<
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
+Default for ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+{
+    fn default() -> Self {
+        Self {
+            sessions: HeaplessVec::new(),
+        }
+    }
+}
+
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
 ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new client registry
     pub fn new() -> Self {
-        Self {
-            sessions: HeaplessVec::new(),
-        }
+        Self::default()
     }
 
     // ===== Helper methods for broker.rs =====
@@ -194,12 +202,10 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// Get all active client IDs into a stack-allocated array
     pub fn get_active_client_ids(&self, output: &mut [Option<ClientId>]) -> usize {
         let mut count = 0usize;
-        for session_option in self.sessions.iter() {
-            if let Some(session) = session_option {
-                if count < output.len() {
-                    output[count] = Some(session.client_id.clone());
-                    count += 1;
-                }
+        for session in self.sessions.iter().flatten() {
+            if count < output.len() {
+                output[count] = Some(session.client_id.clone());
+                count += 1;
             }
         }
         count
@@ -319,21 +325,17 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
         let mut expired_count = 0usize;
 
         // Collect expired session IDs
-        for session in &self.sessions {
-            if let Some(sess) = session {
-                if sess.is_expired(current_time) {
-                    expired_ids[expired_count] = Some(sess.client_id.clone());
-                    expired_count += 1;
-                }
+        for sess in (&self.sessions).into_iter().flatten() {
+            if sess.is_expired(current_time) {
+                expired_ids[expired_count] = Some(sess.client_id.clone());
+                expired_count += 1;
             }
         }
 
         // Remove each expired session
-        for i in 0..expired_count {
-            if let Some(session_id) = &expired_ids[i] {
-                info!("Removing expired session {}", session_id);
-                let _ = self.remove_session(session_id, topics);
-            }
+        for session_id in expired_ids.iter().take(expired_count).flatten() {
+            info!("Removing expired session {}", session_id);
+            let _ = self.remove_session(session_id, topics);
         }
     }
 
@@ -349,24 +351,18 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
         let mut zombie_count = 0usize;
 
         // Check each session for dead connections
-        for session in &self.sessions {
-            if let Some(sess) = session {
-                // Check if session state is Disconnected
-                if sess.state == ClientState::Disconnected {
-                    if zombie_count < zombie_ids.len() {
-                        zombie_ids[zombie_count] = Some(sess.client_id.clone());
-                        zombie_count += 1;
-                    }
-                }
+        for sess in (&self.sessions).into_iter().flatten() {
+            // Check if session state is Disconnected
+            if sess.state == ClientState::Disconnected && zombie_count < zombie_ids.len() {
+                zombie_ids[zombie_count] = Some(sess.client_id.clone());
+                zombie_count += 1;
             }
         }
 
         // Remove each zombie session
-        for i in 0..zombie_count {
-            if let Some(client_id) = &zombie_ids[i] {
-                info!("Removing zombie session {}", client_id);
-                let _ = self.remove_session(client_id, topics);
-            }
+        for client_id in zombie_ids.iter().take(zombie_count).flatten() {
+            info!("Removing zombie session {}", client_id);
+            let _ = self.remove_session(client_id, topics);
         }
     }
 }

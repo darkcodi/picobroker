@@ -1,3 +1,6 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PushError;
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct HeaplessString<const N: usize> {
     length: u8,
@@ -22,12 +25,12 @@ impl<const N: usize> core::fmt::Display for HeaplessString<N> {
 }
 
 impl<const N: usize> TryFrom<&str> for HeaplessString<N> {
-    type Error = ();
+    type Error = PushError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let bytes = value.as_bytes();
         if bytes.len() > N {
-            return Err(());
+            return Err(PushError);
         }
         let mut data = [0u8; N];
         data[..bytes.len()].copy_from_slice(bytes);
@@ -85,10 +88,10 @@ impl<const N: usize> HeaplessString<N> {
         self.data = [0; N];
     }
 
-    pub fn push(&mut self, ch: char) -> Result<(), ()> {
+    pub fn push(&mut self, ch: char) -> Result<(), PushError> {
         let ch_len = ch.len_utf8();
         if (self.length as usize) + ch_len > N {
-            return Err(());
+            return Err(PushError);
         }
         let mut buf = [0u8; 4];
         ch.encode_utf8(&mut buf);
@@ -98,10 +101,10 @@ impl<const N: usize> HeaplessString<N> {
         Ok(())
     }
 
-    pub fn push_str(&mut self, s: &str) -> Result<(), ()> {
+    pub fn push_str(&mut self, s: &str) -> Result<(), PushError> {
         let bytes = s.as_bytes();
         if (self.length as usize) + bytes.len() > N {
-            return Err(());
+            return Err(PushError);
         }
         self.data[self.length as usize..self.length as usize + bytes.len()].copy_from_slice(bytes);
         self.length += bytes.len() as u8;
@@ -164,9 +167,9 @@ impl<T, const N: usize> HeaplessVec<T, N> {
         self.length = 0;
     }
 
-    pub fn push(&mut self, item: T) -> Result<(), ()> {
+    pub fn push(&mut self, item: T) -> Result<(), PushError> {
         if (self.length as usize) >= N {
-            return Err(());
+            return Err(PushError);
         }
         self.data[self.length as usize] = item;
         self.length += 1;
@@ -197,13 +200,13 @@ impl<T, const N: usize> HeaplessVec<T, N> {
         &self.data[..self.length as usize]
     }
 
-    pub fn extend_from_slice(&mut self, slice: &[T]) -> Result<(), ()>
+    pub fn extend_from_slice(&mut self, slice: &[T]) -> Result<(), PushError>
     where
         T: Clone,
     {
         // Check if adding slice would exceed capacity
         if (self.length as usize) + slice.len() > N {
-            return Err(());
+            return Err(PushError);
         }
 
         // Clone each element from slice into self.data
@@ -437,8 +440,8 @@ mod tests {
     #[test]
     fn test_extend_from_slice() {
         let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
-        vec.push(1).unwrap();
-        vec.push(2).unwrap();
+        let _ = vec.push(1);
+        let _ = vec.push(2);
 
         // Extend with empty slice
         assert!(vec.extend_from_slice(&[]).is_ok());
@@ -457,10 +460,10 @@ mod tests {
     #[test]
     fn test_remove() {
         let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
-        vec.push(1).unwrap();
-        vec.push(2).unwrap();
-        vec.push(3).unwrap();
-        vec.push(4).unwrap();
+        let _ = vec.push(1);
+        let _ = vec.push(2);
+        let _ = vec.push(3);
+        let _ = vec.push(4);
 
         // Remove from middle
         vec.remove(1);
@@ -491,7 +494,7 @@ mod tests {
     fn test_retain() {
         let mut vec: HeaplessVec<u8, 10> = HeaplessVec::new();
         for i in 1..=5 {
-            vec.push(i).unwrap();
+            let _ = vec.push(i);
         }
 
         // Keep only even numbers
@@ -510,9 +513,9 @@ mod tests {
     #[test]
     fn test_vec_iteration_via_deref() {
         let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
-        vec.push(1).unwrap();
-        vec.push(2).unwrap();
-        vec.push(3).unwrap();
+        let _ = vec.push(1);
+        let _ = vec.push(2);
+        let _ = vec.push(3);
 
         // Test iter() from Deref
         let mut iter = vec.iter();
@@ -541,7 +544,7 @@ mod tests {
     #[test]
     fn test_fmt_write_formatting() {
         let mut s = HeaplessString::<20>::new();
-        write!(s, "Hello, {}!", "world").unwrap();
+        write!(s, "Hello, world!").unwrap();
         assert_eq!(s.as_str(), "Hello, world!");
     }
 

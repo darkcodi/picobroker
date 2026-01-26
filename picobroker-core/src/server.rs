@@ -197,109 +197,106 @@ impl<
         let client_count = self.broker.get_active_client_ids(&mut client_ids);
 
         // Process each client
-        for i in 0..client_count {
-            if let Some(client_id) = &client_ids[i] {
-                // Step 1: Read from stream into a local buffer
-                let (bytes_read, should_disconnect) = {
-                    // Get buffer to check remaining space
-                    let buffer_idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
-                    let remaining_space = if let Some(idx) = buffer_idx {
-                        MAX_PAYLOAD_SIZE - self.rx_buffers[idx].len()
+        for client_id in client_ids.iter().take(client_count).flatten() {
+            // Step 1: Read from stream into a local buffer
+            let (bytes_read, should_disconnect) = {
+                // Get buffer to check remaining space
+                let buffer_idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
+                let remaining_space = if let Some(idx) = buffer_idx {
+                    MAX_PAYLOAD_SIZE - self.rx_buffers[idx].len()
+                } else {
+                    MAX_PAYLOAD_SIZE
+                };
+
+                if remaining_space == 0 {
+                    (None, false)
+                } else {
+                    let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
+
+                    // Get stream and read
+                    let stream_result = self.get_stream_mut(client_id.clone());
+                    let stream_exists = stream_result.is_some();
+
+                    let read_result = if stream_exists {
+                        let stream = stream_result.unwrap();
+                        stream.try_read(&mut read_buf[..remaining_space]).await
                     } else {
-                        MAX_PAYLOAD_SIZE
+                        // No stream found - return would block error
+                        Err(NetworkError::WouldBlock)
                     };
 
-                    if remaining_space == 0 {
-                        (None, false)
-                    } else {
-                        let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
+                    match read_result {
+                        Ok(0) => {
+                            info!("Connection closed by peer (0 bytes read)");
+                            (None, true)
+                        }
+                        Ok(n) => (Some(read_buf[..n].to_vec()), false),
+                        Err(e) => {
+                            let is_non_fatal = matches!(e,
+                                NetworkError::WouldBlock |
+                                NetworkError::TimedOut |
+                                NetworkError::Interrupted |
+                                NetworkError::InProgress
+                            );
 
-                        // Get stream and read
-                        let stream_result = self.get_stream_mut(client_id.clone());
-                        let stream_exists = stream_result.is_some();
-
-                        let read_result = if stream_exists {
-                            let stream = stream_result.unwrap();
-                            stream.try_read(&mut read_buf[..remaining_space]).await
-                        } else {
-                            // No stream found - return would block error
-                            Err(NetworkError::WouldBlock)
-                        };
-
-                        match read_result {
-                            Ok(0) => {
-                                info!("Connection closed by peer (0 bytes read)");
+                            if is_non_fatal {
+                                (None, false)
+                            } else {
+                                error!("Fatal error reading from client {}: {}", client_id, e);
                                 (None, true)
-                            }
-                            Ok(n) => (Some((&read_buf[..n]).to_vec()), false),
-                            Err(e) => {
-                                let is_non_fatal = matches!(e,
-                                    NetworkError::WouldBlock |
-                                    NetworkError::TimedOut |
-                                    NetworkError::Interrupted |
-                                    NetworkError::InProgress
-                                );
-
-                                if is_non_fatal {
-                                    (None, false)
-                                } else {
-                                    error!("Fatal error reading from client {}: {}", client_id, e);
-                                    (None, true)
-                                }
                             }
                         }
                     }
-                };
-
-                // Handle disconnection
-                if should_disconnect {
-                    self.broker.mark_client_disconnected(client_id.clone());
                 }
+            };
 
-                // Step 2: Append to buffer
-                if let Some(data) = bytes_read {
-                    let rx_buffer = self.get_or_create_rx_buffer(client_id.clone());
-                    rx_buffer.append(&data);
-                }
+            // Handle disconnection
+            if should_disconnect {
+                self.broker.mark_client_disconnected(client_id.clone());
+            }
 
-                // Step 3: Try to decode packets
-                let buffer_idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
-                if let Some(idx) = buffer_idx {
-                    let has_data = !self.rx_buffers[idx].is_empty();
+            // Step 2: Append to buffer
+            if let Some(data) = bytes_read {
+                let rx_buffer = self.get_or_create_rx_buffer(client_id.clone());
+                rx_buffer.append(&data);
+            }
 
-                    if has_data {
-                        let packet_result = Self::try_decode_from_buffer(&mut self.rx_buffers[idx]);
+            // Step 3: Try to decode packets
+            let buffer_idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
+            if let Some(idx) = buffer_idx {
+                let has_data = !self.rx_buffers[idx].is_empty();
 
-                        match packet_result {
-                            Ok(Some(packet)) => {
-                                info!("Received packet from client {}: {:?}", client_id, packet);
-                                // Use new broker API to update activity and queue packet
-                                let current_time = self.time_source.now_secs();
-                                let _ = self.broker.update_session_activity(client_id, current_time);
-                                let _ = self.broker.queue_rx_packet(client_id, packet);
-                            }
-                            Ok(None) => {
-                                // No complete packet available, continue
-                            }
-                            Err(e) => {
-                                let is_fatal = match e {
-                                    BrokerError::NetworkError { error: NetworkError::ConnectionClosed } => true,
-                                    BrokerError::NetworkError { error: NetworkError::IoError } => true,
-                                    _ => false,
-                                };
+                if has_data {
+                    let packet_result = Self::try_decode_from_buffer(&mut self.rx_buffers[idx]);
 
-                                if is_fatal {
-                                    error!("Fatal error reading packet from client {}: {}", client_id, e);
-                                    // Use new broker API to set state
-                                    let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                    match packet_result {
+                        Ok(Some(packet)) => {
+                            info!("Received packet from client {}: {:?}", client_id, packet);
+                            // Use new broker API to update activity and queue packet
+                            let current_time = self.time_source.now_secs();
+                            let _ = self.broker.update_session_activity(client_id, current_time);
+                            let _ = self.broker.queue_rx_packet(client_id, packet);
+                        }
+                        Ok(None) => {
+                            // No complete packet available, continue
+                        }
+                        Err(e) => {
+                            let is_fatal = matches!(e,
+                                BrokerError::NetworkError { error: NetworkError::ConnectionClosed } |
+                                BrokerError::NetworkError { error: NetworkError::IoError }
+                            );
 
-                                    if remove_count < sessions_to_remove.len() {
-                                        sessions_to_remove[remove_count] = Some(client_id.clone());
-                                        remove_count += 1;
-                                    }
-                                } else {
-                                    info!("Non-fatal error reading from client {}: {}", client_id, e);
+                            if is_fatal {
+                                error!("Fatal error reading packet from client {}: {}", client_id, e);
+                                // Use new broker API to set state
+                                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+
+                                if remove_count < sessions_to_remove.len() {
+                                    sessions_to_remove[remove_count] = Some(client_id.clone());
+                                    remove_count += 1;
                                 }
+                            } else {
+                                info!("Non-fatal error reading from client {}: {}", client_id, e);
                             }
                         }
                     }
@@ -308,12 +305,10 @@ impl<
         }
 
         // Remove sessions that had fatal errors
-        for i in 0..remove_count {
-            if let Some(client_id) = &sessions_to_remove[i] {
-                let _ = self.broker.remove_client(client_id);
-                self.remove_rx_buffer(client_id);
-                self.remove_stream(client_id);
-            }
+        for client_id in sessions_to_remove.iter().take(remove_count).flatten() {
+            let _ = self.broker.remove_client(client_id);
+            self.remove_rx_buffer(client_id);
+            self.remove_stream(client_id);
         }
 
         Ok(())
@@ -384,119 +379,115 @@ impl<
         let client_count = self.broker.get_active_client_ids(&mut client_ids);
 
         // Collect packets from each client
-        for i in 0..client_count {
-            if let Some(client_id) = &client_ids[i] {
-                while let Some(packet) = self.broker.dequeue_tx_packet(client_id) {
-                    if packet_count < packets_to_send.len() {
-                        packets_to_send[packet_count] = Some((client_id.clone(), packet));
-                        packet_count += 1;
-                    }
+        for client_id in client_ids.iter().take(client_count).flatten() {
+            while let Some(packet) = self.broker.dequeue_tx_packet(client_id) {
+                if packet_count < packets_to_send.len() {
+                    packets_to_send[packet_count] = Some((client_id.clone(), packet));
+                    packet_count += 1;
                 }
             }
         }
 
         // Send each packet
-        for i in 0..packet_count {
-            if let Some((client_id, packet)) = &packets_to_send[i] {
-                info!("Sending packet to client {}: {:?}", client_id, packet);
-                let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
-                let packet_size_result = packet.encode(&mut buffer);
-                let packet_size = match packet_size_result {
-                    Ok(encoded) => encoded,
-                    Err(e) => {
-                        error!("Error encoding packet for client {}: {}", client_id, e);
-                        continue; // Skip sending this packet
-                    }
-                };
-                let encoded_packet = &buffer[..packet_size];
-                info!("Encoded packet: {} bytes", packet_size);
+        for (client_id, packet) in packets_to_send.iter().take(packet_count).flatten() {
+            info!("Sending packet to client {}: {:?}", client_id, packet);
+            let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+            let packet_size_result = packet.encode(&mut buffer);
+            let packet_size = match packet_size_result {
+                Ok(encoded) => encoded,
+                Err(e) => {
+                    error!("Error encoding packet for client {}: {}", client_id, e);
+                    continue; // Skip sending this packet
+                }
+            };
+            let encoded_packet = &buffer[..packet_size];
+            info!("Encoded packet: {} bytes", packet_size);
 
-                // Get stream for this client
-                let stream_exists = self.get_stream_mut(client_id.clone()).is_some();
+            // Get stream for this client
+            let stream_exists = self.get_stream_mut(client_id.clone()).is_some();
 
-                if !stream_exists {
+            if !stream_exists {
+                error!("No stream found for client {}", client_id);
+                // Use new broker API to set state
+                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                if remove_count < sessions_to_remove.len() {
+                    sessions_to_remove[remove_count] = Some(client_id.clone());
+                    remove_count += 1;
+                }
+                continue;
+            }
+
+            // Write ALL bytes (handle partial writes)
+            let mut total_written = 0usize;
+            let mut should_disconnect = false;
+
+            while total_written < packet_size && !should_disconnect {
+                let stream = self.get_stream_mut(client_id.clone());
+                if stream.is_none() {
                     error!("No stream found for client {}", client_id);
-                    // Use new broker API to set state
-                    let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
-                    if remove_count < sessions_to_remove.len() {
-                        sessions_to_remove[remove_count] = Some(client_id.clone());
-                        remove_count += 1;
-                    }
-                    continue;
+                    should_disconnect = true;
+                    break;
                 }
 
-                // Write ALL bytes (handle partial writes)
-                let mut total_written = 0usize;
-                let mut should_disconnect = false;
+                let stream = stream.unwrap();
 
-                while total_written < packet_size && !should_disconnect {
-                    let stream = self.get_stream_mut(client_id.clone());
-                    if stream.is_none() {
-                        error!("No stream found for client {}", client_id);
+                match stream.write(&encoded_packet[total_written..]).await {
+                    Ok(0) => {
+                        // Wrote 0 bytes = connection closed
+                        error!("Write returned 0 bytes, connection closed");
                         should_disconnect = true;
-                        break;
+                        break; // Exit write loop
                     }
+                    Ok(bytes_written) => {
+                        total_written += bytes_written;
+                        info!("Wrote {} bytes (total: {})", bytes_written, total_written);
 
-                    let stream = stream.unwrap();
-
-                    match stream.write(&encoded_packet[total_written..]).await {
-                        Ok(0) => {
-                            // Wrote 0 bytes = connection closed
-                            error!("Write returned 0 bytes, connection closed");
-                            should_disconnect = true;
-                            break; // Exit write loop
+                        if total_written >= packet_size {
+                            // All bytes written, now flush
+                            break;
                         }
-                        Ok(bytes_written) => {
-                            total_written += bytes_written;
-                            info!("Wrote {} bytes (total: {})", bytes_written, total_written);
+                    }
+                    Err(e) => {
+                        let is_fatal = matches!(e,
+                            NetworkError::ConnectionClosed | NetworkError::IoError
+                        );
 
-                            if total_written >= packet_size {
-                                // All bytes written, now flush
-                                break;
-                            }
+                        if is_fatal {
+                            error!("Fatal error writing to client {}: {}", client_id, e);
+                            should_disconnect = true;
+                        } else {
+                            info!("Non-fatal write error, retrying: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if should_disconnect {
+                // Use new broker API to set state
+                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                if remove_count < sessions_to_remove.len() {
+                    sessions_to_remove[remove_count] = Some(client_id.clone());
+                    remove_count += 1;
+                }
+                continue;
+            }
+
+            // Only flush if write succeeded
+            if total_written >= packet_size && !should_disconnect {
+                let stream = self.get_stream_mut(client_id.clone());
+                if let Some(stream) = stream {
+                    match stream.flush().await {
+                        Ok(()) => {
+                            info!("Flushed stream for client {}", client_id);
                         }
                         Err(e) => {
-                            let is_fatal = matches!(e,
-                                NetworkError::ConnectionClosed | NetworkError::IoError
-                            );
-
-                            if is_fatal {
-                                error!("Fatal error writing to client {}: {}", client_id, e);
-                                should_disconnect = true;
-                            } else {
-                                info!("Non-fatal write error, retrying: {}", e);
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if should_disconnect {
-                    // Use new broker API to set state
-                    let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
-                    if remove_count < sessions_to_remove.len() {
-                        sessions_to_remove[remove_count] = Some(client_id.clone());
-                        remove_count += 1;
-                    }
-                    continue;
-                }
-
-                // Only flush if write succeeded
-                if total_written >= packet_size && !should_disconnect {
-                    let stream = self.get_stream_mut(client_id.clone());
-                    if let Some(stream) = stream {
-                        match stream.flush().await {
-                            Ok(()) => {
-                                info!("Flushed stream for client {}", client_id);
-                            }
-                            Err(e) => {
-                                error!("Error flushing stream: {}", e);
-                                // Use new broker API to set state
-                                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
-                                if remove_count < sessions_to_remove.len() {
-                                    sessions_to_remove[remove_count] = Some(client_id.clone());
-                                    remove_count += 1;
-                                }
+                            error!("Error flushing stream: {}", e);
+                            // Use new broker API to set state
+                            let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                            if remove_count < sessions_to_remove.len() {
+                                sessions_to_remove[remove_count] = Some(client_id.clone());
+                                remove_count += 1;
                             }
                         }
                     }
@@ -505,12 +496,10 @@ impl<
         }
 
         // Remove sessions that had fatal errors
-        for i in 0..remove_count {
-            if let Some(client_id) = &sessions_to_remove[i] {
-                let _ = self.broker.remove_client(client_id);
-                self.remove_rx_buffer(client_id);
-                self.remove_stream(client_id);
-            }
+        for client_id in sessions_to_remove.iter().take(remove_count).flatten() {
+            let _ = self.broker.remove_client(client_id);
+            self.remove_rx_buffer(client_id);
+            self.remove_stream(client_id);
         }
 
         Ok(())
@@ -570,13 +559,9 @@ impl<const MAX_PAYLOAD_SIZE: usize> ClientReadBuffer<MAX_PAYLOAD_SIZE> {
     }
 
     /// Push a single byte to the buffer
-    pub fn push(&mut self, byte: u8) -> Result<(), ()> {
-        match self.buffer.push(byte) {
-            Ok(()) => {
-                self.len += 1;
-                Ok(())
-            }
-            Err(e) => Err(e)
-        }
+    pub fn push(&mut self, byte: u8) -> Result<(), crate::protocol::heapless::PushError> {
+        self.buffer.push(byte)?;
+        self.len += 1;
+        Ok(())
     }
 }

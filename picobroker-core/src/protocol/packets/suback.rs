@@ -45,7 +45,7 @@ impl PacketEncoder for SubAckPacket {
         if remaining_length != 3 {
             return Err(PacketEncodingError::InvalidPacketLength {
                 expected: 3,
-                actual: remaining_length as usize,
+                actual: remaining_length,
             });
         }
         let packet_id = u16::from_be_bytes([bytes[2], bytes[3]]);

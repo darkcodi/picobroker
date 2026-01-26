@@ -49,14 +49,28 @@ impl<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    > PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+    > Default for PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
-    /// Create a new MQTT broker with the given time source
-    pub fn new() -> Self {
+    fn default() -> Self {
         Self {
             topics: TopicRegistry::new(),
             client_registry: ClientRegistry::new(),
         }
+    }
+}
+
+impl<
+    const MAX_TOPIC_NAME_LENGTH: usize,
+    const MAX_PAYLOAD_SIZE: usize,
+    const QUEUE_SIZE: usize,
+    const MAX_CLIENTS: usize,
+    const MAX_TOPICS: usize,
+    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    > PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+{
+    /// Create a new MQTT broker with the given time source
+    pub fn new() -> Self {
+        Self::default()
     }
 
     // ===== Client Lifecycle Operations =====
@@ -269,8 +283,9 @@ impl<
 
         // Send PUBACK if QoS > 0
         if publish.qos > QoS::AtMostOnce && publish.packet_id.is_some() {
-            let mut puback = PubAckPacket::default();
-            puback.packet_id = publish.packet_id.unwrap();
+            let puback = PubAckPacket {
+                packet_id: publish.packet_id.unwrap(),
+            };
 
             if let Some(session) = self.client_registry.find_session_by_client_id(publisher_id) {
                 let _ = session.queue_tx_packet(Packet::PubAck(puback));
@@ -365,7 +380,7 @@ impl<
         client_id: &ClientId,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
-            let pingresp = Packet::PingResp(PingRespPacket::default());
+            let pingresp = Packet::PingResp(PingRespPacket);
             session.queue_tx_packet(pingresp)
         } else {
             Err(BrokerError::ClientNotFound)
@@ -406,54 +421,52 @@ impl<
         let mut total_processed = 0usize;
 
         // Process each client's packets
-        for i in 0..client_count {
-            if let Some(client_id) = &client_ids[i] {
-                // Process all packets from this client
-                while let Some(packet) = self.dequeue_rx_packet(client_id) {
-                    match packet {
-                        Packet::Connect(connect) => {
-                            self.handle_connect(client_id, &connect)?;
-                        }
-                        Packet::ConnAck(_) => {
-                            // Client should not send CONNACK
-                            log::info!("Unexpected CONNACK from client {}", client_id);
-                        }
-                        Packet::Publish(publish) => {
-                            self.publish_message(client_id, publish)?;
-                        }
-                        Packet::PubAck(_) => {
-                            // QoS 2 handling - not implemented yet
-                        }
-                        Packet::PubRec(_) => {}
-                        Packet::PubRel(_) => {}
-                        Packet::PubComp(_) => {}
-                        Packet::Subscribe(subscribe) => {
-                            self.subscribe_client_to_topic(
-                                client_id,
-                                subscribe.topic_filter,
-                                subscribe.packet_id,
-                                subscribe.requested_qos,
-                            )?;
-                        }
-                        Packet::SubAck(_) => {
-                            // Client should not send SUBACK
-                            log::info!("Unexpected SUBACK from client {}", client_id);
-                        }
-                        Packet::Unsubscribe(_) => {}
-                        Packet::UnsubAck(_) => {}
-                        Packet::PingReq(_) => {
-                            self.handle_pingreq(client_id)?;
-                        }
-                        Packet::PingResp(_) => {
-                            // Client response to our PINGREQ - activity already updated
-                        }
-                        Packet::Disconnect(_) => {
-                            self.handle_disconnect(client_id)?;
-                        }
+        for client_id in client_ids.iter().take(client_count).flatten() {
+            // Process all packets from this client
+            while let Some(packet) = self.dequeue_rx_packet(client_id) {
+                match packet {
+                    Packet::Connect(connect) => {
+                        self.handle_connect(client_id, &connect)?;
                     }
-
-                    total_processed += 1;
+                    Packet::ConnAck(_) => {
+                        // Client should not send CONNACK
+                        log::info!("Unexpected CONNACK from client {}", client_id);
+                    }
+                    Packet::Publish(publish) => {
+                        self.publish_message(client_id, publish)?;
+                    }
+                    Packet::PubAck(_) => {
+                        // QoS 2 handling - not implemented yet
+                    }
+                    Packet::PubRec(_) => {}
+                    Packet::PubRel(_) => {}
+                    Packet::PubComp(_) => {}
+                    Packet::Subscribe(subscribe) => {
+                        self.subscribe_client_to_topic(
+                            client_id,
+                            subscribe.topic_filter,
+                            subscribe.packet_id,
+                            subscribe.requested_qos,
+                        )?;
+                    }
+                    Packet::SubAck(_) => {
+                        // Client should not send SUBACK
+                        log::info!("Unexpected SUBACK from client {}", client_id);
+                    }
+                    Packet::Unsubscribe(_) => {}
+                    Packet::UnsubAck(_) => {}
+                    Packet::PingReq(_) => {
+                        self.handle_pingreq(client_id)?;
+                    }
+                    Packet::PingResp(_) => {
+                        // Client response to our PINGREQ - activity already updated
+                    }
+                    Packet::Disconnect(_) => {
+                        self.handle_disconnect(client_id)?;
+                    }
                 }
+
+                total_processed += 1;
             }
         }
 
