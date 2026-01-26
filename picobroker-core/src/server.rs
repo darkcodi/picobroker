@@ -1,5 +1,5 @@
 use log::{error, info};
-use crate::{BrokerError, ClientId, Delay, NetworkError, Packet, PacketEncoder, PicoBroker, SocketAddr, TcpListener, TcpStream, TimeSource};
+use crate::{BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PicoBroker, SocketAddr, TcpListener, TcpStream, TimeSource};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -104,34 +104,31 @@ impl<
             }
 
             // 2. Process client messages (round-robin through all sessions)
+            self.read_client_messages().await?;
+            
+            // 3. Process messages from clients and route them via the broker
             self.process_client_messages().await?;
+            
+            // 4. Write messages to clients
+            self.write_client_messages().await?;
 
-            // // 3. Check for expired clients (keep-alive timeout)
+            // // 5. Check for expired clients (keep-alive timeout)
             // self.process_expired_clients();
 
-            // 4. Small yield to prevent busy-waiting
+            // 6. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
         }
     }
 
-    async fn process_client_messages(&mut self) -> Result<(), BrokerError> {
+    async fn read_client_messages(&mut self) -> Result<(), BrokerError> {
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
                 match Self::try_read_packet_from_stream(&mut session.stream).await {
                     Ok(Some(packet)) => {
                         info!("Received packet from client {}: {:?}", session.session_id, packet);
                         // Here you would process the packet (e.g., handle CONNECT, PUBLISH, SUBSCRIBE, etc.)
-                        match packet {
-                            Packet::Connect(connect_packet) => {
-                                info!("Client {} sent CONNECT with client ID: {}", session.session_id, connect_packet.client_id);
-                                session.client_id = Some(ClientId::try_from(connect_packet.client_id.as_str()).unwrap_or_default());
-                                session.state = ClientState::Connected;
-                                // Send CONNACK response (not implemented here)
-                            }
-                            _ => {
-                                info!("Processing other packet types not implemented yet");
-                            },
-                        }
+                        session.update_activity(self.time_source.now_secs());
+                        let _ = session.queue_rx_packet(packet);
                     }
                     Ok(None) => {
                         // No packet available, continue
@@ -139,6 +136,72 @@ impl<
                     Err(e) => {
                         // error!(format_heapless!(128; "Error reading packet from client {}: {}", session.session_id, e).as_str());
                         // Handle error (e.g., close connection, cleanup)
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn process_client_messages(&mut self) -> Result<(), BrokerError> {
+        // Process messages from clients and route them via the broker
+        for session_option in self.client_registry.sessions.iter_mut() {
+            if let Some(session) = session_option {
+                while let Some(packet) = session.dequeue_rx_packet() {
+                    info!("Processing packet from client {}: {:?}", session.session_id, packet);
+                    match packet {
+                        Packet::Connect(connect) => {
+                            // Handle CONNECT packet
+                            info!("Client {} connected with ID {:?}", session.session_id, connect.client_id);
+                            session.client_id = Some(connect.client_id.clone());
+                            session.state = ClientState::Connected;
+                            // Send CONNACK response
+                            let connack = Packet::ConnAck(ConnAckPacket::default());
+                            let _ = session.queue_tx_packet(connack);
+                        }
+                        Packet::ConnAck(_) => {}
+                        Packet::Publish(_) => {}
+                        Packet::PubAck(_) => {}
+                        Packet::PubRec(_) => {}
+                        Packet::PubRel(_) => {}
+                        Packet::PubComp(_) => {}
+                        Packet::Subscribe(_) => {}
+                        Packet::SubAck(_) => {}
+                        Packet::Unsubscribe(_) => {}
+                        Packet::UnsubAck(_) => {}
+                        Packet::PingReq(_) => {}
+                        Packet::PingResp(_) => {}
+                        Packet::Disconnect(_) => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn write_client_messages(&mut self) -> Result<(), BrokerError> {
+        for session_option in self.client_registry.sessions.iter_mut() {
+            if let Some(session) = session_option {
+                while let Some(packet) = session.dequeue_tx_packet() {
+                    info!("Sending packet to client {}: {:?}", session.session_id, packet);
+                    let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+                    let packet_size_result = packet.encode(&mut buffer);
+                    let packet_size = match packet_size_result {
+                        Ok(encoded) => encoded,
+                        Err(e) => {
+                            error!("Error encoding packet for client {}: {}", session.session_id, e);
+                            continue; // Skip sending this packet
+                        }
+                    };
+                    let encoded_packet = &buffer[..packet_size];
+                    match session.stream.write(&encoded_packet).await {
+                        Ok(bytes_written) => {
+                            info!("Sent {} bytes to client {}", bytes_written, session.session_id);
+                        }
+                        Err(e) => {
+                            error!("Error writing packet to client {}: {}", session.session_id, e);
+                            // Handle error (e.g., close connection, cleanup)
+                        }
                     }
                 }
             }
@@ -219,6 +282,18 @@ pub struct ClientSession<
 
     /// Timestamp of last activity (seconds since epoch)
     pub last_activity: u64,
+
+    /// Receive queue (client -> broker)
+    pub rx_queue: HeaplessVec<
+        Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>,
+        QUEUE_SIZE
+    >,
+
+    /// Transmit queue (broker -> client)
+    pub tx_queue: HeaplessVec<
+        Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>,
+        QUEUE_SIZE
+    >,
 }
 
 impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize> ClientSession<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
@@ -234,6 +309,8 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
             state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
+            rx_queue: HeaplessVec::new(),
+            tx_queue: HeaplessVec::new(),
         }
     }
 
@@ -249,6 +326,34 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
     /// Update the last activity timestamp
     pub fn update_activity(&mut self, current_time: u64) {
         self.last_activity = current_time;
+    }
+
+    /// Queue a packet for transmission to the client
+    pub fn queue_tx_packet(&mut self, packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>) -> Result<(), BrokerError> {
+        self.tx_queue.push(Some(packet)).map_err(|_| BrokerError::ClientQueueFull { queue_size: QUEUE_SIZE })
+    }
+
+    /// Dequeue a packet to send to the client
+    pub fn dequeue_tx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
+        if let Some(option_packet) = self.tx_queue.pop() {
+            option_packet
+        } else {
+            None
+        }
+    }
+
+    /// Queue a received packet from the client
+    pub fn queue_rx_packet(&mut self, packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>) -> Result<(), BrokerError> {
+        self.rx_queue.push(Some(packet)).map_err(|_| BrokerError::ClientQueueFull { queue_size: QUEUE_SIZE })
+    }
+
+    /// Dequeue a received packet from the client
+    pub fn dequeue_rx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
+        if let Some(option_packet) = self.rx_queue.pop() {
+            option_packet
+        } else {
+            None
+        }
     }
 }
 

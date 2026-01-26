@@ -4,8 +4,9 @@ use crate::protocol::packets::{
 use crate::{read_variable_length, PacketEncodingError, PacketType};
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectReturnCode {
+    #[default]
     Accepted = 0,
     UnacceptableProtocolVersion = 1,
     IdentifierRejected = 2,
@@ -30,7 +31,7 @@ impl TryFrom<u8> for ConnectReturnCode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ConnAckPacket {
     pub session_present: bool,
     pub return_code: ConnectReturnCode,

@@ -173,6 +173,18 @@ impl<T, const N: usize> HeaplessVec<T, N> {
         Ok(())
     }
 
+    pub fn pop(&mut self) -> Option<T>
+    where
+        T: Default,
+    {
+        if self.length == 0 {
+            return None;
+        }
+        self.length -= 1;
+        // Use core::mem::take to swap out the element with Default::default()
+        Some(core::mem::take(&mut self.data[self.length as usize]))
+    }
+
     pub fn get(&self, index: usize) -> Option<&T> {
         if index < self.length as usize {
             Some(&self.data[index])
