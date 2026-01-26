@@ -1,7 +1,8 @@
-use crate::protocol::{HeaplessString, HeaplessVec};
-use crate::{BrokerError, Packet, PacketEncodingError, SocketAddr};
+use core::fmt::Write;
+use crate::protocol::HeaplessString;
+use crate::PacketEncodingError;
 
-const MAX_CLIENT_ID_LENGTH: usize = 23;
+pub const MAX_CLIENT_ID_LENGTH: usize = 23;
 
 /// Client identifier
 /// The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
@@ -18,6 +19,12 @@ impl From<HeaplessString<MAX_CLIENT_ID_LENGTH>> for ClientId {
 impl ClientId {
     pub const fn new(value: HeaplessString<MAX_CLIENT_ID_LENGTH>) -> Self {
         ClientId(value)
+    }
+
+    pub fn generate(n: u64) -> Self {
+        let mut client_id = HeaplessString::<MAX_CLIENT_ID_LENGTH>::new();
+        let _ = core::write!(client_id, "client_{:016X}", n);
+        ClientId(client_id)
     }
 }
 
