@@ -224,11 +224,10 @@ impl<
         let mut remove_count = 0usize;
 
         // Get active clients using new broker API
-        let mut client_ids: [Option<ClientId>; 16] = [const { None }; 16];
-        let client_count = self.broker.get_active_client_ids(&mut client_ids);
+        let client_ids = self.broker.get_active_client_ids();
 
         // Process each client
-        for client_id in client_ids.iter().take(client_count).flatten() {
+        for client_id in client_ids.iter().flatten() {
             // Step 1: Read from stream into a local buffer
             let (bytes_read, should_disconnect) = {
                 // Get buffer to check remaining space
@@ -430,11 +429,10 @@ impl<
         let mut packet_count = 0usize;
 
         // Get active clients using new broker API
-        let mut client_ids: [Option<ClientId>; 16] = [const { None }; 16];
-        let client_count = self.broker.get_active_client_ids(&mut client_ids);
+        let client_ids = self.broker.get_active_client_ids();
 
         // Collect packets from each client
-        for client_id in client_ids.iter().take(client_count).flatten() {
+        for client_id in client_ids.iter().flatten() {
             while let Some(packet) = self.broker.dequeue_tx_packet(client_id) {
                 if packet_count < packets_to_send.len() {
                     packets_to_send[packet_count] = Some((client_id.clone(), packet));

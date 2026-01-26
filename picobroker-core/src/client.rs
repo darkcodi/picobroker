@@ -240,15 +240,18 @@ impl<
     // ===== Helper methods for broker.rs =====
 
     /// Get all active client IDs into a stack-allocated array
-    pub fn get_active_client_ids(&self, output: &mut [Option<ClientId>]) -> usize {
+    pub fn get_active_client_ids(&self) -> [Option<ClientId>; MAX_CLIENTS] {
+        let mut client_ids = [const { None }; MAX_CLIENTS];
         let mut count = 0usize;
-        for session in self.sessions.iter().flatten() {
-            if count < output.len() {
-                output[count] = Some(session.client_id.clone());
+
+        for sess in (&self.sessions).into_iter().flatten() {
+            if count < client_ids.len() {
+                client_ids[count] = Some(sess.client_id.clone());
                 count += 1;
             }
         }
-        count
+
+        client_ids
     }
 
     /// Get the number of active (connected/connecting) sessions

@@ -161,8 +161,8 @@ impl<
     /// Get all active client IDs into a stack-allocated array
     ///
     /// Returns the number of active clients (capped at output array size)
-    pub fn get_active_client_ids(&self, output: &mut [Option<ClientId>]) -> usize {
-        self.client_registry.get_active_client_ids(output)
+    pub fn get_active_client_ids(&self) -> [Option<ClientId>; MAX_CLIENTS] {
+        self.client_registry.get_active_client_ids()
     }
 
     /// Get the number of active (connected/connecting) sessions
@@ -442,13 +442,12 @@ impl<
         use Packet;
 
         // Collect client IDs (avoid holding mutable reference during iteration)
-        let mut client_ids = [const { None }; 16];
-        let client_count = self.get_active_client_ids(&mut client_ids);
+        let client_ids = self.get_active_client_ids();
 
         let mut total_processed = 0usize;
 
         // Process each client's packets
-        for client_id in client_ids.iter().take(client_count).flatten() {
+        for client_id in client_ids.iter().flatten() {
             // Process all packets from this client
             while let Some(packet) = self.dequeue_rx_packet(client_id) {
                 match packet {
