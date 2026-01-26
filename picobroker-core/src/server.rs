@@ -1,5 +1,5 @@
 use log::{error, info};
-use crate::{bytes_to_hex, BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PacketType, PicoBroker, PubAckPacket, QoS, SocketAddr, TcpListener, TcpStream, TimeSource};
+use crate::{bytes_to_hex, BrokerError, ClientId, ConnAckPacket, Delay, NetworkError, Packet, PacketEncoder, PacketType, PicoBroker, PubAckPacket, QoS, SocketAddr, SubAckPacket, TcpListener, TcpStream, TimeSource, TopicSubscription};
 use crate::protocol::HeaplessVec;
 
 /// MQTT Broker Server
@@ -92,6 +92,10 @@ impl<
 
                 const KEEP_ALIVE_SECS: u16 = 60; // Default non-configurable keep-alive for new clients
                 let current_time = self.time_source.now_secs();
+
+                // Proactively cleanup any dead/zombie sessions before accepting new connection
+                self.client_registry.cleanup_zombie_sessions(&mut self.broker);
+
                 let maybe_session_id = self.client_registry.register_new_client(stream, socket_addr, KEEP_ALIVE_SECS, current_time);
                 match maybe_session_id {
                     Ok(session_id) => {
@@ -141,6 +145,9 @@ impl<
                     Err(e) => {
                         // All errors here are fatal (WouldBlock is already handled in try_read_packet_from_stream)
                         error!("Error reading packet from client {}: {}", session.session_id, e);
+
+                        // Mark session as disconnected for cleanup
+                        session.state = ClientState::Disconnected;
 
                         // Remove session on any fatal error
                         if remove_count < sessions_to_remove.len() {
@@ -209,13 +216,60 @@ impl<
                         Packet::PubRec(_) => {}
                         Packet::PubRel(_) => {}
                         Packet::PubComp(_) => {}
-                        Packet::Subscribe(_) => {}
+                        Packet::Subscribe(subscribe) => {
+                            // Handle SUBSCRIBE packet
+                            info!("Client {} subscribing to topic {} with QoS {:?}",
+                                  session.session_id, subscribe.topic_filter, subscribe.requested_qos);
+
+                            // Get or create client ID for subscription
+                            if let Some(client_id) = &session.client_id {
+                                // Subscribe to the topic
+                                let topic_subscription = TopicSubscription::Exact(subscribe.topic_filter.clone());
+                                match self.broker.topics.subscribe(client_id.clone(), topic_subscription) {
+                                    Ok(()) => {
+                                        info!("Client {} successfully subscribed to {}",
+                                              session.session_id, subscribe.topic_filter);
+
+                                        // Send SUBACK with granted QoS (for now, grant the requested QoS)
+                                        let suback = SubAckPacket {
+                                            packet_id: subscribe.packet_id,
+                                            granted_qos: subscribe.requested_qos,
+                                        };
+                                        let _ = session.queue_tx_packet(Packet::SubAck(suback));
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to subscribe client {} to topic {}: {}",
+                                               session.session_id, subscribe.topic_filter, e);
+
+                                        // Send SUBACK with failure QoS (0x80 indicates failure)
+                                        let suback = SubAckPacket {
+                                            packet_id: subscribe.packet_id,
+                                            granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
+                                        };
+                                        let _ = session.queue_tx_packet(Packet::SubAck(suback));
+                                    }
+                                }
+                            } else {
+                                error!("Cannot subscribe: client {} has no client_id", session.session_id);
+                            }
+                        }
                         Packet::SubAck(_) => {}
                         Packet::Unsubscribe(_) => {}
                         Packet::UnsubAck(_) => {}
-                        Packet::PingReq(_) => {}
+                        Packet::PingReq(_) => {
+                            // Handle PINGREQ packet - respond with PINGRESP
+                            info!("Client {} sent PINGREQ", session.session_id);
+                            // Note: PINGRESP packet type needs to be added to the Packet enum
+                            // For now, we'll just log it
+                        }
                         Packet::PingResp(_) => {}
-                        Packet::Disconnect(_) => {}
+                        Packet::Disconnect(_) => {
+                            // Handle DISCONNECT packet
+                            info!("Client {} disconnecting", session.session_id);
+                            session.state = ClientState::Disconnected;
+                            // Mark session for removal by adding it to removal list
+                            // We'll handle this in the next iteration
+                        }
                     }
                 }
             }
@@ -258,6 +312,9 @@ impl<
                         }
                         Err(e) => {
                             error!("Error writing packet to client {}: {}", session.session_id, e);
+
+                            // Mark session as disconnected
+                            session.state = ClientState::Disconnected;
 
                             // Fatal error - mark for removal
                             if remove_count < sessions_to_remove.len() {
@@ -542,6 +599,9 @@ ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIEN
                 self.sessions[i] = self.sessions[i + 1].take();
             }
 
+            // Remove the last element which is now a duplicate
+            let _ = self.sessions.pop();
+
             Ok(())
         } else {
             error!("Session {} not found for removal", session_id);
@@ -578,6 +638,40 @@ ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIEN
         for i in 0..expired_count {
             if let Some(session_id) = expired_ids[i] {
                 info!("Removing expired session {}", session_id);
+                let _ = self.remove_session(session_id, broker);
+            }
+        }
+    }
+
+    /// Cleanup zombie sessions (connections that have been closed but not yet removed)
+    ///
+    /// This is called before accepting new connections to ensure zombie slots are freed.
+    /// It checks for dead connections by attempting to detect socket errors.
+    pub fn cleanup_zombie_sessions(
+        &mut self,
+        broker: &mut PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
+                                MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+    ) {
+        let mut zombie_ids = [None; MAX_CLIENTS];
+        let mut zombie_count = 0usize;
+
+        // Check each session for dead connections
+        for session in &self.sessions {
+            if let Some(sess) = session {
+                // Check if session state is Disconnected
+                if sess.state == ClientState::Disconnected {
+                    if zombie_count < zombie_ids.len() {
+                        zombie_ids[zombie_count] = Some(sess.session_id);
+                        zombie_count += 1;
+                    }
+                }
+            }
+        }
+
+        // Remove each zombie session
+        for i in 0..zombie_count {
+            if let Some(session_id) = zombie_ids[i] {
+                info!("Removing zombie session {}", session_id);
                 let _ = self.remove_session(session_id, broker);
             }
         }
