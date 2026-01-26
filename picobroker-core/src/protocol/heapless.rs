@@ -254,6 +254,40 @@ impl<T, const N: usize> HeaplessVec<T, N> {
         // Decrease length
         self.length -= 1;
     }
+
+    /// Dequeue from front (FIFO) - removes first element and shifts remaining
+    ///
+    /// This provides FIFO queue semantics. Returns None if the vector is empty.
+    pub fn dequeue_front(&mut self) -> Option<T>
+    where
+        T: Clone,
+    {
+        if self.length == 0 {
+            return None;
+        }
+
+        // Remove the first element
+        let item = self.data[0].clone();
+
+        // Shift all elements left by one position
+        for i in 0..self.length as usize - 1 {
+            self.data[i] = self.data[i + 1].clone();
+        }
+
+        self.length -= 1;
+        Some(item)
+    }
+
+    /// Peek at front element without removing it
+    ///
+    /// Returns None if the vector is empty.
+    pub fn front(&self) -> Option<&T> {
+        if self.length == 0 {
+            None
+        } else {
+            Some(&self.data[0])
+        }
+    }
 }
 
 impl<T: Default, const N: usize> HeaplessVec<T, N> {

@@ -41,6 +41,8 @@ pub struct PicoBrokerServer<
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
         MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
     >,
 }
 
@@ -112,8 +114,8 @@ impl<
             // 4. Write messages to clients
             self.write_client_messages().await?;
 
-            // // 5. Check for expired clients (keep-alive timeout)
-            // self.process_expired_clients();
+            // 5. Check for expired clients (keep-alive timeout)
+            self.client_registry.cleanup_expired_sessions(&mut self.broker, self.time_source.now_secs());
 
             // 6. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
@@ -121,6 +123,9 @@ impl<
     }
 
     async fn read_client_messages(&mut self) -> Result<(), BrokerError> {
+        let mut sessions_to_remove: [Option<usize>; 16] = [None; 16];
+        let mut remove_count = 0usize;
+
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
                 match Self::try_read_packet_from_stream(&mut session.stream).await {
@@ -134,17 +139,36 @@ impl<
                         // No packet available, continue
                     }
                     Err(e) => {
-                        // error!(format_heapless!(128; "Error reading packet from client {}: {}", session.session_id, e).as_str());
-                        // Handle error (e.g., close connection, cleanup)
+                        // Check if it's a fatal error requiring cleanup
+                        error!("Error reading packet from client {}: {}", session.session_id, e);
+
+                        if matches!(e, BrokerError::NetworkError { error: NetworkError::ConnectionClosed }) {
+                            if remove_count < sessions_to_remove.len() {
+                                sessions_to_remove[remove_count] = Some(session.session_id);
+                                remove_count += 1;
+                            }
+                        }
                     }
                 }
             }
         }
+
+        // Remove sessions that had fatal errors
+        for i in 0..remove_count {
+            if let Some(session_id) = sessions_to_remove[i] {
+                let _ = self.client_registry.remove_session(session_id, &mut self.broker);
+            }
+        }
+
         Ok(())
     }
 
     async fn process_client_messages(&mut self) -> Result<(), BrokerError> {
         // Process messages from clients and route them via the broker
+        // Collect client IDs and packets to route, then process in a second pass
+        let mut messages_to_route: [Option<(ClientId, Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>)>; QUEUE_SIZE] = [const { None }; QUEUE_SIZE];
+        let mut route_count = 0usize;
+
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
                 while let Some(packet) = session.dequeue_rx_packet() {
@@ -163,21 +187,15 @@ impl<
                         Packet::Publish(publish) => {
                             // Handle PUBLISH packet
                             info!("Client {} published to topic {}: {:?}", session.session_id, publish.topic_name, publish.payload);
+
+                            // Get subscribers for this topic
                             let subscribers = self.broker.topics.get_subscribers(&publish.topic_name);
+
+                            // Collect routing tasks for later processing
                             for client_id in subscribers {
-                                info!("Routing message to subscriber {:?}", client_id);
-                                let session = self.client_registry.sessions.iter_mut().find(|s_opt| {
-                                    if let Some(s) = s_opt {
-                                        s.client_id.as_ref() == Some(&client_id)
-                                    } else {
-                                        false
-                                    }
-                                });
-                                if let Some(session) = session {
-                                    if let Some(s) = session {
-                                        let publish_packet = Packet::Publish(publish.clone());
-                                        let _ = s.queue_tx_packet(publish_packet);
-                                    }
+                                if route_count < messages_to_route.len() {
+                                    messages_to_route[route_count] = Some((client_id, Packet::Publish(publish.clone())));
+                                    route_count += 1;
                                 }
                             }
 
@@ -203,10 +221,24 @@ impl<
                 }
             }
         }
+
+        // Second pass: route collected messages to subscribers
+        for i in 0..route_count {
+            if let Some((client_id, packet)) = &messages_to_route[i] {
+                if let Some(target_session) = self.client_registry.find_session_by_client_id(client_id) {
+                    let _ = target_session.queue_tx_packet(packet.clone());
+                    info!("Routed message to subscriber {:?}", client_id);
+                }
+            }
+        }
+
         Ok(())
     }
 
     async fn write_client_messages(&mut self) -> Result<(), BrokerError> {
+        let mut sessions_to_remove: [Option<usize>; 16] = [None; 16];
+        let mut remove_count = 0usize;
+
         for session_option in self.client_registry.sessions.iter_mut() {
             if let Some(session) = session_option {
                 while let Some(packet) = session.dequeue_tx_packet() {
@@ -227,12 +259,26 @@ impl<
                         }
                         Err(e) => {
                             error!("Error writing packet to client {}: {}", session.session_id, e);
-                            // Handle error (e.g., close connection, cleanup)
+
+                            // Fatal error - mark for removal
+                            if remove_count < sessions_to_remove.len() {
+                                sessions_to_remove[remove_count] = Some(session.session_id);
+                                remove_count += 1;
+                            }
+                            break; // Stop processing this session
                         }
                     }
                 }
             }
         }
+
+        // Remove sessions that had fatal errors
+        for i in 0..remove_count {
+            if let Some(session_id) = sessions_to_remove[i] {
+                let _ = self.client_registry.remove_session(session_id, &mut self.broker);
+            }
+        }
+
         Ok(())
     }
 
@@ -341,6 +387,21 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
         }
     }
 
+    /// Create a new client session with an explicit session ID
+    pub fn new_with_id(stream: S, socket_addr: SocketAddr, keep_alive_secs: u16, current_time: u64, session_id: usize) -> Self {
+        Self {
+            stream,
+            session_id,
+            socket_addr,
+            client_id: None,
+            state: ClientState::Connecting,
+            keep_alive_secs,
+            last_activity: current_time,
+            rx_queue: HeaplessVec::new(),
+            tx_queue: HeaplessVec::new(),
+        }
+    }
+
     /// Check if client's keep-alive has expired
     ///
     /// Returns true if the time since last activity exceeds 1.5x the keep-alive value
@@ -362,11 +423,7 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
 
     /// Dequeue a packet to send to the client
     pub fn dequeue_tx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        if let Some(option_packet) = self.tx_queue.pop() {
-            option_packet
-        } else {
-            None
-        }
+        self.tx_queue.dequeue_front().flatten()
     }
 
     /// Queue a received packet from the client
@@ -376,11 +433,7 @@ impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: u
 
     /// Dequeue a received packet from the client
     pub fn dequeue_rx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        if let Some(option_packet) = self.rx_queue.pop() {
-            option_packet
-        } else {
-            None
-        }
+        self.rx_queue.dequeue_front().flatten()
     }
 }
 
@@ -394,21 +447,26 @@ pub struct ClientRegistry<
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
     const MAX_CLIENTS: usize,
+    const MAX_TOPICS: usize,
+    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     /// Sessions with communication queues
     sessions: HeaplessVec<
         Option<ClientSession<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
         MAX_CLIENTS
     >,
+    /// Counter for generating unique session IDs
+    next_session_id: usize,
 }
 
-impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize>
-ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS>
+impl<S: TcpStream, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
+ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
     /// Create a new client registry
     pub fn new() -> Self {
         Self {
             sessions: HeaplessVec::new(),
+            next_session_id: 0,
         }
     }
 
@@ -417,9 +475,108 @@ ClientRegistry<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIEN
         if self.sessions.len() >= MAX_CLIENTS {
             return Err(BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS });
         }
-        let session = ClientSession::new(stream, socket_addr, keep_alive_secs, current_time);
-        let session_id = session.session_id;
+
+        // Use counter instead of port for unique session IDs
+        let session_id = self.next_session_id;
+        self.next_session_id = self.next_session_id.wrapping_add(1);
+
+        let session = ClientSession::new_with_id(stream, socket_addr, keep_alive_secs, current_time, session_id);
         self.sessions.push(Some(session)).map_err(|_| BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS })?;
         Ok(session_id)
+    }
+
+    /// Find a mutable session reference by ClientId
+    ///
+    /// Returns None if session not found or client_id is not set.
+    /// Uses linear search which is acceptable since MAX_CLIENTS is typically small (4-16).
+    fn find_session_by_client_id(
+        &mut self,
+        client_id: &ClientId
+    ) -> Option<&mut ClientSession<S, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
+        self.sessions.iter_mut().find(|s_opt| {
+            s_opt.as_ref()
+                .map(|s| s.client_id.as_ref() == Some(client_id))
+                .unwrap_or(false)
+        })
+        .and_then(|s_opt| s_opt.as_mut())
+    }
+
+    /// Remove a session and cleanup its subscriptions
+    ///
+    /// This will:
+    /// 1. Remove the session from the registry
+    /// 2. Unsubscribe the client from all topics
+    /// 3. Close the network connection
+    pub fn remove_session(
+        &mut self,
+        session_id: usize,
+        broker: &mut PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
+                                MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+    ) -> Result<(), BrokerError> {
+        // Find the session index
+        let session_idx = self.sessions.iter().position(|s| {
+            s.as_ref().map(|sess| sess.session_id == session_id).unwrap_or(false)
+        });
+
+        if let Some(idx) = session_idx {
+            // Extract the client_id before removing
+            let client_id = self.sessions[idx]
+                .as_ref()
+                .and_then(|s| s.client_id.clone());
+
+            // Cleanup subscriptions if client_id exists
+            if let Some(id) = &client_id {
+                broker.topics.unregister_client(id.clone());
+                info!("Cleaned up subscriptions for client {:?}", id);
+            }
+
+            // Remove from vector - replace with None and then shift
+            // We can't use remove() because Option<ClientSession> doesn't implement Clone
+            self.sessions[idx] = None;
+
+            // Shift remaining elements to fill the gap
+            for i in idx..self.sessions.len() - 1 {
+                self.sessions[i] = self.sessions[i + 1].take();
+            }
+
+            Ok(())
+        } else {
+            error!("Session {} not found for removal", session_id);
+            Err(BrokerError::NetworkError {
+                error: NetworkError::ConnectionClosed
+            })
+        }
+    }
+
+    /// Cleanup expired sessions based on keep-alive timeout
+    ///
+    /// Removes all sessions where time since last activity exceeds 1.5x keep-alive.
+    pub fn cleanup_expired_sessions(
+        &mut self,
+        broker: &mut PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
+                                MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
+        current_time: u64
+    ) {
+        // Use a simple array to collect expired session IDs
+        let mut expired_ids = [None; 16]; // Stack-allocated, reasonable max
+        let mut expired_count = 0usize;
+
+        // Collect expired session IDs
+        for session in &self.sessions {
+            if let Some(sess) = session {
+                if sess.is_expired(current_time) && expired_count < expired_ids.len() {
+                    expired_ids[expired_count] = Some(sess.session_id);
+                    expired_count += 1;
+                }
+            }
+        }
+
+        // Remove each expired session
+        for i in 0..expired_count {
+            if let Some(session_id) = expired_ids[i] {
+                info!("Removing expired session {}", session_id);
+                let _ = self.remove_session(session_id, broker);
+            }
+        }
     }
 }
