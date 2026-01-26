@@ -146,9 +146,15 @@ impl<
                     match session.stream.try_read(&mut read_buf[..remaining_space]).await {
                         Ok(0) => {
                             info!("Connection closed by peer (0 bytes read)");
-                            return Err(BrokerError::NetworkError {
-                                error: NetworkError::ConnectionClosed
-                            });
+                            session.state = ClientState::Disconnected;
+
+                            // Remove session on fatal error
+                            if remove_count < sessions_to_remove.len() {
+                                sessions_to_remove[remove_count] = Some(session.session_id);
+                                remove_count += 1;
+                            }
+
+                            None  // Return None since no bytes were read
                         }
                         Ok(n) => {
                             // Append to rx_buffer
