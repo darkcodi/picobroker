@@ -1,6 +1,6 @@
-use core::fmt::Write;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_error::PacketEncodingError;
+use core::fmt::Write;
 
 pub const fn variable_length_length(value: usize) -> usize {
     if value < 128 {

@@ -1,9 +1,9 @@
 use crate::protocol::heapless::HeaplessString;
 use crate::protocol::packet_error::PacketEncodingError;
-use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
-use crate::protocol::utils::{read_string, write_string};
 use crate::protocol::packet_type::PacketType;
+use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::qos::QoS;
+use crate::protocol::utils::{read_string, write_string};
 use crate::topics::TopicName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,7 +151,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder for SubscribePacket<MAX_T
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for SubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display
+    for SubscribePacket<MAX_TOPIC_NAME_LENGTH>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,
@@ -230,8 +232,8 @@ mod tests {
     #[test]
     fn test_topic_filter_simple() {
         let bytes = [
-            0x82, 0x11, 0x00, 0x01, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74,
-            0x65, 0x6D, 0x70, 0x00,
+            0x82, 0x11, 0x00, 0x01, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F,
+            0x74, 0x65, 0x6D, 0x70, 0x00,
         ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_filter.as_str(), "sensors/temp");
@@ -424,7 +426,8 @@ mod tests {
     #[test]
     fn test_example_a() {
         let bytes = [
-            0x82, 0x0F, 0x00, 0x01, 0x00, 0x0A, 0x74, 0x65, 0x73, 0x74, 0x2F, 0x74, 0x6F, 0x70, 0x69, 0x63, 0x00,
+            0x82, 0x0F, 0x00, 0x01, 0x00, 0x0A, 0x74, 0x65, 0x73, 0x74, 0x2F, 0x74, 0x6F, 0x70,
+            0x69, 0x63, 0x00,
         ];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.packet_id, 1);

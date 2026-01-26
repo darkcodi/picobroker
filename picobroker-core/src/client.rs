@@ -1,10 +1,10 @@
-use core::fmt::Write;
-use log::{error, info};
 use crate::broker_error::BrokerError;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::Packet;
 use crate::traits::NetworkError;
+use core::fmt::Write;
+use log::{error, info};
 
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
 
@@ -99,19 +99,17 @@ pub struct ClientSession<
     pub last_activity: u64,
 
     /// Receive queue (client -> broker)
-    pub rx_queue: HeaplessVec<
-        Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>,
-        QUEUE_SIZE
-    >,
+    pub rx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 
     /// Transmit queue (broker -> client)
-    pub tx_queue: HeaplessVec<
-        Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>,
-        QUEUE_SIZE
-    >,
+    pub tx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize> ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
+impl<
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+    > ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
 {
     /// Create a new client session
     pub fn new(client_id: ClientId, keep_alive_secs: u16, current_time: u64) -> Self {
@@ -140,8 +138,15 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QU
     }
 
     /// Queue a packet for transmission to the client
-    pub fn queue_tx_packet(&mut self, packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>) -> Result<(), BrokerError> {
-        self.tx_queue.push(Some(packet)).map_err(|_| BrokerError::ClientQueueFull { queue_size: QUEUE_SIZE })
+    pub fn queue_tx_packet(
+        &mut self,
+        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    ) -> Result<(), BrokerError> {
+        self.tx_queue
+            .push(Some(packet))
+            .map_err(|_| BrokerError::ClientQueueFull {
+                queue_size: QUEUE_SIZE,
+            })
     }
 
     /// Dequeue a packet to send to the client
@@ -150,8 +155,15 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QU
     }
 
     /// Queue a received packet from the client
-    pub fn queue_rx_packet(&mut self, packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>) -> Result<(), BrokerError> {
-        self.rx_queue.push(Some(packet)).map_err(|_| BrokerError::ClientQueueFull { queue_size: QUEUE_SIZE })
+    pub fn queue_rx_packet(
+        &mut self,
+        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    ) -> Result<(), BrokerError> {
+        self.rx_queue
+            .push(Some(packet))
+            .map_err(|_| BrokerError::ClientQueueFull {
+                queue_size: QUEUE_SIZE,
+            })
     }
 
     /// Dequeue a received packet from the client
@@ -175,12 +187,26 @@ pub struct ClientRegistry<
     /// Sessions with communication queues
     sessions: HeaplessVec<
         Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
-        MAX_CLIENTS
+        MAX_CLIENTS,
     >,
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
-Default for ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+impl<
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    > Default
+    for ClientRegistry<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     fn default() -> Self {
         Self {
@@ -189,8 +215,22 @@ Default for ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, 
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize, const QUEUE_SIZE: usize, const MAX_CLIENTS: usize, const MAX_TOPICS: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
-ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+impl<
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    >
+    ClientRegistry<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     /// Create a new client registry
     pub fn new() -> Self {
@@ -219,7 +259,9 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// Check if a client session exists
     pub fn has_session(&self, client_id: &ClientId) -> bool {
         self.sessions.iter().any(|s| {
-            s.as_ref().map(|sess| &sess.client_id == client_id).unwrap_or(false)
+            s.as_ref()
+                .map(|sess| &sess.client_id == client_id)
+                .unwrap_or(false)
         })
     }
 
@@ -233,9 +275,16 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     }
 
     /// Register a new client session
-    pub fn register_new_client(&mut self, client_id: ClientId, keep_alive_secs: u16, current_time: u64) -> Result<(), BrokerError> {
+    pub fn register_new_client(
+        &mut self,
+        client_id: ClientId,
+        keep_alive_secs: u16,
+        current_time: u64,
+    ) -> Result<(), BrokerError> {
         if self.sessions.len() >= MAX_CLIENTS {
-            return Err(BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS });
+            return Err(BrokerError::MaxClientsReached {
+                max_clients: MAX_CLIENTS,
+            });
         }
 
         if self.find_session_by_client_id(&client_id).is_some() {
@@ -243,7 +292,11 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
         }
 
         let session = ClientSession::new(client_id, keep_alive_secs, current_time);
-        self.sessions.push(Some(session)).map_err(|_| BrokerError::MaxClientsReached { max_clients: MAX_CLIENTS })?;
+        self.sessions
+            .push(Some(session))
+            .map_err(|_| BrokerError::MaxClientsReached {
+                max_clients: MAX_CLIENTS,
+            })?;
         Ok(())
     }
 
@@ -253,13 +306,16 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// Uses linear search which is acceptable since MAX_CLIENTS is typically small (4-16).
     pub fn find_session_by_client_id(
         &mut self,
-        client_id: &ClientId
+        client_id: &ClientId,
     ) -> Option<&mut ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
-        self.sessions.iter_mut().find(|s_opt| {
-            s_opt.as_ref()
-                .map(|s| &s.client_id == client_id)
-                .unwrap_or(false)
-        })
+        self.sessions
+            .iter_mut()
+            .find(|s_opt| {
+                s_opt
+                    .as_ref()
+                    .map(|s| &s.client_id == client_id)
+                    .unwrap_or(false)
+            })
             .and_then(|s_opt| s_opt.as_mut())
     }
 
@@ -272,18 +328,22 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     pub fn remove_session(
         &mut self,
         client_id: &ClientId,
-        topics: &mut crate::topics::TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        topics: &mut crate::topics::TopicRegistry<
+            MAX_TOPIC_NAME_LENGTH,
+            MAX_TOPICS,
+            MAX_SUBSCRIBERS_PER_TOPIC,
+        >,
     ) -> Result<(), BrokerError> {
         // Find the session index
         let session_idx = self.sessions.iter().position(|s| {
-            s.as_ref().map(|sess| &sess.client_id == client_id).unwrap_or(false)
+            s.as_ref()
+                .map(|sess| &sess.client_id == client_id)
+                .unwrap_or(false)
         });
 
         if let Some(idx) = session_idx {
             // Extract the client_id before removing
-            let client_id = self.sessions[idx]
-                .as_ref()
-                .map(|s| s.client_id.clone());
+            let client_id = self.sessions[idx].as_ref().map(|s| s.client_id.clone());
 
             // Cleanup subscriptions if client_id exists
             if let Some(id) = &client_id {
@@ -307,7 +367,7 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
         } else {
             error!("Session {} not found for removal", client_id);
             Err(BrokerError::NetworkError {
-                error: NetworkError::ConnectionClosed
+                error: NetworkError::ConnectionClosed,
             })
         }
     }
@@ -317,8 +377,12 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// Removes all sessions where time since last activity exceeds 1.5x keep-alive.
     pub fn cleanup_expired_sessions(
         &mut self,
-        topics: &mut crate::topics::TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
-        current_time: u64
+        topics: &mut crate::topics::TopicRegistry<
+            MAX_TOPIC_NAME_LENGTH,
+            MAX_TOPICS,
+            MAX_SUBSCRIBERS_PER_TOPIC,
+        >,
+        current_time: u64,
     ) {
         // Use a simple array to collect expired session IDs
         let mut expired_ids = [const { None }; 16]; // Stack-allocated, reasonable max
@@ -345,7 +409,11 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
     /// It checks for dead connections by attempting to detect socket errors.
     pub fn cleanup_zombie_sessions(
         &mut self,
-        topics: &mut crate::topics::TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        topics: &mut crate::topics::TopicRegistry<
+            MAX_TOPIC_NAME_LENGTH,
+            MAX_TOPICS,
+            MAX_SUBSCRIBERS_PER_TOPIC,
+        >,
     ) {
         let mut zombie_ids = [const { None }; MAX_CLIENTS];
         let mut zombie_count = 0usize;

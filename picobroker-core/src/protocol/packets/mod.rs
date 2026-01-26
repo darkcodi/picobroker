@@ -223,7 +223,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display
+    for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Packet::Connect(packet) => write!(f, "{}", packet),

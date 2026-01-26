@@ -3,11 +3,13 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use crate::broker_error::BrokerError;
-use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
 use crate::client::{ClientId, ClientRegistry, ClientState};
 use crate::protocol::heapless::HeaplessVec;
-use crate::protocol::packets::{ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket, SubAckPacket};
+use crate::protocol::packets::{
+    ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket, SubAckPacket,
+};
 use crate::protocol::qos::QoS;
+use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
 
 /// MQTT broker (core logic)
 ///
@@ -43,13 +45,21 @@ pub struct PicoBroker<
 }
 
 impl<
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
-    const MAX_TOPICS: usize,
-    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    > Default for PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    > Default
+    for PicoBroker<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     fn default() -> Self {
         Self {
@@ -60,13 +70,21 @@ impl<
 }
 
 impl<
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
-    const MAX_TOPICS: usize,
-    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    > PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    >
+    PicoBroker<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     /// Create a new MQTT broker with the given time source
     pub fn new() -> Self {
@@ -82,7 +100,8 @@ impl<
         keep_alive_secs: u16,
         current_time: u64,
     ) -> Result<(), BrokerError> {
-        self.client_registry.register_new_client(client_id, keep_alive_secs, current_time)
+        self.client_registry
+            .register_new_client(client_id, keep_alive_secs, current_time)
     }
 
     /// Mark a client as disconnected
@@ -92,17 +111,20 @@ impl<
 
     /// Remove a client session and cleanup subscriptions
     pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.client_registry.remove_session(client_id, &mut self.topics)
+        self.client_registry
+            .remove_session(client_id, &mut self.topics)
     }
 
     /// Cleanup zombie sessions (connected but without active connection)
     pub fn cleanup_zombie_sessions(&mut self) {
-        self.client_registry.cleanup_zombie_sessions(&mut self.topics);
+        self.client_registry
+            .cleanup_zombie_sessions(&mut self.topics);
     }
 
     /// Cleanup expired sessions (keep-alive timeout)
     pub fn cleanup_expired_sessions(&mut self, current_time: u64) {
-        self.client_registry.cleanup_expired_sessions(&mut self.topics, current_time);
+        self.client_registry
+            .cleanup_expired_sessions(&mut self.topics, current_time);
     }
 
     // ===== Topic Operations =====
@@ -114,7 +136,11 @@ impl<
         subscription: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
         // Verify client exists
-        if self.client_registry.find_session_by_client_id(&client_id).is_none() {
+        if self
+            .client_registry
+            .find_session_by_client_id(&client_id)
+            .is_none()
+        {
             return Err(BrokerError::ClientNotFound);
         }
         self.topics.subscribe(client_id, subscription)
@@ -243,7 +269,9 @@ impl<
         &mut self,
         client_id: &ClientId,
     ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        self.client_registry.find_session_by_client_id(client_id)?.dequeue_rx_packet()
+        self.client_registry
+            .find_session_by_client_id(client_id)?
+            .dequeue_rx_packet()
     }
 
     /// Dequeue a packet from a session's TX queue
@@ -251,7 +279,9 @@ impl<
         &mut self,
         client_id: &ClientId,
     ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        self.client_registry.find_session_by_client_id(client_id)?.dequeue_tx_packet()
+        self.client_registry
+            .find_session_by_client_id(client_id)?
+            .dequeue_tx_packet()
     }
 
     // ===== High-Level Message Operations (Mutable) =====
@@ -273,7 +303,10 @@ impl<
         // Route to each subscriber
         let mut routed_count = 0usize;
         for subscriber_id in &subscribers {
-            if let Some(session) = self.client_registry.find_session_by_client_id(subscriber_id) {
+            if let Some(session) = self
+                .client_registry
+                .find_session_by_client_id(subscriber_id)
+            {
                 let packet = Packet::Publish(publish.clone());
                 if session.queue_tx_packet(packet).is_ok() {
                     routed_count += 1;
@@ -375,10 +408,7 @@ impl<
     /// Queues PINGRESP response.
     ///
     /// This encapsulates PINGREQ handling logic.
-    pub fn handle_pingreq(
-        &mut self,
-        client_id: &ClientId,
-    ) -> Result<(), BrokerError> {
+    pub fn handle_pingreq(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
         if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
             let pingresp = Packet::PingResp(PingRespPacket);
             session.queue_tx_packet(pingresp)
@@ -392,10 +422,7 @@ impl<
     /// Marks session as disconnected (will be cleaned up later).
     ///
     /// This encapsulates DISCONNECT handling logic.
-    pub fn handle_disconnect(
-        &mut self,
-        client_id: &ClientId,
-    ) -> Result<(), BrokerError> {
+    pub fn handle_disconnect(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
         self.set_session_state(client_id, ClientState::Disconnected)
     }
 

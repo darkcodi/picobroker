@@ -1,4 +1,3 @@
-use log::{error, info};
 use crate::broker::PicoBroker;
 use crate::broker_error::BrokerError;
 use crate::client::{ClientId, ClientState};
@@ -7,6 +6,7 @@ use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::{Packet, PacketEncoder};
 use crate::protocol::utils::read_variable_length;
 use crate::traits::{Delay, NetworkError, TcpListener, TcpStream, TimeSource};
+use log::{error, info};
 
 /// MQTT Broker Server
 ///
@@ -40,22 +40,40 @@ pub struct PicoBrokerServer<
     time_source: TS,
     listener: TL,
     delay: D,
-    broker: PicoBroker<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
+    broker: PicoBroker<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >,
     streams: HeaplessVec<(ClientId, Option<TL::Stream>), MAX_CLIENTS>,
     rx_buffers: HeaplessVec<ClientReadBuffer<MAX_PAYLOAD_SIZE>, MAX_CLIENTS>,
 }
 
 impl<
-    TS: TimeSource,
-    TL: TcpListener,
-    D: Delay,
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
-    const MAX_TOPICS: usize,
-    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-> PicoBrokerServer<TS, TL, D, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+        TS: TimeSource,
+        TL: TcpListener,
+        D: Delay,
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_CLIENTS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    >
+    PicoBrokerServer<
+        TS,
+        TL,
+        D,
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_CLIENTS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     /// Create a new MQTT broker server
     pub fn new(time_source: TS, listener: TL, delay: D) -> Self {
@@ -98,11 +116,14 @@ impl<
 
                 let time = self.time_source.now_secs();
                 let client_id = ClientId::generate(time);
-                match self.broker.register_client(client_id.clone(), KEEP_ALIVE_SECS, current_time) {
+                match self
+                    .broker
+                    .register_client(client_id.clone(), KEEP_ALIVE_SECS, current_time)
+                {
                     Ok(_) => {
                         info!("Registered new client with client id {}", client_id);
                         self.set_stream(client_id, stream);
-                    },
+                    }
                     Err(e) => {
                         error!("Failed to register new client: {}", e);
                         error!("Closing connection");
@@ -127,7 +148,8 @@ impl<
             self.write_client_messages().await?;
 
             // 6. Check for expired clients (keep-alive timeout)
-            self.broker.cleanup_expired_sessions(self.time_source.now_secs());
+            self.broker
+                .cleanup_expired_sessions(self.time_source.now_secs());
 
             // 7. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
@@ -155,9 +177,15 @@ impl<
         let _ = self.streams.push((client_id, Some(stream)));
     }
 
-    fn get_or_create_rx_buffer(&mut self, client_id: ClientId) -> &mut ClientReadBuffer<MAX_PAYLOAD_SIZE> {
+    fn get_or_create_rx_buffer(
+        &mut self,
+        client_id: ClientId,
+    ) -> &mut ClientReadBuffer<MAX_PAYLOAD_SIZE> {
         // Check if buffer exists
-        let idx = self.rx_buffers.iter().position(|b| b.client_id == client_id);
+        let idx = self
+            .rx_buffers
+            .iter()
+            .position(|b| b.client_id == client_id);
         if let Some(idx) = idx {
             return &mut self.rx_buffers[idx];
         }
@@ -172,7 +200,10 @@ impl<
     }
 
     fn remove_rx_buffer(&mut self, client_id: &ClientId) {
-        let idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
+        let idx = self
+            .rx_buffers
+            .iter()
+            .position(|b| b.client_id == *client_id);
         if let Some(idx) = idx {
             self.rx_buffers.remove(idx);
         }
@@ -201,7 +232,10 @@ impl<
             // Step 1: Read from stream into a local buffer
             let (bytes_read, should_disconnect) = {
                 // Get buffer to check remaining space
-                let buffer_idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
+                let buffer_idx = self
+                    .rx_buffers
+                    .iter()
+                    .position(|b| b.client_id == *client_id);
                 let remaining_space = if let Some(idx) = buffer_idx {
                     MAX_PAYLOAD_SIZE - self.rx_buffers[idx].len()
                 } else {
@@ -232,11 +266,12 @@ impl<
                         }
                         Ok(n) => (Some(read_buf[..n].to_vec()), false),
                         Err(e) => {
-                            let is_non_fatal = matches!(e,
-                                NetworkError::WouldBlock |
-                                NetworkError::TimedOut |
-                                NetworkError::Interrupted |
-                                NetworkError::InProgress
+                            let is_non_fatal = matches!(
+                                e,
+                                NetworkError::WouldBlock
+                                    | NetworkError::TimedOut
+                                    | NetworkError::Interrupted
+                                    | NetworkError::InProgress
                             );
 
                             if is_non_fatal {
@@ -262,7 +297,10 @@ impl<
             }
 
             // Step 3: Try to decode packets
-            let buffer_idx = self.rx_buffers.iter().position(|b| b.client_id == *client_id);
+            let buffer_idx = self
+                .rx_buffers
+                .iter()
+                .position(|b| b.client_id == *client_id);
             if let Some(idx) = buffer_idx {
                 let has_data = !self.rx_buffers[idx].is_empty();
 
@@ -281,15 +319,24 @@ impl<
                             // No complete packet available, continue
                         }
                         Err(e) => {
-                            let is_fatal = matches!(e,
-                                BrokerError::NetworkError { error: NetworkError::ConnectionClosed } |
-                                BrokerError::NetworkError { error: NetworkError::IoError }
+                            let is_fatal = matches!(
+                                e,
+                                BrokerError::NetworkError {
+                                    error: NetworkError::ConnectionClosed
+                                } | BrokerError::NetworkError {
+                                    error: NetworkError::IoError
+                                }
                             );
 
                             if is_fatal {
-                                error!("Fatal error reading packet from client {}: {}", client_id, e);
+                                error!(
+                                    "Fatal error reading packet from client {}: {}",
+                                    client_id, e
+                                );
                                 // Use new broker API to set state
-                                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                                let _ = self
+                                    .broker
+                                    .set_session_state(client_id, ClientState::Disconnected);
 
                                 if remove_count < sessions_to_remove.len() {
                                     sessions_to_remove[remove_count] = Some(client_id.clone());
@@ -315,7 +362,9 @@ impl<
     }
 
     /// Try to decode a packet from a RX buffer
-    fn try_decode_from_buffer(rx_buffer: &mut ClientReadBuffer<MAX_PAYLOAD_SIZE>) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+    fn try_decode_from_buffer(
+        rx_buffer: &mut ClientReadBuffer<MAX_PAYLOAD_SIZE>,
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
         // Step 1: Check if we have enough data
         if rx_buffer.len() < 2 {
             return Ok(None);
@@ -361,7 +410,10 @@ impl<
             }
         }
 
-        info!("Decoded packet, {} bytes remaining in buffer", rx_buffer.len());
+        info!(
+            "Decoded packet, {} bytes remaining in buffer",
+            rx_buffer.len()
+        );
 
         Ok(Some(packet))
     }
@@ -371,7 +423,10 @@ impl<
         let mut remove_count = 0usize;
 
         // Collect all packets to send with their client IDs
-        let mut packets_to_send: [Option<(ClientId, Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>)>; 32] = [const { None }; 32];
+        let mut packets_to_send: [Option<(
+            ClientId,
+            Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+        )>; 32] = [const { None }; 32];
         let mut packet_count = 0usize;
 
         // Get active clients using new broker API
@@ -409,7 +464,9 @@ impl<
             if !stream_exists {
                 error!("No stream found for client {}", client_id);
                 // Use new broker API to set state
-                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                let _ = self
+                    .broker
+                    .set_session_state(client_id, ClientState::Disconnected);
                 if remove_count < sessions_to_remove.len() {
                     sessions_to_remove[remove_count] = Some(client_id.clone());
                     remove_count += 1;
@@ -448,9 +505,8 @@ impl<
                         }
                     }
                     Err(e) => {
-                        let is_fatal = matches!(e,
-                            NetworkError::ConnectionClosed | NetworkError::IoError
-                        );
+                        let is_fatal =
+                            matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError);
 
                         if is_fatal {
                             error!("Fatal error writing to client {}: {}", client_id, e);
@@ -465,7 +521,9 @@ impl<
 
             if should_disconnect {
                 // Use new broker API to set state
-                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                let _ = self
+                    .broker
+                    .set_session_state(client_id, ClientState::Disconnected);
                 if remove_count < sessions_to_remove.len() {
                     sessions_to_remove[remove_count] = Some(client_id.clone());
                     remove_count += 1;
@@ -484,7 +542,9 @@ impl<
                         Err(e) => {
                             error!("Error flushing stream: {}", e);
                             // Use new broker API to set state
-                            let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
+                            let _ = self
+                                .broker
+                                .set_session_state(client_id, ClientState::Disconnected);
                             if remove_count < sessions_to_remove.len() {
                                 sessions_to_remove[remove_count] = Some(client_id.clone());
                                 remove_count += 1;

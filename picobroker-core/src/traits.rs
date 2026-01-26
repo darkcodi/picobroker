@@ -37,7 +37,11 @@ pub struct SocketAddr {
 
 impl core::fmt::Display for SocketAddr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}.{}.{}.{}:{}", self.ip[0], self.ip[1], self.ip[2], self.ip[3], self.port)
+        write!(
+            f,
+            "{}.{}.{}.{}:{}",
+            self.ip[0], self.ip[1], self.ip[2], self.ip[3], self.port
+        )
     }
 }
 

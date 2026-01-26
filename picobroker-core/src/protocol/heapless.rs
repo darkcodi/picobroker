@@ -395,8 +395,8 @@ impl<T: Default, const N: usize> Iterator for HeaplessVecIntoIterator<T, N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::mem::size_of;
     use core::fmt::Write;
+    use core::mem::size_of;
 
     #[test]
     fn test_optimized_string_size() {

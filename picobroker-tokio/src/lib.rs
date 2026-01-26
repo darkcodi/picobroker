@@ -9,9 +9,11 @@
 // Re-export core for convenience
 pub use picobroker_core::*;
 
-use tokio::net::TcpStream as TokioTcpStreamInner;
 use picobroker_core::server::PicoBrokerServer;
-use picobroker_core::traits::{Delay, NetworkError, SocketAddr, TcpListener, TcpStream, TimeSource};
+use picobroker_core::traits::{
+    Delay, NetworkError, SocketAddr, TcpListener, TcpStream, TimeSource,
+};
+use tokio::net::TcpStream as TokioTcpStreamInner;
 
 const DEFAULT_MAX_TOPIC_NAME_LENGTH: usize = 32;
 const DEFAULT_MAX_PAYLOAD_SIZE: usize = 128;
@@ -27,7 +29,7 @@ pub type DefaultTokioPicoBrokerServer = TokioPicoBrokerServer<
     DEFAULT_MAX_CLIENTS,
     DEFAULT_MAX_TOPICS,
     DEFAULT_MAX_SUBSCRIBERS_PER_TOPIC,
-    >;
+>;
 
 pub type TokioPicoBrokerServer<
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -36,7 +38,7 @@ pub type TokioPicoBrokerServer<
     const MAX_CLIENTS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    > = PicoBrokerServer<
+> = PicoBrokerServer<
     StdTimeSource,
     TokioTcpListener,
     TokioDelay,
@@ -46,7 +48,7 @@ pub type TokioPicoBrokerServer<
     MAX_CLIENTS,
     MAX_TOPICS,
     MAX_SUBSCRIBERS_PER_TOPIC,
-    >;
+>;
 
 /// Tokio TCP stream wrapper
 ///
@@ -77,16 +79,12 @@ impl TcpStream for TokioTcpStream {
         use std::io::ErrorKind;
 
         // tokio's try_read is synchronous but non-blocking
-        self.inner
-            .try_read(buf)
-            .map_err(|e| {
-                match e.kind() {
-                    ErrorKind::WouldBlock => NetworkError::WouldBlock,
-                    ErrorKind::TimedOut => NetworkError::TimedOut,
-                    ErrorKind::Interrupted => NetworkError::Interrupted,
-                    _ => NetworkError::IoError,
-                }
-            })
+        self.inner.try_read(buf).map_err(|e| match e.kind() {
+            ErrorKind::WouldBlock => NetworkError::WouldBlock,
+            ErrorKind::TimedOut => NetworkError::TimedOut,
+            ErrorKind::Interrupted => NetworkError::Interrupted,
+            _ => NetworkError::IoError,
+        })
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
@@ -94,19 +92,12 @@ impl TcpStream for TokioTcpStream {
         self.inner
             .write(buf)
             .await
-            .map_err(|_| {
-                NetworkError::IoError
-            })
+            .map_err(|_| NetworkError::IoError)
     }
 
     async fn flush(&mut self) -> Result<(), NetworkError> {
         use tokio::io::AsyncWriteExt;
-        self.inner
-            .flush()
-            .await
-            .map_err(|_| {
-                NetworkError::IoError
-            })
+        self.inner.flush().await.map_err(|_| NetworkError::IoError)
     }
 
     async fn close(&mut self) -> Result<(), NetworkError> {
@@ -114,9 +105,7 @@ impl TcpStream for TokioTcpStream {
         self.inner
             .shutdown()
             .await
-            .map_err(|_| {
-                NetworkError::IoError
-            })
+            .map_err(|_| NetworkError::IoError)
     }
 }
 
@@ -139,7 +128,7 @@ impl TcpListener for TokioTcpListener {
     type Stream = TokioTcpStream;
 
     async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), NetworkError> {
-        use tokio::time::{Duration, timeout};
+        use tokio::time::{timeout, Duration};
 
         // Try to accept with zero timeout - returns immediately if no connection is pending
         match timeout(Duration::ZERO, self.inner.accept()).await {
@@ -181,7 +170,7 @@ pub struct TokioDelay;
 
 impl Delay for TokioDelay {
     async fn sleep_ms(&self, millis: u64) {
-        use tokio::time::{Duration, sleep};
+        use tokio::time::{sleep, Duration};
         sleep(Duration::from_millis(millis)).await;
     }
 }

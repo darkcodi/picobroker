@@ -2,7 +2,9 @@ use crate::protocol::heapless::HeaplessString;
 use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
-use crate::protocol::utils::{read_string, read_variable_length, write_string, write_variable_length};
+use crate::protocol::utils::{
+    read_string, read_variable_length, write_string, write_variable_length,
+};
 use crate::topics::TopicName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,8 +45,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
         offset += 1;
 
         // 3. Write variable length encoding
-        let var_len_bytes =
-            write_variable_length(remaining_length, &mut buffer[offset..])?;
+        let var_len_bytes = write_variable_length(remaining_length, &mut buffer[offset..])?;
         offset += var_len_bytes;
 
         // 4. Write packet ID
@@ -81,8 +82,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
         }
 
         // 2. Read remaining length
-        let (remaining_length, var_len_bytes) =
-            read_variable_length(&bytes[offset..])?;
+        let (remaining_length, var_len_bytes) = read_variable_length(&bytes[offset..])?;
         offset += var_len_bytes;
 
         // Track remaining bytes for validation
@@ -131,7 +131,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display
+    for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,

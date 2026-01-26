@@ -52,10 +52,10 @@ impl core::fmt::Display for BrokerError {
             }
             BrokerError::NetworkError { error } => {
                 write!(f, "Network error occurred: {}", error)
-            },
+            }
             BrokerError::PacketEncodingError { error } => {
                 write!(f, "Packet encoding/decoding error occurred: {}", error)
-            },
+            }
         }
     }
 }

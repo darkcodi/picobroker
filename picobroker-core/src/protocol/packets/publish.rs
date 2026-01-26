@@ -1,8 +1,8 @@
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
+use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeConst};
 use crate::protocol::qos::QoS;
-use crate::protocol::packet_error::PacketEncodingError;
 use crate::topics::TopicName;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -218,7 +218,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     }
 }
 
-impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
+impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fmt::Display
+    for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
+{
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(
             f,

@@ -29,6 +29,6 @@ pub mod broker;
 pub mod broker_error;
 pub mod client;
 pub mod protocol;
+pub mod server;
 pub mod topics;
 pub mod traits;
-pub mod server;

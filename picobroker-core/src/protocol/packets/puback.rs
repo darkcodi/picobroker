@@ -45,11 +45,7 @@ impl PacketEncoder for PubAckPacket {
 
 impl core::fmt::Display for PubAckPacket {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "PubAckPacket {{ packet_id: {} }}",
-            self.packet_id
-        )
+        write!(f, "PubAckPacket {{ packet_id: {} }}", self.packet_id)
     }
 }
 

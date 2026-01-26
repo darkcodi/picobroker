@@ -1,8 +1,8 @@
 use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{
     PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
 };
-use crate::protocol::packet_type::PacketType;
 use crate::protocol::utils::read_variable_length;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,11 +45,7 @@ impl PacketEncoder for PubCompPacket {
 
 impl core::fmt::Display for PubCompPacket {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(
-            f,
-            "PubCompPacket {{ packet_id: {} }}",
-            self.packet_id
-        )
+        write!(f, "PubCompPacket {{ packet_id: {} }}", self.packet_id)
     }
 }
 
