@@ -112,7 +112,10 @@ impl<
             self.read_client_messages().await?;
 
             // 4. Process messages from clients and route them via the broker
-            self.process_client_messages().await?;
+            let packets_processed = self.broker.process_all_client_packets()?;
+            if packets_processed > 0 {
+                info!("Processed {} packets from clients", packets_processed);
+            }
 
             // 5. Write messages to clients
             self.write_client_messages().await?;
@@ -183,20 +186,11 @@ impl<
         let mut sessions_to_remove: [Option<ClientId>; 16] = [const { None }; 16];
         let mut remove_count = 0usize;
 
-        // First pass: collect client IDs to process
+        // Get active clients using new broker API
         let mut client_ids: [Option<ClientId>; 16] = [const { None }; 16];
-        let mut client_count = 0usize;
+        let client_count = self.broker.get_active_client_ids(&mut client_ids);
 
-        for session_option in self.broker.sessions().iter() {
-            if let Some(session) = session_option {
-                if client_count < client_ids.len() {
-                    client_ids[client_count] = Some(session.client_id.clone());
-                    client_count += 1;
-                }
-            }
-        }
-
-        // Second pass: process each client
+        // Process each client
         for i in 0..client_count {
             if let Some(client_id) = &client_ids[i] {
                 // Step 1: Read from stream into a local buffer
@@ -273,11 +267,10 @@ impl<
                         match packet_result {
                             Ok(Some(packet)) => {
                                 info!("Received packet from client {}: {:?}", client_id, packet);
-                                // Find session mutably to update it
-                                if let Some(session) = self.broker.find_session(client_id) {
-                                    session.update_activity(self.time_source.now_secs());
-                                    let _ = session.queue_rx_packet(packet);
-                                }
+                                // Use new broker API to update activity and queue packet
+                                let current_time = self.time_source.now_secs();
+                                let _ = self.broker.update_session_activity(client_id, current_time);
+                                let _ = self.broker.queue_rx_packet(client_id, packet);
                             }
                             Ok(None) => {
                                 // No complete packet available, continue
@@ -291,9 +284,8 @@ impl<
 
                                 if is_fatal {
                                     error!("Fatal error reading packet from client {}: {}", client_id, e);
-                                    if let Some(session) = self.broker.find_session(client_id) {
-                                        session.state = ClientState::Disconnected;
-                                    }
+                                    // Use new broker API to set state
+                                    let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
 
                                     if remove_count < sessions_to_remove.len() {
                                         sessions_to_remove[remove_count] = Some(client_id.clone());
@@ -373,202 +365,6 @@ impl<
         Ok(Some(packet))
     }
 
-    async fn process_client_messages(&mut self) -> Result<(), BrokerError> {
-        // Process messages from clients and route them via the broker
-        // Collect client IDs and packets to route, then process in a second pass
-        let mut messages_to_route: [Option<(ClientId, Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>)>; QUEUE_SIZE] = [const { None }; QUEUE_SIZE];
-        let mut route_count = 0usize;
-
-        // Collect subscribe requests to process later (use tuples to avoid generic parameter issues)
-        let mut subscribe_client_ids: [Option<ClientId>; 16] = [const { None }; 16];
-        let mut subscribe_topic_filters: [Option<TopicName<MAX_TOPIC_NAME_LENGTH>>; 16] = [const { None }; 16];
-        let mut subscribe_packet_ids: [Option<u16>; 16] = [const { None }; 16];
-        let mut subscribe_qos: [Option<QoS>; 16] = [const { None }; 16];
-        let mut subscribe_count = 0usize;
-
-        for session_option in self.broker.sessions_mut().iter_mut() {
-            if let Some(session) = session_option {
-                while let Some(packet) = session.dequeue_rx_packet() {
-                    info!("Processing packet from client {}: {:?}", session.client_id, packet);
-                    match packet {
-                        Packet::Connect(connect) => {
-                            // Handle CONNECT packet
-                            info!("Client {} connected with ID {:?}, keep-alive: {} seconds",
-                                  session.client_id, connect.client_id, connect.keep_alive);
-
-                            let old_client_id = session.client_id.clone();
-
-                            // Update client_id if provided
-                            if !connect.client_id.is_empty() {
-                                let new_client_id = connect.client_id.clone();
-
-                                // Update session
-                                session.client_id = new_client_id.clone();
-
-                                // Update streams map key
-                                for (cid, _stream_option) in self.streams.iter_mut() {
-                                    if *cid == old_client_id {
-                                        *cid = new_client_id.clone();
-                                        break;
-                                    }
-                                }
-
-                                // Update rx_buffers map key
-                                for buf in self.rx_buffers.iter_mut() {
-                                    if buf.client_id == old_client_id {
-                                        buf.client_id = new_client_id.clone();
-                                        break;
-                                    }
-                                }
-
-                                info!("Updated client ID from {} to {}", old_client_id, new_client_id);
-                            }
-                            // If client_id is empty, keep the server-generated ID (no changes needed)
-
-                            session.state = ClientState::Connected;
-
-                            // Extract and use keep_alive from CONNECT packet
-                            session.keep_alive_secs = connect.keep_alive;
-                            info!("Updated keep-alive for client {} to {} seconds",
-                                  session.client_id, connect.keep_alive);
-
-                            // Send CONNACK response
-                            let connack = Packet::ConnAck(ConnAckPacket::default());
-                            let _ = session.queue_tx_packet(connack);
-                        }
-                        Packet::ConnAck(_) => {}
-                        Packet::Publish(publish) => {
-                            // Handle PUBLISH packet
-                            info!("Client {} published to topic {}: {:?}", session.client_id, publish.topic_name, publish.payload);
-
-                            // Collect for routing after loop ends (avoid borrowing broker while sessions is borrowed)
-                            if route_count < messages_to_route.len() {
-                                messages_to_route[route_count] = Some((session.client_id.clone(), Packet::Publish(publish)));
-                                route_count += 1;
-                            }
-
-                            // Send PUBACK if QoS 1
-                            let publish_ref = if let Packet::Publish(ref p) = messages_to_route[route_count - 1].as_ref().unwrap().1 {
-                                p
-                            } else {
-                                unreachable!()
-                            };
-                            if publish_ref.qos > QoS::AtMostOnce && publish_ref.packet_id.is_some() {
-                                let mut puback = PubAckPacket::default();
-                                puback.packet_id = publish_ref.packet_id.unwrap();
-                                let _ = session.queue_tx_packet(Packet::PubAck(puback));
-                            }
-                        }
-                        Packet::PubAck(_) => {}
-                        Packet::PubRec(_) => {}
-                        Packet::PubRel(_) => {}
-                        Packet::PubComp(_) => {}
-                        Packet::Subscribe(subscribe) => {
-                            // Handle SUBSCRIBE packet - collect for later processing
-                            info!("Client {} subscribing to topic {} with QoS {:?}",
-                                  session.client_id, subscribe.topic_filter, subscribe.requested_qos);
-
-                            // Collect subscribe request for processing after loop
-                            if subscribe_count < subscribe_client_ids.len() {
-                                subscribe_client_ids[subscribe_count] = Some(session.client_id.clone());
-                                subscribe_topic_filters[subscribe_count] = Some(subscribe.topic_filter.clone());
-                                subscribe_packet_ids[subscribe_count] = Some(subscribe.packet_id);
-                                subscribe_qos[subscribe_count] = Some(subscribe.requested_qos);
-                                subscribe_count += 1;
-                            }
-                        }
-                        Packet::SubAck(_) => {}
-                        Packet::Unsubscribe(_) => {}
-                        Packet::UnsubAck(_) => {}
-                        Packet::PingReq(_) => {
-                            // Handle PINGREQ packet - respond with PINGRESP
-                            info!("Client {} sent PINGREQ, sending PINGRESP", session.client_id);
-
-                            // Create and queue PINGRESP packet
-                            let pingresp = Packet::PingResp(PingRespPacket::default());
-                            match session.queue_tx_packet(pingresp) {
-                                Ok(()) => {
-                                    info!("Queued PINGRESP for client {}", session.client_id);
-                                }
-                                Err(e) => {
-                                    error!("Failed to queue PINGRESP for client {}: {}", session.client_id, e);
-                                }
-                            }
-                        }
-                        Packet::PingResp(_) => {}
-                        Packet::Disconnect(_) => {
-                            // Handle DISCONNECT packet
-                            info!("Client {} disconnecting", session.client_id);
-                            session.state = ClientState::Disconnected;
-                            // Mark session for removal by adding it to removal list
-                            // We'll handle this in the next iteration
-                        }
-                    }
-                }
-            }
-        }
-
-        // Route collected messages to subscribers (now sessions is no longer borrowed)
-        for i in 0..route_count {
-            if let Some((_publisher_id, packet)) = &messages_to_route[i] {
-                if let Packet::Publish(publish) = packet {
-                    // Get subscribers for this topic
-                    let subscribers = self.broker.get_topic_subscribers(&publish.topic_name);
-
-                    // Route to each subscriber
-                    for subscriber_id in subscribers {
-                        if let Some(target_session) = self.broker.find_session(&subscriber_id) {
-                            let _ = target_session.queue_tx_packet(packet.clone());
-                            info!("Routed message to subscriber {:?}", subscriber_id);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Process collected subscribe requests (now sessions is no longer borrowed)
-        for i in 0..subscribe_count {
-            if let (Some(client_id), Some(topic_filter), Some(packet_id), Some(requested_qos)) = (
-                &subscribe_client_ids[i],
-                &subscribe_topic_filters[i],
-                subscribe_packet_ids[i],
-                subscribe_qos[i],
-            ) {
-                let topic_subscription = TopicSubscription::Exact(topic_filter.clone());
-                match self.broker.subscribe_client(client_id.clone(), topic_subscription) {
-                    Ok(()) => {
-                        info!("Client {} successfully subscribed to {}",
-                              client_id, topic_filter);
-
-                        // Send SUBACK
-                        if let Some(session) = self.broker.find_session(client_id) {
-                            let suback = SubAckPacket {
-                                packet_id,
-                                granted_qos: requested_qos,
-                            };
-                            let _ = session.queue_tx_packet(Packet::SubAck(suback));
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to subscribe client {} to topic {}: {}",
-                               client_id, topic_filter, e);
-
-                        // Send SUBACK with failure QoS
-                        if let Some(session) = self.broker.find_session(client_id) {
-                            let suback = SubAckPacket {
-                                packet_id,
-                                granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
-                            };
-                            let _ = session.queue_tx_packet(Packet::SubAck(suback));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     async fn write_client_messages(&mut self) -> Result<(), BrokerError> {
         let mut sessions_to_remove: [Option<ClientId>; 16] = [const { None }; 16];
         let mut remove_count = 0usize;
@@ -577,28 +373,17 @@ impl<
         let mut packets_to_send: [Option<(ClientId, Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>)>; 32] = [const { None }; 32];
         let mut packet_count = 0usize;
 
-        // First collect client IDs
+        // Get active clients using new broker API
         let mut client_ids: [Option<ClientId>; 16] = [const { None }; 16];
-        let mut client_count = 0usize;
+        let client_count = self.broker.get_active_client_ids(&mut client_ids);
 
-        for session_option in self.broker.sessions().iter() {
-            if let Some(session) = session_option {
-                if client_count < client_ids.len() {
-                    client_ids[client_count] = Some(session.client_id.clone());
-                    client_count += 1;
-                }
-            }
-        }
-
-        // Then collect packets from each client
+        // Collect packets from each client
         for i in 0..client_count {
             if let Some(client_id) = &client_ids[i] {
-                if let Some(session) = self.broker.find_session(client_id) {
-                    while let Some(packet) = session.dequeue_tx_packet() {
-                        if packet_count < packets_to_send.len() {
-                            packets_to_send[packet_count] = Some((client_id.clone(), packet));
-                            packet_count += 1;
-                        }
+                while let Some(packet) = self.broker.dequeue_tx_packet(client_id) {
+                    if packet_count < packets_to_send.len() {
+                        packets_to_send[packet_count] = Some((client_id.clone(), packet));
+                        packet_count += 1;
                     }
                 }
             }
@@ -625,9 +410,8 @@ impl<
 
                 if !stream_exists {
                     error!("No stream found for client {}", client_id);
-                    if let Some(session) = self.broker.find_session(client_id) {
-                        session.state = ClientState::Disconnected;
-                    }
+                    // Use new broker API to set state
+                    let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
                     if remove_count < sessions_to_remove.len() {
                         sessions_to_remove[remove_count] = Some(client_id.clone());
                         remove_count += 1;
@@ -682,9 +466,8 @@ impl<
                 }
 
                 if should_disconnect {
-                    if let Some(session) = self.broker.find_session(client_id) {
-                        session.state = ClientState::Disconnected;
-                    }
+                    // Use new broker API to set state
+                    let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
                     if remove_count < sessions_to_remove.len() {
                         sessions_to_remove[remove_count] = Some(client_id.clone());
                         remove_count += 1;
@@ -702,9 +485,8 @@ impl<
                             }
                             Err(e) => {
                                 error!("Error flushing stream: {}", e);
-                                if let Some(session) = self.broker.find_session(client_id) {
-                                    session.state = ClientState::Disconnected;
-                                }
+                                // Use new broker API to set state
+                                let _ = self.broker.set_session_state(client_id, ClientState::Disconnected);
                                 if remove_count < sessions_to_remove.len() {
                                     sessions_to_remove[remove_count] = Some(client_id.clone());
                                     remove_count += 1;
@@ -900,7 +682,7 @@ pub struct ClientRegistry<
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     /// Sessions with communication queues
-    pub sessions: HeaplessVec<
+    sessions: HeaplessVec<
         Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
         MAX_CLIENTS
     >,
@@ -915,6 +697,36 @@ ClientRegistry<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_CLIENTS,
             sessions: HeaplessVec::new(),
         }
     }
+
+    // ===== Helper methods for broker.rs =====
+
+    /// Get all active client IDs into a stack-allocated array
+    pub fn get_active_client_ids(&self, output: &mut [Option<ClientId>]) -> usize {
+        let mut count = 0usize;
+        for session_option in self.sessions.iter() {
+            if let Some(session) = session_option {
+                if count < output.len() {
+                    output[count] = Some(session.client_id.clone());
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// Get the number of active (connected/connecting) sessions
+    pub fn active_session_count(&self) -> usize {
+        self.sessions.iter().filter(|s| s.is_some()).count()
+    }
+
+    /// Check if a client session exists
+    pub fn has_session(&self, client_id: &ClientId) -> bool {
+        self.sessions.iter().any(|s| {
+            s.as_ref().map(|sess| &sess.client_id == client_id).unwrap_or(false)
+        })
+    }
+
+    // ===== End helper methods =====
 
     /// Mark a client as disconnected
     pub fn mark_disconnected(&mut self, client_id: ClientId) {
