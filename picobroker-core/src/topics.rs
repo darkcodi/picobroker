@@ -195,13 +195,6 @@ impl<
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     > TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
-    /// Create a new topic registry
-    pub fn new() -> Self {
-        Self {
-            topics: HeaplessVec::new(),
-        }
-    }
-
     /// Subscribe a client to a topic filter
     ///
     /// If the topic doesn't exist, it will be created. If it exists,
@@ -299,12 +292,12 @@ impl<
     /// topics from which the client was removed.
     ///
     /// Automatically cleans up empty topics.
-    pub fn unregister_client(&mut self, id: ClientId) -> usize {
+    pub fn unregister_client(&mut self, client_id: &ClientId) -> usize {
         let mut removed_count = 0;
 
         // Remove client from all topics
         for entry in &mut self.topics {
-            if entry.remove_subscriber(&id) {
+            if entry.remove_subscriber(client_id) {
                 removed_count += 1;
             }
         }

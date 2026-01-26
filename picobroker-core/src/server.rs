@@ -108,14 +108,13 @@ impl<
             if let Ok((mut stream, socket_addr)) = self.listener.try_accept().await {
                 info!("Received new connection from {}", socket_addr);
 
-                const KEEP_ALIVE_SECS: u16 = 60; // Default non-configurable keep-alive for new clients
-                let current_time = self.time_source.now_secs();
-
                 // Proactively cleanup any dead/zombie sessions before accepting new connection
-                self.broker.cleanup_zombie_sessions();
+                self.broker.cleanup_disconnected_clients();
 
                 let time = self.time_source.now_secs();
                 let client_id = ClientId::generate(time);
+                const KEEP_ALIVE_SECS: u16 = 60; // Default non-configurable keep-alive for new clients
+                let current_time = self.time_source.now_secs();
                 match self
                     .broker
                     .register_client(client_id.clone(), KEEP_ALIVE_SECS, current_time)
@@ -133,7 +132,7 @@ impl<
             }
 
             // 2. Clean up disconnected sessions before attempting to read
-            self.broker.cleanup_zombie_sessions();
+            self.broker.cleanup_disconnected_clients();
 
             // 3. Process client messages (round-robin through all sessions)
             self.read_client_messages().await?;
@@ -149,7 +148,7 @@ impl<
 
             // 6. Check for expired clients (keep-alive timeout)
             self.broker
-                .cleanup_expired_sessions(self.time_source.now_secs());
+                .cleanup_expired_clients(self.time_source.now_secs());
 
             // 7. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
@@ -224,7 +223,7 @@ impl<
         let mut remove_count = 0usize;
 
         // Get active clients using new broker API
-        let client_ids = self.broker.get_active_client_ids();
+        let client_ids = self.broker.get_active_clients();
 
         // Process each client
         for client_id in client_ids.iter().flatten() {
@@ -429,7 +428,7 @@ impl<
         let mut packet_count = 0usize;
 
         // Get active clients using new broker API
-        let client_ids = self.broker.get_active_client_ids();
+        let client_ids = self.broker.get_active_clients();
 
         // Collect packets from each client
         for client_id in client_ids.iter().flatten() {

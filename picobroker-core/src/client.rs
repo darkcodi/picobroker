@@ -79,7 +79,7 @@ pub enum ClientState {
 /// Client session with dual queues
 ///
 /// Manages the state and communication queues for a connected client
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientSession<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
@@ -231,15 +231,8 @@ impl<
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
 {
-    /// Create a new client registry
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    // ===== Helper methods for broker.rs =====
-
-    /// Get all active client IDs into a stack-allocated array
-    pub fn get_active_client_ids(&self) -> [Option<ClientId>; MAX_CLIENTS] {
+    /// Get all client IDs
+    pub fn get_all_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
         let mut client_ids = [const { None }; MAX_CLIENTS];
         let mut count = 0usize;
 
@@ -253,21 +246,35 @@ impl<
         client_ids
     }
 
-    /// Get the number of active (connected/connecting) sessions
-    pub fn active_session_count(&self) -> usize {
-        self.sessions.iter().filter(|s| s.is_some()).count()
+    /// Get expired client IDs based on current time
+    pub fn get_expired_clients(&self, current_time: u64) -> [Option<ClientId>; MAX_CLIENTS] {
+        let mut client_ids = [const { None }; MAX_CLIENTS];
+        let mut client_ids_count = 0usize;
+
+        for session in (&self.sessions).into_iter().flatten() {
+            if session.is_expired(current_time) && client_ids_count < client_ids.len() {
+                client_ids[client_ids_count] = Some(session.client_id.clone());
+                client_ids_count += 1;
+            }
+        }
+
+        client_ids
     }
 
-    /// Check if a client session exists
-    pub fn has_session(&self, client_id: &ClientId) -> bool {
-        self.sessions.iter().any(|s| {
-            s.as_ref()
-                .map(|sess| &sess.client_id == client_id)
-                .unwrap_or(false)
-        })
-    }
+    /// Get disconnected client IDs
+    pub fn get_disconnected_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
+        let mut client_ids = [const { None }; MAX_CLIENTS];
+        let mut client_ids_count = 0usize;
 
-    // ===== End helper methods =====
+        for session in (&self.sessions).into_iter().flatten() {
+            if session.state == ClientState::Disconnected && client_ids_count < client_ids.len() {
+                client_ids[client_ids_count] = Some(session.client_id.clone());
+                client_ids_count += 1;
+            }
+        }
+
+        client_ids
+    }
 
     /// Mark a client as disconnected
     pub fn mark_disconnected(&mut self, client_id: ClientId) {
@@ -318,69 +325,22 @@ impl<
             .and_then(|s_opt| s_opt.as_mut())
     }
 
-    /// Remove a client session by client ID
-    pub fn remove_session(&mut self, client_id: &ClientId) -> Result<ClientId, BrokerError> {
-        // Find the session index
+    /// Remove a client by client ID
+    pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
         let session_idx = self.sessions.iter().position(|s| {
             s.as_ref()
-                .map(|sess| &sess.client_id == client_id)
+                .map(|session| &session.client_id == client_id)
                 .unwrap_or(false)
         });
 
         if let Some(idx) = session_idx {
-            // Extract the client_id before removing
-            let client_id = self.sessions[idx].as_ref().map(|s| s.client_id.clone());
-
-            // Remove from vector - replace with None and then shift
-            // We can't use remove() because Option<ClientSession> doesn't implement Clone
-            self.sessions[idx] = None;
-
-            // Shift remaining elements to fill the gap
-            for i in idx..self.sessions.len() - 1 {
-                self.sessions[i] = self.sessions[i + 1].take();
-            }
-
-            // Remove the last element which is now a duplicate
-            let _ = self.sessions.pop();
-
-            client_id.ok_or(BrokerError::NetworkError {
-                error: NetworkError::ConnectionClosed,
-            })
+            self.sessions.remove(idx);
+            Ok(())
         } else {
             error!("Session {} not found for removal", client_id);
             Err(BrokerError::NetworkError {
                 error: NetworkError::ConnectionClosed,
             })
         }
-    }
-
-    /// Get all expired sessions based on current time
-    pub fn get_expired_sessions(&self, current_time: u64) -> [Option<ClientId>; MAX_CLIENTS] {
-        let mut expired_ids = [const { None }; MAX_CLIENTS];
-        let mut expired_count = 0usize;
-
-        for sess in (&self.sessions).into_iter().flatten() {
-            if sess.is_expired(current_time) && expired_count < expired_ids.len() {
-                expired_ids[expired_count] = Some(sess.client_id.clone());
-                expired_count += 1;
-            }
-        }
-
-        expired_ids
-    }
-
-    /// Get all zombie (disconnected) sessions
-    pub fn get_zombie_sessions(&self) -> [Option<ClientId>; MAX_CLIENTS] {
-        let mut zombie_ids = [const { None }; MAX_CLIENTS];
-        let mut zombie_count = 0usize;
-
-        for sess in (&self.sessions).into_iter().flatten() {
-            if sess.state == ClientState::Disconnected && zombie_count < zombie_ids.len() {
-                zombie_ids[zombie_count] = Some(sess.client_id.clone());
-                zombie_count += 1;
-            }
-        }
-
-        zombie_ids
     }
 }

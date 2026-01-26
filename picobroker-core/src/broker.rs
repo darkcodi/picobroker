@@ -34,7 +34,7 @@ pub struct PicoBroker<
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
-    client_registry: ClientRegistry<
+    clients: ClientRegistry<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
@@ -63,8 +63,8 @@ impl<
 {
     fn default() -> Self {
         Self {
-            topics: TopicRegistry::new(),
-            client_registry: ClientRegistry::new(),
+            topics: TopicRegistry::default(),
+            clients: ClientRegistry::default(),
         }
     }
 }
@@ -91,8 +91,6 @@ impl<
         Self::default()
     }
 
-    // ===== Client Lifecycle Operations =====
-
     /// Register a new client session
     pub fn register_client(
         &mut self,
@@ -100,54 +98,42 @@ impl<
         keep_alive_secs: u16,
         current_time: u64,
     ) -> Result<(), BrokerError> {
-        self.client_registry
+        self.clients
             .register_new_client(client_id, keep_alive_secs, current_time)
     }
 
     /// Mark a client as disconnected
     pub fn mark_client_disconnected(&mut self, client_id: ClientId) {
-        self.client_registry.mark_disconnected(client_id);
+        self.clients.mark_disconnected(client_id);
     }
 
     /// Remove a client session and cleanup subscriptions
     pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        // Remove from client registry first
-        let removed_id = self.client_registry.remove_session(client_id)?;
-
-        // Log before cleanup (since unregister_client takes ownership)
-        log::info!("Cleaned up subscriptions for client {:?}", removed_id);
-
-        // Then cleanup subscriptions from topic registry
-        self.topics.unregister_client(removed_id);
-
+        self.clients.remove_client(client_id)?;
+        self.topics.unregister_client(client_id);
+        log::info!("Cleaned up subscriptions for client {:?}", client_id);
         Ok(())
     }
 
-    /// Cleanup zombie sessions (connected but without active connection)
-    pub fn cleanup_zombie_sessions(&mut self) {
-        // Get list of zombie sessions
-        let zombie_ids = self.client_registry.get_zombie_sessions();
+    /// Cleanup disconnected clients
+    pub fn cleanup_disconnected_clients(&mut self) {
+        let client_ids = self.clients.get_disconnected_clients();
 
-        // Remove each zombie session completely (client + topics)
-        for client_id in zombie_ids.iter().flatten() {
-            log::info!("Removing zombie session {}", client_id);
+        for client_id in client_ids.iter().flatten() {
+            log::info!("Removing disconnected client {}", client_id);
             let _ = self.remove_client(client_id);
         }
     }
 
-    /// Cleanup expired sessions (keep-alive timeout)
-    pub fn cleanup_expired_sessions(&mut self, current_time: u64) {
-        // Get list of expired sessions
-        let expired_ids = self.client_registry.get_expired_sessions(current_time);
+    /// Cleanup expired clients (keep-alive timeout)
+    pub fn cleanup_expired_clients(&mut self, current_time: u64) {
+        let client_ids = self.clients.get_expired_clients(current_time);
 
-        // Remove each expired session completely (client + topics)
-        for client_id in expired_ids.iter().flatten() {
-            log::info!("Removing expired session {}", client_id);
+        for client_id in client_ids.iter().flatten() {
+            log::info!("Removing expired client {}", client_id);
             let _ = self.remove_client(client_id);
         }
     }
-
-    // ===== Topic Operations =====
 
     /// Subscribe a client to a topic
     pub fn subscribe_client(
@@ -156,11 +142,7 @@ impl<
         subscription: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
         // Verify client exists
-        if self
-            .client_registry
-            .find_session_by_client_id(&client_id)
-            .is_none()
-        {
+        if self.clients.find_session_by_client_id(&client_id).is_none() {
             return Err(BrokerError::ClientNotFound);
         }
         self.topics.subscribe(client_id, subscription)
@@ -174,28 +156,10 @@ impl<
         self.topics.get_subscribers(topic)
     }
 
-    // ===== New High-Level API =====
-
-    // ===== Query Methods (Immutable) =====
-
-    /// Get all active client IDs into a stack-allocated array
-    ///
-    /// Returns the number of active clients (capped at output array size)
-    pub fn get_active_client_ids(&self) -> [Option<ClientId>; MAX_CLIENTS] {
-        self.client_registry.get_active_client_ids()
+    /// Get all client IDs into a stack-allocated array
+    pub fn get_active_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
+        self.clients.get_all_clients()
     }
-
-    /// Get the number of active (connected/connecting) sessions
-    pub fn active_session_count(&self) -> usize {
-        self.client_registry.active_session_count()
-    }
-
-    /// Check if a client session exists
-    pub fn has_session(&self, client_id: &ClientId) -> bool {
-        self.client_registry.has_session(client_id)
-    }
-
-    // ===== State Update Methods (Mutable) =====
 
     /// Update a session's activity timestamp
     pub fn update_session_activity(
@@ -203,7 +167,7 @@ impl<
         client_id: &ClientId,
         current_time: u64,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             session.update_activity(current_time);
             Ok(())
         } else {
@@ -217,7 +181,7 @@ impl<
         client_id: &ClientId,
         state: ClientState,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             session.state = state;
             Ok(())
         } else {
@@ -234,7 +198,7 @@ impl<
         old_id: &ClientId,
         new_id: ClientId,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(old_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(old_id) {
             session.client_id = new_id;
             Ok(())
         } else {
@@ -248,7 +212,7 @@ impl<
         client_id: &ClientId,
         keep_alive_secs: u16,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             session.keep_alive_secs = keep_alive_secs;
             Ok(())
         } else {
@@ -256,15 +220,13 @@ impl<
         }
     }
 
-    // ===== Queue Methods (Mutable) =====
-
     /// Queue a packet to a session's RX queue (network -> session)
     pub fn queue_rx_packet(
         &mut self,
         client_id: &ClientId,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             session.queue_rx_packet(packet)
         } else {
             Err(BrokerError::ClientNotFound)
@@ -277,7 +239,7 @@ impl<
         client_id: &ClientId,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             session.queue_tx_packet(packet)
         } else {
             Err(BrokerError::ClientNotFound)
@@ -289,7 +251,7 @@ impl<
         &mut self,
         client_id: &ClientId,
     ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        self.client_registry
+        self.clients
             .find_session_by_client_id(client_id)?
             .dequeue_rx_packet()
     }
@@ -299,12 +261,10 @@ impl<
         &mut self,
         client_id: &ClientId,
     ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        self.client_registry
+        self.clients
             .find_session_by_client_id(client_id)?
             .dequeue_tx_packet()
     }
-
-    // ===== High-Level Message Operations (Mutable) =====
 
     /// Publish a message from a client to all topic subscribers
     ///
@@ -323,10 +283,7 @@ impl<
         // Route to each subscriber
         let mut routed_count = 0usize;
         for subscriber_id in &subscribers {
-            if let Some(session) = self
-                .client_registry
-                .find_session_by_client_id(subscriber_id)
-            {
+            if let Some(session) = self.clients.find_session_by_client_id(subscriber_id) {
                 let packet = Packet::Publish(publish.clone());
                 if session.queue_tx_packet(packet).is_ok() {
                     routed_count += 1;
@@ -340,7 +297,7 @@ impl<
                 packet_id: publish.packet_id.unwrap(),
             };
 
-            if let Some(session) = self.client_registry.find_session_by_client_id(publisher_id) {
+            if let Some(session) = self.clients.find_session_by_client_id(publisher_id) {
                 let _ = session.queue_tx_packet(Packet::PubAck(puback));
             }
         }
@@ -366,7 +323,7 @@ impl<
         match self.topics.subscribe(client_id.clone(), subscription) {
             Ok(()) => {
                 // Success - send SUBACK with granted QoS
-                if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                if let Some(session) = self.clients.find_session_by_client_id(client_id) {
                     let suback = SubAckPacket {
                         packet_id,
                         granted_qos: requested_qos,
@@ -377,7 +334,7 @@ impl<
             }
             Err(e) => {
                 // Failure - send SUBACK with failure QoS
-                if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+                if let Some(session) = self.clients.find_session_by_client_id(client_id) {
                     let suback = SubAckPacket {
                         packet_id,
                         granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
@@ -389,8 +346,6 @@ impl<
         }
     }
 
-    // ===== High-Level Packet Handlers (Mutable) =====
-
     /// Handle a CONNECT packet for a session
     ///
     /// Updates client_id, keep_alive, state, and queues CONNACK.
@@ -401,7 +356,7 @@ impl<
         client_id: &ClientId,
         connect: &ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             // Update client_id if provided
             if !connect.client_id.is_empty() {
                 session.client_id = connect.client_id.clone();
@@ -429,7 +384,7 @@ impl<
     ///
     /// This encapsulates PINGREQ handling logic.
     pub fn handle_pingreq(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        if let Some(session) = self.client_registry.find_session_by_client_id(client_id) {
+        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
             let pingresp = Packet::PingResp(PingRespPacket);
             session.queue_tx_packet(pingresp)
         } else {
@@ -462,7 +417,7 @@ impl<
         use Packet;
 
         // Collect client IDs (avoid holding mutable reference during iteration)
-        let client_ids = self.get_active_client_ids();
+        let client_ids = self.get_active_clients();
 
         let mut total_processed = 0usize;
 
