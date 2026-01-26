@@ -139,14 +139,13 @@ impl<
                         // No packet available, continue
                     }
                     Err(e) => {
-                        // Check if it's a fatal error requiring cleanup
+                        // All errors here are fatal (WouldBlock is already handled in try_read_packet_from_stream)
                         error!("Error reading packet from client {}: {}", session.session_id, e);
 
-                        if matches!(e, BrokerError::NetworkError { error: NetworkError::ConnectionClosed }) {
-                            if remove_count < sessions_to_remove.len() {
-                                sessions_to_remove[remove_count] = Some(session.session_id);
-                                remove_count += 1;
-                            }
+                        // Remove session on any fatal error
+                        if remove_count < sessions_to_remove.len() {
+                            sessions_to_remove[remove_count] = Some(session.session_id);
+                            remove_count += 1;
                         }
                     }
                 }
