@@ -2,6 +2,7 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
+use log::info;
 use crate::broker_error::BrokerError;
 use crate::client::{ClientId, ClientRegistry};
 use crate::protocol::packets::{
@@ -108,11 +109,9 @@ impl<
     }
 
     /// Remove a client session and cleanup subscriptions
-    pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.clients.remove_client(client_id)?;
+    pub fn remove_client(&mut self, client_id: &ClientId) {
+        self.clients.remove_client(client_id);
         self.topics.unregister_client(client_id);
-        log::info!("Removing client {}", client_id);
-        Ok(())
     }
 
     /// Get all client IDs
@@ -153,9 +152,7 @@ impl<
     /// Process all packets from all sessions (round-robin)
     ///
     /// Returns the number of packets processed.
-    pub fn process_all_client_packets(&mut self) -> Result<usize, BrokerError> {
-        use Packet;
-
+    pub fn process_all_client_packets(&mut self) -> Result<(), BrokerError> {
         // Collect client IDs (avoid holding mutable reference during iteration)
         let client_ids = self.get_all_clients();
 
@@ -207,7 +204,11 @@ impl<
             }
         }
 
-        Ok(total_processed)
+        if total_processed > 0 {
+            info!("Processed {} packets from clients", total_processed);
+        }
+
+        Ok(())
     }
 
     fn handle_connect(
