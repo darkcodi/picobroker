@@ -6,7 +6,7 @@ use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::{Packet, PacketEncoder};
 use crate::protocol::utils::read_variable_length;
 use crate::traits::{Delay, NetworkError, TcpListener, TcpStream, TimeSource};
-use log::{error, info};
+use log::{error, info, warn};
 
 /// MQTT Broker Server
 ///
@@ -272,7 +272,6 @@ impl<
                                 NetworkError::WouldBlock
                                     | NetworkError::TimedOut
                                     | NetworkError::Interrupted
-                                    | NetworkError::InProgress
                             );
 
                             if is_non_fatal {
@@ -408,138 +407,79 @@ impl<
     }
 
     async fn write_client_messages(&mut self) -> Result<(), BrokerError> {
-        let mut sessions_to_remove: [Option<ClientId>; 16] = [const { None }; 16];
-        let mut remove_count = 0usize;
-
-        // Collect all packets to send with their client IDs
-        let mut packets_to_send: [Option<(
-            ClientId,
-            Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-        )>; 32] = [const { None }; 32];
-        let mut packet_count = 0usize;
-
-        // Get active clients using new broker API
-        let client_ids = self.broker.get_all_clients();
-
-        // Collect packets from each client
-        for client_id in client_ids.iter().flatten() {
+        for client_id in self.broker.get_all_clients().iter().flatten() {
             while let Ok(Some(packet)) = self.broker.dequeue_packet_to_send_to_client(client_id) {
-                if packet_count < packets_to_send.len() {
-                    packets_to_send[packet_count] = Some((client_id.clone(), packet));
-                    packet_count += 1;
-                }
-            }
-        }
-
-        // Send each packet
-        for (client_id, packet) in packets_to_send.iter().take(packet_count).flatten() {
-            info!("Sending packet to client {}: {:?}", client_id, packet);
-            let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
-            let packet_size_result = packet.encode(&mut buffer);
-            let packet_size = match packet_size_result {
-                Ok(encoded) => encoded,
-                Err(e) => {
-                    error!("Error encoding packet for client {}: {}", client_id, e);
-                    continue; // Skip sending this packet
-                }
-            };
-            let encoded_packet = &buffer[..packet_size];
-            info!("Encoded packet: {} bytes", packet_size);
-
-            // Get stream for this client
-            let stream_exists = self.get_stream_mut(client_id.clone()).is_some();
-
-            if !stream_exists {
-                error!("No stream found for client {}", client_id);
-                // Use new broker API to set state
-                let _ = self.broker.mark_client_disconnected(client_id);
-                if remove_count < sessions_to_remove.len() {
-                    sessions_to_remove[remove_count] = Some(client_id.clone());
-                    remove_count += 1;
-                }
-                continue;
-            }
-
-            // Write ALL bytes (handle partial writes)
-            let mut total_written = 0usize;
-            let mut should_disconnect = false;
-
-            while total_written < packet_size && !should_disconnect {
-                let stream = self.get_stream_mut(client_id.clone());
-                if stream.is_none() {
-                    error!("No stream found for client {}", client_id);
-                    should_disconnect = true;
-                    break;
-                }
-
-                let stream = stream.unwrap();
-
-                match stream.write(&encoded_packet[total_written..]).await {
-                    Ok(0) => {
-                        // Wrote 0 bytes = connection closed
-                        error!("Write returned 0 bytes, connection closed");
-                        should_disconnect = true;
-                        break; // Exit write loop
-                    }
-                    Ok(bytes_written) => {
-                        total_written += bytes_written;
-                        info!("Wrote {} bytes (total: {})", bytes_written, total_written);
-
-                        if total_written >= packet_size {
-                            // All bytes written, now flush
-                            break;
-                        }
-                    }
+                info!("Sending packet to client {}: {:?}", client_id, packet);
+                let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
+                let packet_size_result = packet.encode(&mut buffer);
+                let packet_size = match packet_size_result {
+                    Ok(encoded) => encoded,
                     Err(e) => {
-                        let is_fatal =
-                            matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError);
+                        error!("Error encoding packet for client {}: {}", client_id, e);
+                        continue; // Skip sending this packet
+                    }
+                };
+                let encoded_packet = &buffer[..packet_size];
+                info!("Encoded packet: {} bytes", packet_size);
 
-                        if is_fatal {
-                            error!("Fatal error writing to client {}: {}", client_id, e);
-                            should_disconnect = true;
-                        } else {
-                            info!("Non-fatal write error, retrying: {}", e);
+                let stream = match self.get_stream_mut(client_id.clone()) {
+                    Some(s) => s,
+                    None => {
+                        error!("No stream found for client {}", client_id);
+                        let _ = self.broker.mark_client_disconnected(client_id);
+                        break;
+                    }
+                };
+
+                // Write ALL bytes (handle partial writes)
+                let mut total_written = 0usize;
+
+                while total_written < packet_size {
+                    match stream.write(&encoded_packet[total_written..]).await {
+                        Ok(0) => {
+                            error!("Write returned 0 bytes, connection closed");
+                            let _ = self.broker.mark_client_disconnected(client_id);
                             break;
                         }
-                    }
-                }
-            }
+                        Ok(bytes_written) => {
+                            total_written += bytes_written;
+                            info!("Wrote {} bytes (total: {})", bytes_written, total_written);
 
-            if should_disconnect {
-                // Use new broker API to set state
-                let _ = self.broker.mark_client_disconnected(client_id);
-                if remove_count < sessions_to_remove.len() {
-                    sessions_to_remove[remove_count] = Some(client_id.clone());
-                    remove_count += 1;
-                }
-                continue;
-            }
-
-            // Only flush if write succeeded
-            if total_written >= packet_size && !should_disconnect {
-                let stream = self.get_stream_mut(client_id.clone());
-                if let Some(stream) = stream {
-                    match stream.flush().await {
-                        Ok(()) => {
-                            info!("Flushed stream for client {}", client_id);
-                        }
-                        Err(e) => {
-                            error!("Error flushing stream: {}", e);
-                            // Use new broker API to set state
-                            let _ = self.broker.mark_client_disconnected(client_id);
-                            if remove_count < sessions_to_remove.len() {
-                                sessions_to_remove[remove_count] = Some(client_id.clone());
-                                remove_count += 1;
+                            if total_written >= packet_size {
+                                match stream.flush().await {
+                                    Ok(()) => {
+                                        info!("Flushed stream for client {}", client_id);
+                                    }
+                                    Err(e) => {
+                                        error!("Error flushing stream: {}", e);
+                                        let _ = self.broker.mark_client_disconnected(client_id);
+                                    }
+                                }
+                                break;
                             }
                         }
+                        Err(e)
+                            if matches!(
+                                e,
+                                NetworkError::ConnectionClosed | NetworkError::IoError
+                            ) =>
+                        {
+                            error!("Fatal error writing to client {}: {}", client_id, e);
+                            let _ = self.broker.mark_client_disconnected(client_id);
+                            break;
+                        }
+                        Err(e)
+                            if matches!(e, NetworkError::TimedOut | NetworkError::Interrupted) =>
+                        {
+                            warn!("Write timeout/interrupted for client {}: {}", client_id, e);
+                            break;
+                        }
+                        Err(e) => {
+                            info!("Non-fatal write error, retrying: {}", e);
+                        }
                     }
                 }
             }
-        }
-
-        // Remove sessions that had fatal errors
-        for client_id in sessions_to_remove.iter().take(remove_count).flatten() {
-            self.remove_client(client_id);
         }
 
         Ok(())
