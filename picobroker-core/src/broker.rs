@@ -10,7 +10,7 @@ use crate::protocol::packets::{
     SubAckPacket, SubscribePacket,
 };
 use crate::protocol::qos::QoS;
-use crate::topics::{TopicRegistry, TopicSubscription};
+use crate::topics::TopicRegistry;
 
 /// MQTT broker (core logic)
 ///
@@ -271,8 +271,7 @@ impl<
         client_id: &ClientId,
         subscribe: &SubscribePacket<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
-        let subscription = TopicSubscription::Exact(subscribe.topic_filter.clone());
-        self.topics.subscribe(client_id.clone(), subscription)?;
+        self.topics.subscribe(client_id.clone(), subscribe.topic_filter.clone())?;
 
         // For simplicity, grant requested QoS directly, but in real implementation, it should be min(requested, supported)
         let granted_qos = subscribe.requested_qos;

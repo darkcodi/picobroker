@@ -60,43 +60,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for TopicName<MAX_TO
     }
 }
 
-/// Topic subscription filter
-/// Currently supports only exact topic matching.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
-pub enum TopicSubscription<const MAX_TOPIC_NAME_LENGTH: usize> {
-    #[default]
-    Empty,
-    Exact(TopicName<MAX_TOPIC_NAME_LENGTH>),
-}
-
-impl<const MAX_TOPIC_NAME_LENGTH: usize> TopicSubscription<MAX_TOPIC_NAME_LENGTH> {
-    pub fn empty() -> Self {
-        TopicSubscription::Empty
-    }
-
-    pub fn exact(topic: TopicName<MAX_TOPIC_NAME_LENGTH>) -> Self {
-        TopicSubscription::Exact(topic)
-    }
-
-    pub fn matches(&self, topic: &str) -> bool {
-        match self {
-            TopicSubscription::Empty => false,
-            TopicSubscription::Exact(t) => t.as_str() == topic,
-        }
-    }
-}
-
-impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str>
-    for TopicSubscription<MAX_TOPIC_NAME_LENGTH>
-{
-    type Error = PacketEncodingError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let topic_name = TopicName::try_from(value)?;
-        Ok(TopicSubscription::exact(topic_name))
-    }
-}
-
 /// Represents a single topic with its subscribers
 ///
 /// This is the primary data structure in the topic-centric organization.
@@ -209,14 +172,9 @@ impl<
     pub fn subscribe(
         &mut self,
         id: ClientId,
-        filter: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
+        filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
-        let topic_name = match filter {
-            TopicSubscription::Exact(name) => name,
-            TopicSubscription::Empty => {
-                return Ok(()); // Empty filter, nothing to subscribe to
-            }
-        };
+        let topic_name = filter;
 
         // Find existing topic or create new
         if let Some(topic_entry) = self.topics.iter_mut().find(|t| t.topic_name == topic_name) {
@@ -262,12 +220,9 @@ impl<
     pub fn unsubscribe(
         &mut self,
         id: ClientId,
-        filter: &TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
+        filter: &TopicName<MAX_TOPIC_NAME_LENGTH>,
     ) -> bool {
-        let topic_name = match filter {
-            TopicSubscription::Exact(name) => name,
-            TopicSubscription::Empty => return false, // Empty filter, nothing to unsubscribe
-        };
+        let topic_name = filter;
 
         // Find the topic index first
         let topic_idx = self.topics.iter().position(|e| e.topic_name == *topic_name);
