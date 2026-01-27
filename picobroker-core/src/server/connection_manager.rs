@@ -38,16 +38,30 @@ where
 
     /// Set or replace a client's stream
     pub fn set_stream(&mut self, client_id: ClientId, stream: TL::Stream) {
+        // First try to find and replace an existing entry
         for (cid, stream_option) in self.streams.iter_mut() {
             if *cid == client_id {
                 *stream_option = Some(stream);
                 return;
             }
         }
-        let _ = self.streams.push((client_id, Some(stream)));
+
+        // Try to find an empty slot (where stream is None) and reuse it
+        for (cid, stream_option) in self.streams.iter_mut() {
+            if stream_option.is_none() {
+                *cid = client_id;
+                *stream_option = Some(stream);
+                return;
+            }
+        }
+
+        // No empty slot found, try to push a new entry
+        if let Err(_) = self.streams.push((client_id.clone(), Some(stream))) {
+            log::error!("Failed to add stream for client {}: connection manager full", client_id);
+        }
     }
 
-    /// Remove a client's stream (set to None instead of removing to maintain heapless vec stability)
+    /// Remove a client's stream by setting it to None
     pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
         for (cid, stream_option) in self.streams.iter_mut() {
             if *cid == *client_id {
