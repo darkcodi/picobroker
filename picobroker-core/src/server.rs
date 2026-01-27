@@ -167,13 +167,13 @@ impl<
 
     fn get_or_create_rx_buffer(
         &mut self,
-        client_id: ClientId,
+        client_id: &ClientId,
     ) -> &mut ClientReadBuffer<MAX_PAYLOAD_SIZE> {
         // Check if buffer exists
         let idx = self
             .rx_buffers
             .iter()
-            .position(|b| b.client_id == client_id);
+            .position(|b| &b.client_id == client_id);
         if let Some(idx) = idx {
             return &mut self.rx_buffers[idx];
         }
@@ -185,6 +185,11 @@ impl<
         // Return the newly added buffer (it's now at the end)
         let new_idx = self.rx_buffers.len() - 1;
         &mut self.rx_buffers[new_idx]
+    }
+
+    fn get_rx_buffer_remaining_space(&mut self, client_id: &ClientId) -> usize {
+        let rx_buffer = self.get_or_create_rx_buffer(client_id);
+        MAX_PAYLOAD_SIZE - rx_buffer.len()
     }
 
     fn remove_disconnected_clients(&mut self) {
@@ -225,87 +230,43 @@ impl<
     }
 
     async fn read_client_messages(&mut self) -> Result<(), BrokerError> {
-        // Get active clients using new broker API
-        let client_ids = self.broker.get_all_clients();
+        for client_id in self.broker.get_all_clients().iter().flatten() {
+            let mut remaining_space = self.get_rx_buffer_remaining_space(client_id);
+            if remaining_space == 0 {
+                warn!(
+                    "RX buffer overflow for client {}, clearing buffer",
+                    client_id
+                );
+                let rx_buffer = self.get_or_create_rx_buffer(client_id);
+                rx_buffer.clear();
+                remaining_space = self.get_rx_buffer_remaining_space(client_id);
+            }
 
-        // Process each client
-        for client_id in client_ids.iter().flatten() {
-            // Step 1: Read from stream into a local buffer
-            let (bytes_read, should_disconnect) = {
-                // Get buffer to check remaining space
-                let buffer_idx = self
-                    .rx_buffers
-                    .iter()
-                    .position(|b| b.client_id == *client_id);
-                let remaining_space = if let Some(idx) = buffer_idx {
-                    MAX_PAYLOAD_SIZE - self.rx_buffers[idx].len()
-                } else {
-                    MAX_PAYLOAD_SIZE
-                };
+            let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
 
-                if remaining_space == 0 {
-                    (None, false)
-                } else {
-                    let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
-
-                    // Get stream and read
-                    let stream_result = self.get_stream_mut(client_id.clone());
-                    let stream_exists = stream_result.is_some();
-
-                    let read_result = if stream_exists {
-                        let stream = stream_result.unwrap();
-                        stream.try_read(&mut read_buf[..remaining_space]).await
-                    } else {
-                        // No stream found - return would block error
-                        Err(NetworkError::WouldBlock)
-                    };
-
-                    match read_result {
-                        Ok(0) => {
-                            info!("Connection closed by peer (0 bytes read)");
-                            (None, true)
-                        }
-                        Ok(n) => (Some(read_buf[..n].to_vec()), false),
-                        Err(e) => {
-                            let is_non_fatal = matches!(
-                                e,
-                                NetworkError::WouldBlock
-                                    | NetworkError::TimedOut
-                                    | NetworkError::Interrupted
-                            );
-
-                            if is_non_fatal {
-                                (None, false)
-                            } else {
-                                error!("Fatal error reading from client {}: {}", client_id, e);
-                                (None, true)
-                            }
-                        }
-                    }
+            // Get stream and read
+            let stream = match self.get_stream_mut(client_id.clone()) {
+                Some(s) => s,
+                None => {
+                    error!("No stream found for client {}", client_id);
+                    let _ = self.broker.mark_client_disconnected(client_id);
+                    continue;
                 }
             };
+            let read_result = stream.try_read(&mut read_buf[..remaining_space]).await;
+            match read_result {
+                Ok(0) => {
+                    info!("Connection closed by peer (0 bytes read)");
+                    let _ = self.broker.mark_client_disconnected(client_id);
+                    continue;
+                }
+                Ok(n) => {
+                    let data = &read_buf[..n];
+                    info!("Read {} bytes from client {}", n, client_id);
+                    let rx_buffer = self.get_or_create_rx_buffer(client_id);
+                    rx_buffer.append(data);
 
-            // Handle disconnection
-            if should_disconnect {
-                let _ = self.broker.mark_client_disconnected(client_id);
-            }
-
-            // Step 2: Append to buffer
-            if let Some(data) = bytes_read {
-                let rx_buffer = self.get_or_create_rx_buffer(client_id.clone());
-                rx_buffer.append(&data);
-            }
-
-            // Step 3: Try to decode packets
-            let buffer_idx = self
-                .rx_buffers
-                .iter()
-                .position(|b| b.client_id == *client_id);
-            if let Some(idx) = buffer_idx {
-                let has_data = !self.rx_buffers[idx].is_empty();
-
-                if has_data {
-                    let packet_result = Self::try_decode_from_buffer(&mut self.rx_buffers[idx]);
+                    let packet_result = Self::try_decode_from_buffer(rx_buffer);
 
                     match packet_result {
                         Ok(Some(packet)) => {
@@ -322,26 +283,21 @@ impl<
                             // No complete packet available, continue
                         }
                         Err(e) => {
-                            let is_fatal = matches!(
-                                e,
-                                BrokerError::NetworkError {
-                                    error: NetworkError::ConnectionClosed
-                                } | BrokerError::NetworkError {
-                                    error: NetworkError::IoError
-                                }
-                            );
-
-                            if is_fatal {
-                                error!(
-                                    "Fatal error reading packet from client {}: {}",
-                                    client_id, e
-                                );
-                                let _ = self.broker.mark_client_disconnected(client_id);
-                            } else {
-                                info!("Non-fatal error reading from client {}: {}", client_id, e);
-                            }
+                            error!("Error decoding packet from client {}: {}", client_id, e);
                         }
                     }
+                }
+                Err(e) if matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError) => {
+                    error!("Fatal error reading from client {}: {}", client_id, e);
+                    let _ = self.broker.mark_client_disconnected(client_id);
+                    break;
+                }
+                Err(e) if matches!(e, NetworkError::TimedOut | NetworkError::Interrupted) => {
+                    warn!("Read timeout/interrupted for client {}: {}", client_id, e);
+                    break;
+                }
+                Err(_) => {
+                    // no data available or non-fatal error
                 }
             }
         }
@@ -352,7 +308,7 @@ impl<
     /// Try to decode a packet from a RX buffer
     fn try_decode_from_buffer(
         rx_buffer: &mut ClientReadBuffer<MAX_PAYLOAD_SIZE>,
-    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, PacketEncodingError> {
         // Step 1: Check if we have enough data
         if rx_buffer.len() < 2 {
             return Ok(None);
@@ -367,7 +323,7 @@ impl<
             }
             Err(e) => {
                 error!("Invalid remaining length encoding: {}", e);
-                return Err(BrokerError::PacketEncodingError { error: e });
+                return Err(e);
             }
         };
 
@@ -387,7 +343,7 @@ impl<
             Ok(p) => p,
             Err(e) => {
                 error!("Failed to decode packet: {}", e);
-                return Err(BrokerError::PacketEncodingError { error: e });
+                return Err(e);
             }
         };
 
@@ -543,5 +499,11 @@ impl<const MAX_PAYLOAD_SIZE: usize> ClientReadBuffer<MAX_PAYLOAD_SIZE> {
         self.buffer.push(byte)?;
         self.len += 1;
         Ok(())
+    }
+
+    /// Clear the buffer
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.len = 0;
     }
 }
