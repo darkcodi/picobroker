@@ -109,9 +109,9 @@ impl<
     }
 
     /// Remove a client session and cleanup subscriptions
-    pub fn remove_client(&mut self, client_id: &ClientId) {
-        self.clients.remove_client(client_id);
+    pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
         self.topics.unregister_client(client_id);
+        self.clients.remove_client(client_id)
     }
 
     /// Get all client IDs

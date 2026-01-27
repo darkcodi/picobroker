@@ -48,13 +48,14 @@ where
     }
 
     /// Remove a client's stream (set to None instead of removing to maintain heapless vec stability)
-    pub fn remove_client(&mut self, client_id: &ClientId) {
+    pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
         for (cid, stream_option) in self.streams.iter_mut() {
             if *cid == *client_id {
                 *stream_option = None;
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// Get the number of active streams

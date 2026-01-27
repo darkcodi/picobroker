@@ -127,17 +127,28 @@ impl<
     pub fn cleanup_disconnected(&mut self) {
         // Remove disconnected clients
         for client_id in self.broker.get_disconnected_clients().iter().flatten() {
-            self.broker.remove_client(client_id);
-            self.connection_manager.remove_client(client_id);
-            self.buffer_manager.remove_client(client_id);
+            self.remove_client(client_id);
         }
 
         // Remove expired clients
         let current_time = self.time_source.now_secs();
         for client_id in self.broker.get_expired_clients(current_time).iter().flatten() {
-            self.broker.remove_client(client_id);
-            self.connection_manager.remove_client(client_id);
-            self.buffer_manager.remove_client(client_id);
+            self.remove_client(client_id);
+        }
+    }
+
+    pub fn remove_client(&mut self, client_id: &ClientId) {
+        match self.broker.remove_client(client_id) {
+            true => info!("Removed client {}", client_id),
+            false => error!("No client found to remove with id {}", client_id),
+        }
+        match self.connection_manager.remove_client(client_id) {
+            true => info!("Removed connection for client {}", client_id),
+            false => error!("No connection found to remove for client {}", client_id),
+        }
+        match self.buffer_manager.remove_client(client_id) {
+            true => info!("Removed buffer for client {}", client_id),
+            false => error!("No buffer found to remove for client {}", client_id),
         }
     }
 

@@ -332,7 +332,7 @@ impl<
     }
 
     /// Remove a client by client ID
-    pub fn remove_client(&mut self, client_id: &ClientId) {
+    pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
         let session_idx = self.sessions.iter().position(|s| {
             s.as_ref()
                 .map(|session| &session.client_id == client_id)
@@ -341,8 +341,10 @@ impl<
 
         if let Some(idx) = session_idx {
             self.sessions.remove(idx);
+            true
         } else {
             error!("Session {} not found for removal", client_id);
+            false
         }
     }
 

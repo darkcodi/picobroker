@@ -120,10 +120,14 @@ impl<const MAX_PAYLOAD_SIZE: usize, const MAX_CLIENTS: usize>
     }
 
     /// Remove a client's buffer
-    pub fn remove_client(&mut self, client_id: &ClientId) {
+    pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
         let idx = self.buffers.iter().position(|b| b.client_id == *client_id);
         if let Some(idx) = idx {
             self.buffers.remove(idx);
+            true
+        }
+        else {
+            false
         }
     }
 
