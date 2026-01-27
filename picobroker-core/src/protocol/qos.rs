@@ -1,8 +1,9 @@
 use crate::protocol::packet_error::PacketEncodingError;
 
 #[repr(u8)]
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum QoS {
+    #[default]
     AtMostOnce = 0,
     AtLeastOnce = 1,
     ExactlyOnce = 2,

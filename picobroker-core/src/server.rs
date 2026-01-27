@@ -1,6 +1,6 @@
 use crate::broker::PicoBroker;
 use crate::broker_error::BrokerError;
-use crate::client::{ClientId, ClientState};
+use crate::client::ClientId;
 use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::{Packet, PacketEncoder};
@@ -138,7 +138,8 @@ impl<
             self.read_client_messages().await?;
 
             // 4. Process messages from clients and route them via the broker
-            let packets_processed = self.broker.process_all_client_packets()?;
+            let time = self.time_source.now_secs();
+            let packets_processed = self.broker.process_all_client_packets(time)?;
             if packets_processed > 0 {
                 info!("Processed {} packets from clients", packets_processed);
             }
@@ -285,7 +286,7 @@ impl<
 
             // Handle disconnection
             if should_disconnect {
-                self.broker.mark_client_disconnected(client_id.clone());
+                let _ = self.broker.mark_client_disconnected(client_id);
             }
 
             // Step 2: Append to buffer
@@ -311,7 +312,9 @@ impl<
                             // Use new broker API to update activity and queue packet
                             let current_time = self.time_source.now_secs();
                             let _ = self.broker.update_session_activity(client_id, current_time);
-                            let _ = self.broker.queue_rx_packet(client_id, packet);
+                            let _ = self
+                                .broker
+                                .queue_packet_received_from_client(client_id, packet);
                         }
                         Ok(None) => {
                             // No complete packet available, continue
@@ -331,10 +334,7 @@ impl<
                                     "Fatal error reading packet from client {}: {}",
                                     client_id, e
                                 );
-                                // Use new broker API to set state
-                                let _ = self
-                                    .broker
-                                    .set_session_state(client_id, ClientState::Disconnected);
+                                let _ = self.broker.mark_client_disconnected(client_id);
 
                                 if remove_count < sessions_to_remove.len() {
                                     sessions_to_remove[remove_count] = Some(client_id.clone());
@@ -432,7 +432,7 @@ impl<
 
         // Collect packets from each client
         for client_id in client_ids.iter().flatten() {
-            while let Some(packet) = self.broker.dequeue_tx_packet(client_id) {
+            while let Ok(Some(packet)) = self.broker.dequeue_packet_to_send_to_client(client_id) {
                 if packet_count < packets_to_send.len() {
                     packets_to_send[packet_count] = Some((client_id.clone(), packet));
                     packet_count += 1;
@@ -461,9 +461,7 @@ impl<
             if !stream_exists {
                 error!("No stream found for client {}", client_id);
                 // Use new broker API to set state
-                let _ = self
-                    .broker
-                    .set_session_state(client_id, ClientState::Disconnected);
+                let _ = self.broker.mark_client_disconnected(client_id);
                 if remove_count < sessions_to_remove.len() {
                     sessions_to_remove[remove_count] = Some(client_id.clone());
                     remove_count += 1;
@@ -518,9 +516,7 @@ impl<
 
             if should_disconnect {
                 // Use new broker API to set state
-                let _ = self
-                    .broker
-                    .set_session_state(client_id, ClientState::Disconnected);
+                let _ = self.broker.mark_client_disconnected(client_id);
                 if remove_count < sessions_to_remove.len() {
                     sessions_to_remove[remove_count] = Some(client_id.clone());
                     remove_count += 1;
@@ -539,9 +535,7 @@ impl<
                         Err(e) => {
                             error!("Error flushing stream: {}", e);
                             // Use new broker API to set state
-                            let _ = self
-                                .broker
-                                .set_session_state(client_id, ClientState::Disconnected);
+                            let _ = self.broker.mark_client_disconnected(client_id);
                             if remove_count < sessions_to_remove.len() {
                                 sessions_to_remove[remove_count] = Some(client_id.clone());
                                 remove_count += 1;

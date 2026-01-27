@@ -2,7 +2,6 @@ use crate::broker_error::BrokerError;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::Packet;
-use crate::traits::NetworkError;
 use core::fmt::Write;
 use log::error;
 
@@ -276,10 +275,33 @@ impl<
         client_ids
     }
 
+    /// Check if a client with the given ID exists
+    pub fn has_client(&self, client_id: &ClientId) -> bool {
+        self.sessions.iter().any(|s_opt| {
+            s_opt
+                .as_ref()
+                .map(|s| &s.client_id == client_id)
+                .unwrap_or(false)
+        })
+    }
+
+    /// Mark a client as connected
+    pub fn mark_connected(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            session.state = ClientState::Connected;
+            Ok(())
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
     /// Mark a client as disconnected
-    pub fn mark_disconnected(&mut self, client_id: ClientId) {
-        if let Some(session) = self.find_session_by_client_id(&client_id) {
+    pub fn mark_disconnected(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
             session.state = ClientState::Disconnected;
+            Ok(())
+        } else {
+            Err(BrokerError::ClientNotFound)
         }
     }
 
@@ -309,22 +331,6 @@ impl<
         Ok(())
     }
 
-    /// Find a mutable reference to a client session by client ID
-    pub fn find_session_by_client_id(
-        &mut self,
-        client_id: &ClientId,
-    ) -> Option<&mut ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
-        self.sessions
-            .iter_mut()
-            .find(|s_opt| {
-                s_opt
-                    .as_ref()
-                    .map(|s| &s.client_id == client_id)
-                    .unwrap_or(false)
-            })
-            .and_then(|s_opt| s_opt.as_mut())
-    }
-
     /// Remove a client by client ID
     pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
         let session_idx = self.sessions.iter().position(|s| {
@@ -338,9 +344,114 @@ impl<
             Ok(())
         } else {
             error!("Session {} not found for removal", client_id);
-            Err(BrokerError::NetworkError {
-                error: NetworkError::ConnectionClosed,
-            })
+            Err(BrokerError::ClientNotFound)
         }
+    }
+
+    /// Update the last activity timestamp for a client
+    pub fn update_client_activity(
+        &mut self,
+        client_id: &ClientId,
+        current_time: u64,
+    ) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            session.update_activity(current_time);
+            Ok(())
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    /// Update the client ID for an existing session
+    pub fn update_client_id(
+        &mut self,
+        old_client_id: &ClientId,
+        new_client_id: ClientId,
+    ) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(old_client_id) {
+            session.client_id = new_client_id;
+            Ok(())
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    /// Update the keep-alive interval for a client
+    pub fn update_client_keep_alive(
+        &mut self,
+        client_id: &ClientId,
+        keep_alive_secs: u16,
+    ) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            session.keep_alive_secs = keep_alive_secs;
+            Ok(())
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    /// Queue a packet received from the client
+    pub fn queue_rx_packet(
+        &mut self,
+        client_id: &ClientId,
+        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    ) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            session.queue_rx_packet(packet)
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    /// Queue a packet to send to the client
+    pub fn queue_tx_packet(
+        &mut self,
+        client_id: &ClientId,
+        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    ) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            session.queue_tx_packet(packet)
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    /// Dequeue a packet received from the client
+    pub fn dequeue_rx_packet(
+        &mut self,
+        client_id: &ClientId,
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            Ok(session.dequeue_rx_packet())
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    /// Dequeue a packet to send to the client
+    pub fn dequeue_tx_packet(
+        &mut self,
+        client_id: &ClientId,
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+        if let Some(session) = self.find_session_by_client_id(client_id) {
+            Ok(session.dequeue_tx_packet())
+        } else {
+            Err(BrokerError::ClientNotFound)
+        }
+    }
+
+    fn find_session_by_client_id(
+        &mut self,
+        client_id: &ClientId,
+    ) -> Option<&mut ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
+        self.sessions
+            .iter_mut()
+            .find(|s_opt| {
+                s_opt
+                    .as_ref()
+                    .map(|s| &s.client_id == client_id)
+                    .unwrap_or(false)
+            })
+            .and_then(|s_opt| s_opt.as_mut())
     }
 }

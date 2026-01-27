@@ -3,10 +3,11 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use crate::broker_error::BrokerError;
-use crate::client::{ClientId, ClientRegistry, ClientState};
+use crate::client::{ClientId, ClientRegistry};
 use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::{
-    ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket, SubAckPacket,
+    ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
+    SubAckPacket, SubscribePacket,
 };
 use crate::protocol::qos::QoS;
 use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
@@ -103,8 +104,8 @@ impl<
     }
 
     /// Mark a client as disconnected
-    pub fn mark_client_disconnected(&mut self, client_id: ClientId) {
-        self.clients.mark_disconnected(client_id);
+    pub fn mark_client_disconnected(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
+        self.clients.mark_disconnected(client_id)
     }
 
     /// Remove a client session and cleanup subscriptions
@@ -141,8 +142,7 @@ impl<
         client_id: ClientId,
         subscription: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
-        // Verify client exists
-        if self.clients.find_session_by_client_id(&client_id).is_none() {
+        if !self.clients.has_client(&client_id) {
             return Err(BrokerError::ClientNotFound);
         }
         self.topics.subscribe(client_id, subscription)
@@ -167,43 +167,16 @@ impl<
         client_id: &ClientId,
         current_time: u64,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            session.update_activity(current_time);
-            Ok(())
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
-    }
-
-    /// Set a session's connection state
-    pub fn set_session_state(
-        &mut self,
-        client_id: &ClientId,
-        state: ClientState,
-    ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            session.state = state;
-            Ok(())
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
+        self.clients.update_client_activity(client_id, current_time)
     }
 
     /// Update a session's client_id (for CONNECT packet handling)
-    ///
-    /// This updates both the session's client_id
-    /// Note: The caller is responsible for updating any external mappings
     pub fn update_session_client_id(
         &mut self,
         old_id: &ClientId,
         new_id: ClientId,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(old_id) {
-            session.client_id = new_id;
-            Ok(())
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
+        self.clients.update_client_id(old_id, new_id)
     }
 
     /// Update a session's keep-alive interval
@@ -212,208 +185,31 @@ impl<
         client_id: &ClientId,
         keep_alive_secs: u16,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            session.keep_alive_secs = keep_alive_secs;
-            Ok(())
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
+        self.clients
+            .update_client_keep_alive(client_id, keep_alive_secs)
     }
 
     /// Queue a packet to a session's RX queue (network -> session)
-    pub fn queue_rx_packet(
+    pub fn queue_packet_received_from_client(
         &mut self,
         client_id: &ClientId,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            session.queue_rx_packet(packet)
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
-    }
-
-    /// Queue a packet to a session's TX queue (broker -> client)
-    pub fn queue_tx_packet(
-        &mut self,
-        client_id: &ClientId,
-        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-    ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            session.queue_tx_packet(packet)
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
-    }
-
-    /// Dequeue a packet from a session's RX queue
-    pub fn dequeue_rx_packet(
-        &mut self,
-        client_id: &ClientId,
-    ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        self.clients
-            .find_session_by_client_id(client_id)?
-            .dequeue_rx_packet()
+        self.clients.queue_rx_packet(client_id, packet)
     }
 
     /// Dequeue a packet from a session's TX queue
-    pub fn dequeue_tx_packet(
+    pub fn dequeue_packet_to_send_to_client(
         &mut self,
         client_id: &ClientId,
-    ) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
-        self.clients
-            .find_session_by_client_id(client_id)?
-            .dequeue_tx_packet()
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
+        self.clients.dequeue_tx_packet(client_id)
     }
-
-    /// Publish a message from a client to all topic subscribers
-    ///
-    /// Returns the number of subscribers the message was routed to.
-    /// Also queues PUBACK to the publisher if QoS > 0.
-    ///
-    /// This encapsulates the entire PUBLISH handling logic.
-    pub fn publish_message(
-        &mut self,
-        publisher_id: &ClientId,
-        publish: PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-    ) -> Result<usize, BrokerError> {
-        // Get subscribers for this topic
-        let subscribers = self.topics.get_subscribers(&publish.topic_name);
-
-        // Route to each subscriber
-        let mut routed_count = 0usize;
-        for subscriber_id in &subscribers {
-            if let Some(session) = self.clients.find_session_by_client_id(subscriber_id) {
-                let packet = Packet::Publish(publish.clone());
-                if session.queue_tx_packet(packet).is_ok() {
-                    routed_count += 1;
-                }
-            }
-        }
-
-        // Send PUBACK if QoS > 0
-        if publish.qos > QoS::AtMostOnce && publish.packet_id.is_some() {
-            let puback = PubAckPacket {
-                packet_id: publish.packet_id.unwrap(),
-            };
-
-            if let Some(session) = self.clients.find_session_by_client_id(publisher_id) {
-                let _ = session.queue_tx_packet(Packet::PubAck(puback));
-            }
-        }
-
-        Ok(routed_count)
-    }
-
-    /// Subscribe a client to a topic and send SUBACK
-    ///
-    /// Returns Ok if subscription succeeded (SUBACK queued).
-    /// Returns Err if subscription failed (failure SUBACK queued).
-    ///
-    /// This encapsulates the entire SUBSCRIBE handling logic.
-    pub fn subscribe_client_to_topic(
-        &mut self,
-        client_id: &ClientId,
-        topic_filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
-        packet_id: u16,
-        requested_qos: QoS,
-    ) -> Result<(), BrokerError> {
-        let subscription = TopicSubscription::Exact(topic_filter);
-
-        match self.topics.subscribe(client_id.clone(), subscription) {
-            Ok(()) => {
-                // Success - send SUBACK with granted QoS
-                if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-                    let suback = SubAckPacket {
-                        packet_id,
-                        granted_qos: requested_qos,
-                    };
-                    let _ = session.queue_tx_packet(Packet::SubAck(suback));
-                }
-                Ok(())
-            }
-            Err(e) => {
-                // Failure - send SUBACK with failure QoS
-                if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-                    let suback = SubAckPacket {
-                        packet_id,
-                        granted_qos: QoS::from_u8(0x80).unwrap_or(QoS::AtMostOnce),
-                    };
-                    let _ = session.queue_tx_packet(Packet::SubAck(suback));
-                }
-                Err(e)
-            }
-        }
-    }
-
-    /// Handle a CONNECT packet for a session
-    ///
-    /// Updates client_id, keep_alive, state, and queues CONNACK.
-    ///
-    /// This encapsulates CONNECT packet handling logic.
-    pub fn handle_connect(
-        &mut self,
-        client_id: &ClientId,
-        connect: &ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-    ) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            // Update client_id if provided
-            if !connect.client_id.is_empty() {
-                session.client_id = connect.client_id.clone();
-            }
-
-            // Update keep_alive
-            session.keep_alive_secs = connect.keep_alive;
-
-            // Update state
-            session.state = ClientState::Connected;
-
-            // Queue CONNACK
-            let connack = Packet::ConnAck(ConnAckPacket::default());
-            let _ = session.queue_tx_packet(connack);
-
-            Ok(())
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
-    }
-
-    /// Handle a PINGREQ packet for a session
-    ///
-    /// Queues PINGRESP response.
-    ///
-    /// This encapsulates PINGREQ handling logic.
-    pub fn handle_pingreq(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        if let Some(session) = self.clients.find_session_by_client_id(client_id) {
-            let pingresp = Packet::PingResp(PingRespPacket);
-            session.queue_tx_packet(pingresp)
-        } else {
-            Err(BrokerError::ClientNotFound)
-        }
-    }
-
-    /// Handle a DISCONNECT packet for a session
-    ///
-    /// Marks session as disconnected (will be cleaned up later).
-    ///
-    /// This encapsulates DISCONNECT handling logic.
-    pub fn handle_disconnect(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.set_session_state(client_id, ClientState::Disconnected)
-    }
-
-    // ===== Master Processing Method (Mutable) =====
 
     /// Process all packets from all sessions (round-robin)
     ///
-    /// For each packet received:
-    /// - For CONNECT: calls handle_connect()
-    /// - For PUBLISH: calls publish_message()
-    /// - For SUBSCRIBE: calls subscribe_client_to_topic()
-    /// - For PINGREQ: calls handle_pingreq()
-    /// - For DISCONNECT: calls handle_disconnect()
-    ///
     /// Returns the number of packets processed.
-    pub fn process_all_client_packets(&mut self) -> Result<usize, BrokerError> {
+    pub fn process_all_client_packets(&mut self, current_time: u64) -> Result<usize, BrokerError> {
         use Packet;
 
         // Collect client IDs (avoid holding mutable reference during iteration)
@@ -424,7 +220,12 @@ impl<
         // Process each client's packets
         for client_id in client_ids.iter().flatten() {
             // Process all packets from this client
-            while let Some(packet) = self.dequeue_rx_packet(client_id) {
+            while let Some(packet) = self.clients.dequeue_rx_packet(client_id)? {
+                // Update activity timestamp
+                self.clients
+                    .update_client_activity(client_id, current_time)?;
+
+                // Handle packet based on type
                 match packet {
                     Packet::Connect(connect) => {
                         self.handle_connect(client_id, &connect)?;
@@ -434,7 +235,7 @@ impl<
                         log::info!("Unexpected CONNACK from client {}", client_id);
                     }
                     Packet::Publish(publish) => {
-                        self.publish_message(client_id, publish)?;
+                        self.handle_publish(client_id, &publish)?;
                     }
                     Packet::PubAck(_) => {
                         // QoS 2 handling - not implemented yet
@@ -443,12 +244,7 @@ impl<
                     Packet::PubRel(_) => {}
                     Packet::PubComp(_) => {}
                     Packet::Subscribe(subscribe) => {
-                        self.subscribe_client_to_topic(
-                            client_id,
-                            subscribe.topic_filter,
-                            subscribe.packet_id,
-                            subscribe.requested_qos,
-                        )?;
+                        self.handle_subscribe(client_id, &subscribe)?;
                     }
                     Packet::SubAck(_) => {
                         // Client should not send SUBACK
@@ -460,7 +256,7 @@ impl<
                         self.handle_pingreq(client_id)?;
                     }
                     Packet::PingResp(_) => {
-                        // Client response to our PINGREQ - activity already updated
+                        log::info!("Received PINGRESP from client {}", client_id);
                     }
                     Packet::Disconnect(_) => {
                         self.handle_disconnect(client_id)?;
@@ -472,5 +268,89 @@ impl<
         }
 
         Ok(total_processed)
+    }
+
+    fn handle_connect(
+        &mut self,
+        client_id: &ClientId,
+        connect: &ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    ) -> Result<(), BrokerError> {
+        let mut client_id = client_id;
+
+        // Update client_id if provided
+        if !connect.client_id.is_empty() {
+            self.clients
+                .update_client_id(client_id, connect.client_id.clone())?;
+            client_id = &connect.client_id;
+        }
+
+        // Update keep_alive
+        self.clients
+            .update_client_keep_alive(client_id, connect.keep_alive)?;
+
+        // Update state
+        self.clients.mark_connected(client_id)?;
+
+        // Queue CONNACK
+        let connack = Packet::ConnAck(ConnAckPacket::default());
+        self.clients.queue_tx_packet(client_id, connack)?;
+
+        Ok(())
+    }
+
+    fn handle_publish(
+        &mut self,
+        client_id: &ClientId,
+        publish: &PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    ) -> Result<(), BrokerError> {
+        // Get subscribers for this topic
+        let subscribers = self.topics.get_subscribers(&publish.topic_name);
+
+        // Route to each subscriber
+        for subscriber_id in &subscribers {
+            let packet = Packet::Publish(publish.clone());
+            self.clients.queue_tx_packet(subscriber_id, packet)?;
+        }
+
+        // Send PUBACK if QoS > 0
+        if publish.qos > QoS::AtMostOnce && publish.packet_id.is_some() {
+            let puback = PubAckPacket {
+                packet_id: publish.packet_id.unwrap(),
+            };
+
+            let puback_packet = Packet::PubAck(puback);
+            self.clients.queue_tx_packet(client_id, puback_packet)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_subscribe(
+        &mut self,
+        client_id: &ClientId,
+        subscribe: &SubscribePacket<MAX_TOPIC_NAME_LENGTH>,
+    ) -> Result<(), BrokerError> {
+        let subscription = TopicSubscription::Exact(subscribe.topic_filter.clone());
+        self.topics.subscribe(client_id.clone(), subscription)?;
+
+        // For simplicity, grant requested QoS directly, but in real implementation, it should be min(requested, supported)
+        let granted_qos = subscribe.requested_qos;
+
+        let suback = SubAckPacket {
+            packet_id: subscribe.packet_id,
+            granted_qos,
+        };
+
+        self.clients
+            .queue_tx_packet(client_id, Packet::SubAck(suback))
+    }
+
+    fn handle_pingreq(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
+        self.clients
+            .queue_tx_packet(client_id, Packet::PingResp(PingRespPacket))
+    }
+
+    fn handle_disconnect(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
+        self.mark_client_disconnected(client_id)
     }
 }
