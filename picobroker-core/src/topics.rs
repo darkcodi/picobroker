@@ -202,15 +202,37 @@ impl<
     ///
     /// Returns an empty vector if the topic doesn't exist or has no subscribers.
     /// This is optimized for the publish path - O(topics) single pass.
+    ///
+    /// # Wildcard Support
+    ///
+    /// This method supports MQTT wildcard topic filters:
+    /// - `+` (single-level): Matches exactly one topic level
+    /// - `#` (multi-level): Matches zero or more remaining levels
+    ///
+    /// All subscription filters are checked, including wildcards.
     pub fn get_subscribers(
         &self,
         topic: &TopicName<MAX_TOPIC_NAME_LENGTH>,
     ) -> HeaplessVec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
-        self.topics
-            .iter()
-            .find(|entry| &entry.topic_name == topic)
-            .map(|entry| entry.subscribers.clone())
-            .unwrap_or_default()
+        let mut subscribers = HeaplessVec::new();
+        let published_topic = topic.as_str();
+
+        // Check ALL topic entries (wildcard filters require scanning all)
+        for entry in &self.topics {
+            let filter = entry.topic_name.as_str();
+
+            // Check if published topic matches this subscription filter
+            if topic_matches(published_topic, filter) {
+                // Add all subscribers, preventing duplicates
+                for sub_id in &entry.subscribers {
+                    if !subscribers.iter().any(|s| s == sub_id) {
+                        let _ = subscribers.push(sub_id.clone());
+                    }
+                }
+            }
+        }
+
+        subscribers
     }
 
     /// Unsubscribe a client from a specific topic
@@ -278,5 +300,510 @@ impl<
     /// Clear all subscriptions
     pub fn clear_all(&mut self) {
         self.topics.clear();
+    }
+}
+
+/// Wildcard topic matching logic
+///
+/// Heapless, on-the-fly tokenization for minimal memory usage
+///
+/// # Wildcard Semantics
+///
+/// - `+` (single-level): Matches exactly one topic level
+/// - `#` (multi-level): Matches zero or more remaining levels (only at end)
+fn topic_matches(published: &str, filter: &str) -> bool {
+    let mut pub_levels = LevelIterator::new(published);
+    let mut sub_levels = LevelIterator::new(filter);
+
+    loop {
+        let pub_level = pub_levels.next();
+        let sub_level = sub_levels.next();
+
+        // Multi-level wildcard matches everything remaining
+        // Only works as wildcard if it's the last level in filter
+        if let Some(level) = sub_level {
+            if level == "#" {
+                // Check if this is the last level (no more levels after #)
+                if sub_levels.next().is_none() {
+                    return true;
+                }
+                // # not at end - treat as literal (won't match anything except literal "#" in published topic)
+            }
+        } else {
+            // Filter exhausted, publish must also be exhausted
+            return pub_level.is_none();
+        }
+
+        // Published topic exhausted but filter continues
+        if pub_level.is_none() {
+            return false;
+        }
+
+        // Single-level wildcard matches any single level (only in filter)
+        if sub_level == Some("+") {
+            continue;
+        }
+
+        // Exact match required for this level
+        if pub_level != sub_level {
+            return false;
+        }
+    }
+}
+
+/// Iterator over topic levels (split by /)
+///
+/// Zero-allocation iterator that yields &str slices representing
+/// individual levels of a topic hierarchy.
+struct LevelIterator<'a> {
+    remaining: &'a str,
+    pending_empty: bool,
+}
+
+impl<'a> LevelIterator<'a> {
+    fn new(topic: &'a str) -> Self {
+        Self {
+            remaining: topic,
+            pending_empty: false,
+        }
+    }
+}
+
+impl<'a> Iterator for LevelIterator<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // If we have a pending empty level from a trailing slash, return it
+        if self.pending_empty {
+            self.pending_empty = false;
+            return Some("");
+        }
+
+        if self.remaining.is_empty() {
+            return None;
+        }
+
+        match self.remaining.find('/') {
+            Some(pos) => {
+                let level = &self.remaining[..pos];
+                self.remaining = &self.remaining[pos + 1..];
+                // If remaining is now empty, we had a trailing slash
+                if self.remaining.is_empty() {
+                    self.pending_empty = true;
+                }
+                Some(level)
+            }
+            None => {
+                let level = self.remaining;
+                self.remaining = "";
+                Some(level)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::client::ClientId;
+
+    fn make_client_id(id: u8) -> ClientId {
+        let mut s = HeaplessString::<20>::new();
+        if id < 10 {
+            let _ = core::fmt::write(&mut s, format_args!("client_{}", id));
+        } else {
+            let _ = core::fmt::write(&mut s, format_args!("client_{}", id));
+        }
+        HeaplessString::<23>::try_from(s.as_str()).unwrap().into()
+    }
+
+    #[test]
+    fn test_exact_match_subscription() {
+        let mut registry =
+            TopicRegistry::<50, 10, 5>::default();
+
+        let client1 = make_client_id(1);
+        let filter = TopicName::try_from("sensors/temp").unwrap();
+
+        registry.subscribe(client1.clone(), filter).unwrap();
+
+        // Exact match should return subscriber
+        let topic = TopicName::try_from("sensors/temp").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 1);
+        assert!(subscribers.contains(&client1));
+
+        // Different topic should not match
+        let topic2 = TopicName::try_from("sensors/humidity").unwrap();
+        let subscribers2 = registry.get_subscribers(&topic2);
+        assert_eq!(subscribers2.len(), 0);
+    }
+
+    #[test]
+    fn test_plus_wildcard_subscription() {
+        let mut registry =
+            TopicRegistry::<50, 10, 5>::default();
+
+        let client1 = make_client_id(1);
+        let filter = TopicName::try_from("sensors/+/temp").unwrap();
+        registry.subscribe(client1.clone(), filter).unwrap();
+
+        // Should match various room sensors
+        let test_cases = [
+            "sensors/room1/temp",
+            "sensors/room2/temp",
+            "sensors/abc/temp",
+            "sensors/123/temp",
+        ];
+
+        for topic_str in test_cases {
+            let topic = TopicName::try_from(topic_str).unwrap();
+            let subscribers = registry.get_subscribers(&topic);
+            assert_eq!(
+                subscribers.len(),
+                1,
+                "Should match {}",
+                topic_str
+            );
+            assert!(subscribers.contains(&client1));
+        }
+
+        // Should not match extra levels
+        let topic = TopicName::try_from("sensors/room1/temp/extra").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 0);
+
+        // Should not match different structure
+        let topic = TopicName::try_from("sensors/temp").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 0);
+    }
+
+    #[test]
+    fn test_hash_wildcard_subscription() {
+        let mut registry =
+            TopicRegistry::<50, 10, 5>::default();
+
+        let client1 = make_client_id(1);
+        let filter = TopicName::try_from("sensors/#").unwrap();
+        registry.subscribe(client1.clone(), filter).unwrap();
+
+        // Should match all sensors topics
+        let test_cases = [
+            "sensors",
+            "sensors/temp",
+            "sensors/temp/room1",
+            "sensors/a/b/c/d/e/f",
+        ];
+
+        for topic_str in test_cases {
+            let topic = TopicName::try_from(topic_str).unwrap();
+            let subscribers = registry.get_subscribers(&topic);
+            assert_eq!(
+                subscribers.len(),
+                1,
+                "Should match {}",
+                topic_str
+            );
+            assert!(subscribers.contains(&client1));
+        }
+
+        // Should not match non-sensors topics
+        let topic = TopicName::try_from("other/temp").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 0);
+    }
+
+    #[test]
+    fn test_multiple_wildcard_subscriptions() {
+        let mut registry =
+            TopicRegistry::<50, 10, 5>::default();
+
+        let client1 = make_client_id(1);
+        let client2 = make_client_id(2);
+        let client3 = make_client_id(3);
+
+        // Three different subscriptions
+        registry
+            .subscribe(client1.clone(), TopicName::try_from("sensors/temp").unwrap())
+            .unwrap();
+        registry
+            .subscribe(client2.clone(), TopicName::try_from("sensors/+/temp").unwrap())
+            .unwrap();
+        registry
+            .subscribe(client3.clone(), TopicName::try_from("sensors/#").unwrap())
+            .unwrap();
+
+        // Publish to "sensors/room1/temp" should match client2 and client3
+        let topic = TopicName::try_from("sensors/room1/temp").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 2);
+        assert!(subscribers.contains(&client2));
+        assert!(subscribers.contains(&client3));
+        assert!(!subscribers.contains(&client1));
+
+        // Publish to "sensors/temp" should match client1 (exact) and client3 (# wildcard)
+        // But NOT client2 because sensors/+/temp expects 3 levels while sensors/temp has only 2
+        let topic2 = TopicName::try_from("sensors/temp").unwrap();
+        let subscribers2 = registry.get_subscribers(&topic2);
+        assert_eq!(subscribers2.len(), 2);
+        assert!(subscribers2.contains(&client1));
+        assert!(subscribers2.contains(&client3));
+        assert!(!subscribers2.contains(&client2));
+
+        // Publish to "sensors/humidity" should only match client3
+        let topic3 = TopicName::try_from("sensors/humidity").unwrap();
+        let subscribers3 = registry.get_subscribers(&topic3);
+        assert_eq!(subscribers3.len(), 1);
+        assert!(subscribers3.contains(&client3));
+    }
+
+    #[test]
+    fn test_duplicate_subscribers_via_wildcards() {
+        let mut registry =
+            TopicRegistry::<50, 10, 5>::default();
+
+        let client1 = make_client_id(1);
+
+        // Same client subscribes via multiple wildcards
+        registry
+            .subscribe(client1.clone(), TopicName::try_from("sensors/temp").unwrap())
+            .unwrap();
+        registry
+            .subscribe(client1.clone(), TopicName::try_from("sensors/+").unwrap())
+            .unwrap();
+        registry
+            .subscribe(client1.clone(), TopicName::try_from("#").unwrap())
+            .unwrap();
+
+        // Should only receive message once (no duplicates)
+        let topic = TopicName::try_from("sensors/temp").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 1);
+        assert!(subscribers.contains(&client1));
+    }
+
+    #[test]
+    fn test_invalid_wildcard_placement_literal_treatment() {
+        let mut registry =
+            TopicRegistry::<50, 10, 5>::default();
+
+        let client1 = make_client_id(1);
+
+        // # not at end (per requirements: treat as literal, won't match)
+        registry
+            .subscribe(client1.clone(), TopicName::try_from("sensors/#/temp").unwrap())
+            .unwrap();
+
+        // Should not match anything
+        let topic = TopicName::try_from("sensors/temp").unwrap();
+        let subscribers = registry.get_subscribers(&topic);
+        assert_eq!(subscribers.len(), 0);
+
+        let topic2 = TopicName::try_from("sensors/anything/temp").unwrap();
+        let subscribers2 = registry.get_subscribers(&topic2);
+        assert_eq!(subscribers2.len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod wildcard_tests {
+    use super::*;
+
+    // ===== EXACT MATCHES (No wildcards) =====
+
+    #[test]
+    fn test_exact_match_single_level() {
+        assert!(topic_matches("temp", "temp"));
+        assert!(!topic_matches("temp", "humidity"));
+    }
+
+    #[test]
+    fn test_exact_match_multi_level() {
+        assert!(topic_matches("sensors/temp", "sensors/temp"));
+        assert!(!topic_matches("sensors/temp", "sensors/humidity"));
+    }
+
+    #[test]
+    fn test_exact_match_different_levels() {
+        assert!(!topic_matches("sensors/temp", "sensors"));
+        assert!(!topic_matches("sensors", "sensors/temp"));
+    }
+
+    // ===== SINGLE-LEVEL WILDCARD (+) =====
+
+    #[test]
+    fn test_plus_wildcard_single_level() {
+        assert!(topic_matches("temp", "+"));
+        assert!(topic_matches("any", "+"));
+    }
+
+    #[test]
+    fn test_plus_wildcard_middle() {
+        assert!(topic_matches("sensors/room1/temp", "sensors/+/temp"));
+        assert!(topic_matches("sensors/xyz/temp", "sensors/+/temp"));
+        assert!(!topic_matches("sensors/room1/temp/humidity", "sensors/+/temp"));
+    }
+
+    #[test]
+    fn test_plus_wildcard_first_level() {
+        assert!(topic_matches("abc/temp", "+/temp"));
+        assert!(!topic_matches("xyz/abc/temp", "+/temp"));
+    }
+
+    #[test]
+    fn test_plus_wildcard_last_level() {
+        assert!(topic_matches("sensors/value", "sensors/+"));
+        assert!(!topic_matches("sensors", "sensors/+"));
+    }
+
+    #[test]
+    fn test_multiple_plus_wildcards() {
+        assert!(topic_matches("a/b/c", "+/+/c"));
+        assert!(topic_matches("x/y/z", "+/+/+"));
+        assert!(!topic_matches("a/b", "+/+/+"));
+    }
+
+    #[test]
+    fn test_plus_wildcard_literal_treatment() {
+        // Per requirements: invalid wildcard placement = literal (won't match)
+        assert!(!topic_matches("sensors/room1/temp", "sensors/+/abc/temp"));
+
+        // + wildcard in filter matches any level, including literal + in published topic
+        assert!(topic_matches("sensors/+/temp", "sensors/+/temp"));
+
+        // Filter with embedded + (not a whole level) is treated as literal
+        assert!(!topic_matches("sensors/abc/temp", "sensor+/+/temp"));
+    }
+
+    // ===== MULTI-LEVEL WILDCARD (#) =====
+
+    #[test]
+    fn test_hash_wildcard_match_all() {
+        assert!(topic_matches("anything", "#"));
+        assert!(topic_matches("any/thing", "#"));
+        assert!(topic_matches("any/thing/at/any/level", "#"));
+    }
+
+    #[test]
+    fn test_hash_wildcard_suffix() {
+        assert!(topic_matches("sensors", "sensors/#"));
+        assert!(topic_matches("sensors/temp", "sensors/#"));
+        assert!(topic_matches("sensors/temp/room1", "sensors/#"));
+        assert!(topic_matches("sensors/a/b/c/d", "sensors/#"));
+        assert!(!topic_matches("sensors", "sensors/temp/#"));
+    }
+
+    #[test]
+    fn test_hash_wildcard_alone() {
+        assert!(topic_matches("anything", "#"));
+        assert!(topic_matches("a/b/c", "#"));
+    }
+
+    #[test]
+    fn test_hash_wildcard_match_zero_levels() {
+        assert!(topic_matches("sensors", "sensors/#"));
+    }
+
+    #[test]
+    fn test_hash_wildcard_literal_treatment() {
+        // Per requirements: # not at end = literal (won't match anything)
+        assert!(!topic_matches("sensors/temp", "sensors/#/temp"));
+        assert!(!topic_matches("sensors", "sensors/#/temp"));
+    }
+
+    // ===== COMBINED WILDCARDS =====
+
+    #[test]
+    fn test_plus_and_hash_combined() {
+        assert!(topic_matches("sensors/temp", "sensors/+/#"));
+        assert!(topic_matches("sensors/temp/room1", "sensors/+/#"));
+        assert!(topic_matches("sensors/room1/temp", "sensors/+/temp/#"));
+    }
+
+    // ===== EDGE CASES =====
+
+    #[test]
+    fn test_empty_topic_levels() {
+        assert!(topic_matches("sensors//temp", "sensors//temp")); // Empty level in middle
+        assert!(topic_matches("sensors/", "sensors/")); // Trailing slash
+        assert!(topic_matches("/temp", "/temp")); // Leading slash
+    }
+
+    #[test]
+    fn test_unicode_topics() {
+        assert!(topic_matches("ñáé", "ñáé"));
+        assert!(topic_matches("sensor/温度", "sensor/温度"));
+        assert!(topic_matches("sensor/温度", "sensor/+"));
+    }
+
+    #[test]
+    fn test_case_sensitive() {
+        assert!(topic_matches("Sensors/Temp", "Sensors/Temp"));
+        assert!(!topic_matches("sensors/temp", "Sensors/Temp"));
+        assert!(!topic_matches("Sensors/Temp", "sensors/temp"));
+    }
+
+    #[test]
+    fn test_long_topics() {
+        let long_topic = "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z";
+        assert!(topic_matches(long_topic, "+/+/+/+/+/+/+/+/+/+/+/+/+/+/#"));
+    }
+
+    #[test]
+    fn test_empty_topic() {
+        assert!(!topic_matches("", "sensors"));
+        assert!(!topic_matches("sensors", ""));
+        assert!(topic_matches("", ""));
+        assert!(topic_matches("", "#"));
+    }
+
+    // ===== LEVEL ITERATOR TESTS =====
+
+    #[test]
+    fn test_level_iterator_basic() {
+        let mut iter = LevelIterator::new("sensors/temp/room1");
+        assert_eq!(iter.next(), Some("sensors"));
+        assert_eq!(iter.next(), Some("temp"));
+        assert_eq!(iter.next(), Some("room1"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_level_iterator_single_level() {
+        let mut iter = LevelIterator::new("sensors");
+        assert_eq!(iter.next(), Some("sensors"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_level_iterator_empty_levels() {
+        let mut iter = LevelIterator::new("sensors//temp");
+        assert_eq!(iter.next(), Some("sensors"));
+        assert_eq!(iter.next(), Some("")); // Empty level
+        assert_eq!(iter.next(), Some("temp"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_level_iterator_trailing_slash() {
+        let mut iter = LevelIterator::new("sensors/");
+        assert_eq!(iter.next(), Some("sensors"));
+        assert_eq!(iter.next(), Some("")); // Empty trailing level
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_level_iterator_leading_slash() {
+        let mut iter = LevelIterator::new("/temp");
+        assert_eq!(iter.next(), Some("")); // Empty leading level
+        assert_eq!(iter.next(), Some("temp"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_level_iterator_empty_string() {
+        let mut iter = LevelIterator::new("");
+        assert_eq!(iter.next(), None);
     }
 }
