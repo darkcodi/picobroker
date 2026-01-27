@@ -111,33 +111,23 @@ impl<
     pub fn remove_client(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
         self.clients.remove_client(client_id)?;
         self.topics.unregister_client(client_id);
-        log::info!("Cleaned up subscriptions for client {:?}", client_id);
+        log::info!("Removing client {}", client_id);
         Ok(())
     }
 
-    /// Cleanup disconnected clients
-    pub fn cleanup_disconnected_clients(&mut self) {
-        let client_ids = self.clients.get_disconnected_clients();
-
-        for client_id in client_ids.iter().flatten() {
-            log::info!("Removing disconnected client {}", client_id);
-            let _ = self.remove_client(client_id);
-        }
-    }
-
-    /// Cleanup expired clients (keep-alive timeout)
-    pub fn cleanup_expired_clients(&mut self, current_time: u64) {
-        let client_ids = self.clients.get_expired_clients(current_time);
-
-        for client_id in client_ids.iter().flatten() {
-            log::info!("Removing expired client {}", client_id);
-            let _ = self.remove_client(client_id);
-        }
-    }
-
-    /// Get all client IDs into a stack-allocated array
-    pub fn get_active_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
+    /// Get all client IDs
+    pub fn get_all_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
         self.clients.get_all_clients()
+    }
+
+    /// Get expired clients (keep-alive timeout)
+    pub fn get_expired_clients(&mut self, current_time: u64) -> [Option<ClientId>; MAX_CLIENTS] {
+        self.clients.get_expired_clients(current_time)
+    }
+
+    /// Get disconnected clients
+    pub fn get_disconnected_clients(&mut self) -> [Option<ClientId>; MAX_CLIENTS] {
+        self.clients.get_disconnected_clients()
     }
 
     /// Queue a packet to a session's RX queue (network -> session)
@@ -167,7 +157,7 @@ impl<
         use Packet;
 
         // Collect client IDs (avoid holding mutable reference during iteration)
-        let client_ids = self.get_active_clients();
+        let client_ids = self.get_all_clients();
 
         let mut total_processed = 0usize;
 

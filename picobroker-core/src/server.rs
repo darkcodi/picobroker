@@ -89,14 +89,7 @@ impl<
 
     /// Run the server main loop
     ///
-    /// This method:
-    /// 1. Accepts new connections (non-blocking)
-    /// 2. Spawns a client handler task for each new connection
-    /// 3. Processes client messages (round-robin)
-    /// 4. Checks for expired clients
-    ///
-    /// The server loop runs indefinitely, handling all client connections
-    /// and message routing.
+    /// The server loop runs indefinitely, handling all client connections and message routing.
     pub async fn run(&mut self) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
@@ -109,7 +102,7 @@ impl<
                 info!("Received new connection from {}", socket_addr);
 
                 // Proactively cleanup any dead/zombie sessions before accepting new connection
-                self.broker.cleanup_disconnected_clients();
+                self.remove_disconnected_clients();
 
                 let time = self.time_source.now_secs();
                 let client_id = ClientId::generate(time);
@@ -131,26 +124,22 @@ impl<
                 };
             }
 
-            // 2. Clean up disconnected sessions before attempting to read
-            self.broker.cleanup_disconnected_clients();
-
-            // 3. Process client messages (round-robin through all sessions)
+            // 2. Process client messages (round-robin through all sessions)
+            self.remove_disconnected_clients();
             self.read_client_messages().await?;
 
-            // 4. Process messages from clients and route them via the broker
+            // 3. Process messages from clients and route them via the broker
+            self.remove_disconnected_clients();
             let packets_processed = self.broker.process_all_client_packets()?;
             if packets_processed > 0 {
                 info!("Processed {} packets from clients", packets_processed);
             }
 
-            // 5. Write messages to clients
+            // 4. Write messages to clients
+            self.remove_disconnected_clients();
             self.write_client_messages().await?;
 
-            // 6. Check for expired clients (keep-alive timeout)
-            self.broker
-                .cleanup_expired_clients(self.time_source.now_secs());
-
-            // 7. Small yield to prevent busy-waiting
+            // 5. Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
         }
     }
@@ -198,7 +187,26 @@ impl<
         &mut self.rx_buffers[new_idx]
     }
 
-    fn remove_rx_buffer(&mut self, client_id: &ClientId) {
+    fn remove_disconnected_clients(&mut self) {
+        for client_id in self.broker.get_disconnected_clients().iter().flatten() {
+            self.remove_client(client_id);
+        }
+
+        let current_time = self.time_source.now_secs();
+        for client_id in self
+            .broker
+            .get_expired_clients(current_time)
+            .iter()
+            .flatten()
+        {
+            self.remove_client(client_id);
+        }
+    }
+
+    fn remove_client(&mut self, client_id: &ClientId) {
+        let _ = self.broker.remove_client(client_id);
+
+        // Remove RX buffer
         let idx = self
             .rx_buffers
             .iter()
@@ -206,9 +214,7 @@ impl<
         if let Some(idx) = idx {
             self.rx_buffers.remove(idx);
         }
-    }
 
-    fn remove_stream(&mut self, client_id: &ClientId) {
         // Find the stream and set it to None instead of removing
         for (cid, stream_option) in self.streams.iter_mut() {
             if *cid == *client_id {
@@ -219,11 +225,8 @@ impl<
     }
 
     async fn read_client_messages(&mut self) -> Result<(), BrokerError> {
-        let mut sessions_to_remove: [Option<ClientId>; 16] = [const { None }; 16];
-        let mut remove_count = 0usize;
-
         // Get active clients using new broker API
-        let client_ids = self.broker.get_active_clients();
+        let client_ids = self.broker.get_all_clients();
 
         // Process each client
         for client_id in client_ids.iter().flatten() {
@@ -335,11 +338,6 @@ impl<
                                     client_id, e
                                 );
                                 let _ = self.broker.mark_client_disconnected(client_id);
-
-                                if remove_count < sessions_to_remove.len() {
-                                    sessions_to_remove[remove_count] = Some(client_id.clone());
-                                    remove_count += 1;
-                                }
                             } else {
                                 info!("Non-fatal error reading from client {}: {}", client_id, e);
                             }
@@ -347,13 +345,6 @@ impl<
                     }
                 }
             }
-        }
-
-        // Remove sessions that had fatal errors
-        for client_id in sessions_to_remove.iter().take(remove_count).flatten() {
-            let _ = self.broker.remove_client(client_id);
-            self.remove_rx_buffer(client_id);
-            self.remove_stream(client_id);
         }
 
         Ok(())
@@ -428,7 +419,7 @@ impl<
         let mut packet_count = 0usize;
 
         // Get active clients using new broker API
-        let client_ids = self.broker.get_active_clients();
+        let client_ids = self.broker.get_all_clients();
 
         // Collect packets from each client
         for client_id in client_ids.iter().flatten() {
@@ -548,9 +539,7 @@ impl<
 
         // Remove sessions that had fatal errors
         for client_id in sessions_to_remove.iter().take(remove_count).flatten() {
-            let _ = self.broker.remove_client(client_id);
-            self.remove_rx_buffer(client_id);
-            self.remove_stream(client_id);
+            self.remove_client(client_id);
         }
 
         Ok(())
