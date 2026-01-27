@@ -4,13 +4,12 @@
 
 use crate::broker_error::BrokerError;
 use crate::client::{ClientId, ClientRegistry};
-use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::{
     ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
     SubAckPacket, SubscribePacket,
 };
 use crate::protocol::qos::QoS;
-use crate::topics::{TopicName, TopicRegistry, TopicSubscription};
+use crate::topics::{TopicRegistry, TopicSubscription};
 
 /// MQTT broker (core logic)
 ///
@@ -136,57 +135,9 @@ impl<
         }
     }
 
-    /// Subscribe a client to a topic
-    pub fn subscribe_client(
-        &mut self,
-        client_id: ClientId,
-        subscription: TopicSubscription<MAX_TOPIC_NAME_LENGTH>,
-    ) -> Result<(), BrokerError> {
-        if !self.clients.has_client(&client_id) {
-            return Err(BrokerError::ClientNotFound);
-        }
-        self.topics.subscribe(client_id, subscription)
-    }
-
-    /// Get subscribers for a topic
-    pub fn get_topic_subscribers(
-        &self,
-        topic: &TopicName<MAX_TOPIC_NAME_LENGTH>,
-    ) -> HeaplessVec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
-        self.topics.get_subscribers(topic)
-    }
-
     /// Get all client IDs into a stack-allocated array
     pub fn get_active_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
         self.clients.get_all_clients()
-    }
-
-    /// Update a session's activity timestamp
-    pub fn update_session_activity(
-        &mut self,
-        client_id: &ClientId,
-        current_time: u64,
-    ) -> Result<(), BrokerError> {
-        self.clients.update_client_activity(client_id, current_time)
-    }
-
-    /// Update a session's client_id (for CONNECT packet handling)
-    pub fn update_session_client_id(
-        &mut self,
-        old_id: &ClientId,
-        new_id: ClientId,
-    ) -> Result<(), BrokerError> {
-        self.clients.update_client_id(old_id, new_id)
-    }
-
-    /// Update a session's keep-alive interval
-    pub fn update_session_keep_alive(
-        &mut self,
-        client_id: &ClientId,
-        keep_alive_secs: u16,
-    ) -> Result<(), BrokerError> {
-        self.clients
-            .update_client_keep_alive(client_id, keep_alive_secs)
     }
 
     /// Queue a packet to a session's RX queue (network -> session)
@@ -194,7 +145,10 @@ impl<
         &mut self,
         client_id: &ClientId,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+        current_time: u64,
     ) -> Result<(), BrokerError> {
+        self.clients
+            .update_client_activity(client_id, current_time)?;
         self.clients.queue_rx_packet(client_id, packet)
     }
 
@@ -209,7 +163,7 @@ impl<
     /// Process all packets from all sessions (round-robin)
     ///
     /// Returns the number of packets processed.
-    pub fn process_all_client_packets(&mut self, current_time: u64) -> Result<usize, BrokerError> {
+    pub fn process_all_client_packets(&mut self) -> Result<usize, BrokerError> {
         use Packet;
 
         // Collect client IDs (avoid holding mutable reference during iteration)
@@ -221,10 +175,6 @@ impl<
         for client_id in client_ids.iter().flatten() {
             // Process all packets from this client
             while let Some(packet) = self.clients.dequeue_rx_packet(client_id)? {
-                // Update activity timestamp
-                self.clients
-                    .update_client_activity(client_id, current_time)?;
-
                 // Handle packet based on type
                 match packet {
                     Packet::Connect(connect) => {

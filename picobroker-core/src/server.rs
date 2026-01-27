@@ -138,8 +138,7 @@ impl<
             self.read_client_messages().await?;
 
             // 4. Process messages from clients and route them via the broker
-            let time = self.time_source.now_secs();
-            let packets_processed = self.broker.process_all_client_packets(time)?;
+            let packets_processed = self.broker.process_all_client_packets()?;
             if packets_processed > 0 {
                 info!("Processed {} packets from clients", packets_processed);
             }
@@ -311,10 +310,11 @@ impl<
                             info!("Received packet from client {}: {:?}", client_id, packet);
                             // Use new broker API to update activity and queue packet
                             let current_time = self.time_source.now_secs();
-                            let _ = self.broker.update_session_activity(client_id, current_time);
-                            let _ = self
-                                .broker
-                                .queue_packet_received_from_client(client_id, packet);
+                            let _ = self.broker.queue_packet_received_from_client(
+                                client_id,
+                                packet,
+                                current_time,
+                            );
                         }
                         Ok(None) => {
                             // No complete packet available, continue
