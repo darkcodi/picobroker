@@ -32,3 +32,4 @@ pub mod protocol;
 pub mod server;
 pub mod topics;
 pub mod traits;
+pub mod session;

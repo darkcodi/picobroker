@@ -4,12 +4,12 @@
 
 use log::info;
 use crate::broker_error::BrokerError;
-use crate::client::{SessionRegistry};
 use crate::protocol::packets::{
     ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
     SubAckPacket, SubscribePacket,
 };
 use crate::protocol::qos::QoS;
+use crate::session::SessionRegistry;
 use crate::topics::TopicRegistry;
 
 /// MQTT broker (core logic)
