@@ -86,7 +86,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     /// Does nothing if the session is already subscribed (prevents duplicates).
     pub fn add_subscriber(&mut self, session_id: u128) -> Result<(), BrokerError> {
         // Check for duplicates first
-        if self.subscribers.iter().any(|x| *x == session_id) {
+        if self.subscribers.contains(&session_id) {
             return Ok(()); // Already subscribed
         }
         let current = self.subscribers.len();
@@ -221,7 +221,7 @@ impl<
                 // Add all subscribers, preventing duplicates
                 for sub_id in &entry.subscribers {
                     if !subscribers.iter().any(|s| s == sub_id) {
-                        let _ = subscribers.push(sub_id.clone());
+                        let _ = subscribers.push(*sub_id);
                     }
                 }
             }

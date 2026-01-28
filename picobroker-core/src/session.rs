@@ -176,7 +176,7 @@ SessionRegistry<
 
         for sess in (&self.sessions).into_iter().flatten() {
             if count < session_ids.len() {
-                session_ids[count] = Some(sess.session_id.clone());
+                session_ids[count] = Some(sess.session_id);
                 count += 1;
             }
         }
@@ -191,7 +191,7 @@ SessionRegistry<
 
         for session in (&self.sessions).into_iter().flatten() {
             if session.is_expired(current_time) && count < session_ids.len() {
-                session_ids[count] = Some(session.session_id.clone());
+                session_ids[count] = Some(session.session_id);
                 count += 1;
             }
         }
@@ -206,7 +206,7 @@ SessionRegistry<
 
         for session in (&self.sessions).into_iter().flatten() {
             if session.state == SessionState::Disconnected && count < session_ids.len() {
-                session_ids[count] = Some(session.session_id.clone());
+                session_ids[count] = Some(session.session_id);
                 count += 1;
             }
         }
