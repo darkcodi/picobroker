@@ -10,13 +10,16 @@ pub enum ProtocolError {
         actual_length: usize,
     },
     /// Incomplete packet (not enough data)
-    IncompletePacket { buffer_size: usize },
+    IncompletePacket { available: usize },
     /// Invalid connect flags in CONNECT
     InvalidConnectFlags { flags: u8 },
     /// Invalid connect return code in CONNACK
     InvalidConnectReturnCode { return_code: u8 },
     /// Packet length does not match expected length
-    InvalidPacketLength { expected: usize, actual: usize },
+    InvalidPacketLength {
+        expected: usize,
+        actual: usize,
+    },
     /// Invalid packet type
     InvalidPacketType { packet_type: u8 },
     /// Invalid protocol name in CONNECT
@@ -33,7 +36,10 @@ pub enum ProtocolError {
         actual_length: usize,
     },
     /// Payload size exceeded maximum allowed size
-    PayloadTooLarge { max_size: usize, actual_size: usize },
+    PayloadTooLarge {
+        max_size: usize,
+        actual_size: usize,
+    },
     /// Invalid QoS level
     InvalidQosLevel { level: u8 },
     /// Topic name is empty
@@ -69,8 +75,8 @@ impl core::fmt::Display for ProtocolError {
                     actual_length, max_length
                 )
             }
-            ProtocolError::IncompletePacket { buffer_size } => {
-                write!(f, "Incomplete packet: buffer size {}", buffer_size)
+            ProtocolError::IncompletePacket { available } => {
+                write!(f, "Incomplete packet: available {}", available)
             }
             ProtocolError::InvalidConnectFlags { flags } => {
                 write!(f, "Invalid connect flags in CONNECT packet: {}", flags)

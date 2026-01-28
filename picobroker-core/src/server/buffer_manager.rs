@@ -4,7 +4,7 @@
 //! overflow handling, and packet decoding from buffers.
 
 use crate::protocol::heapless::HeaplessVec;
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packets::{Packet, PacketEncoder};
 use crate::protocol::utils::read_variable_length;
 use log::{error, info};
@@ -137,7 +137,7 @@ impl<const MAX_PAYLOAD_SIZE: usize, const MAX_SESSIONS: usize>
     pub fn try_decode_packet<const MAX_TOPIC_NAME_LENGTH: usize>(
         &mut self,
         session_id: u128,
-    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, PacketEncodingError> {
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, ProtocolError> {
         let buffer = self.get_buffer_mut(session_id);
         Self::decode_from_buffer(buffer)
     }
@@ -148,7 +148,7 @@ impl<const MAX_PAYLOAD_SIZE: usize, const MAX_SESSIONS: usize>
     /// removing the decoded bytes from the buffer if successful.
     fn decode_from_buffer<const MAX_TOPIC_NAME_LENGTH: usize>(
         rx_buffer: &mut SessionReadBuffer<MAX_PAYLOAD_SIZE>,
-    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, PacketEncodingError> {
+    ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, ProtocolError> {
         // Step 1: Check if we have enough data (minimum packet size is 2 bytes)
         if rx_buffer.len() < 2 {
             return Ok(None);
@@ -158,7 +158,7 @@ impl<const MAX_PAYLOAD_SIZE: usize, const MAX_SESSIONS: usize>
         let remaining_length_result = read_variable_length(&rx_buffer.as_slice()[1..]);
         let (remaining_length, var_int_len) = match remaining_length_result {
             Ok((len, bytes)) => (len, bytes),
-            Err(PacketEncodingError::IncompletePacket { .. }) => {
+            Err(ProtocolError::IncompletePacket { .. }) => {
                 return Ok(None);
             }
             Err(e) => {

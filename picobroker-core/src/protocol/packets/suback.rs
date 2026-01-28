@@ -1,4 +1,4 @@
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::qos::QoS;
@@ -19,9 +19,9 @@ impl PacketFlagsConst for SubAckPacket {
 }
 
 impl PacketEncoder for SubAckPacket {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         if buffer.len() < 5 {
-            return Err(PacketEncodingError::BufferTooSmall {
+            return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
@@ -34,16 +34,16 @@ impl PacketEncoder for SubAckPacket {
         Ok(5)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         if bytes.len() < 5 {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         Self::validate_packet_type(bytes[0])?;
         let (remaining_length, _) = read_variable_length(&bytes[1..])?;
         if remaining_length != 3 {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 expected: 3,
                 actual: remaining_length,
             });
@@ -71,7 +71,7 @@ impl core::fmt::Display for SubAckPacket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::packet_error::PacketEncodingError;
+    use crate::protocol::ProtocolError;
 
     const MAX_PAYLOAD_SIZE: usize = 128;
 
@@ -99,7 +99,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn decode_test(bytes: &[u8]) -> Result<SubAckPacket, PacketEncodingError> {
+    fn decode_test(bytes: &[u8]) -> Result<SubAckPacket, ProtocolError> {
         SubAckPacket::decode(bytes)
     }
 

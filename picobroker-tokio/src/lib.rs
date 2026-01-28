@@ -80,10 +80,10 @@ impl TcpStream for TokioTcpStream {
 
         // tokio's try_read is synchronous but non-blocking
         self.inner.try_read(buf).map_err(|e| match e.kind() {
-            ErrorKind::WouldBlock => NetworkError::WouldBlock,
-            ErrorKind::TimedOut => NetworkError::TimedOut,
-            ErrorKind::Interrupted => NetworkError::Interrupted,
-            _ => NetworkError::IoError,
+            ErrorKind::WouldBlock => NetworkError::ReadWouldBlock,
+            ErrorKind::TimedOut => NetworkError::ReadTimedOut,
+            ErrorKind::Interrupted => NetworkError::ReadInterrupted,
+            _ => NetworkError::ReadFailed,
         })
     }
 
@@ -92,12 +92,12 @@ impl TcpStream for TokioTcpStream {
         self.inner
             .write(buf)
             .await
-            .map_err(|_| NetworkError::IoError)
+            .map_err(|_| NetworkError::WriteFailed)
     }
 
     async fn flush(&mut self) -> Result<(), NetworkError> {
         use tokio::io::AsyncWriteExt;
-        self.inner.flush().await.map_err(|_| NetworkError::IoError)
+        self.inner.flush().await.map_err(|_| NetworkError::FlushFailed)
     }
 
     async fn close(&mut self) -> Result<(), NetworkError> {
@@ -105,7 +105,7 @@ impl TcpStream for TokioTcpStream {
         self.inner
             .shutdown()
             .await
-            .map_err(|_| NetworkError::IoError)
+            .map_err(|_| NetworkError::CloseFailed)
     }
 }
 
@@ -144,8 +144,8 @@ impl TcpListener for TokioTcpListener {
                 let tokio_stream = TokioTcpStream::from_tcp_stream(stream);
                 Ok((tokio_stream, socket_addr))
             }
-            Ok(Err(_)) => Err(NetworkError::IoError),
-            Err(_) => Err(NetworkError::NoPendingConnection), // Timeout - no connection pending
+            Ok(Err(_)) => Err(NetworkError::AcceptFailed),
+            Err(_) => Err(NetworkError::AcceptWouldBlock), // Timeout - no connection pending
         }
     }
 }

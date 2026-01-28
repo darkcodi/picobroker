@@ -1,5 +1,5 @@
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsDynamic, PacketTypeConst};
 use crate::protocol::qos::QoS;
@@ -23,7 +23,7 @@ impl PublishFlags {
         (dup << 3) | ((self.qos as u8) << 1) | retain
     }
 
-    pub fn from_nibble(nibble: u8) -> Result<Self, PacketEncodingError> {
+    pub fn from_nibble(nibble: u8) -> Result<Self, ProtocolError> {
         let qos = QoS::from_u8((nibble >> 1) & 0b11)?;
         Ok(PublishFlags {
             dup: (nibble & 0b1000) != 0,
@@ -65,7 +65,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFl
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder
     for PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
 {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         let mut offset = 0;
 
         // 1. Calculate remaining length
@@ -79,7 +79,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 2. Write header byte (type + flags)
         if offset >= buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall {
+            return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
@@ -102,11 +102,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 5. Write packet ID if QoS > 0
         if self.qos != QoS::AtMostOnce {
             if offset + 2 > buffer.len() {
-                return Err(PacketEncodingError::BufferTooSmall {
+                return Err(ProtocolError::BufferTooSmall {
                     buffer_size: buffer.len(),
                 });
             }
-            let pid = self.packet_id.ok_or(PacketEncodingError::MissingPacketId)?;
+            let pid = self.packet_id.ok_or(ProtocolError::MissingPacketId)?;
             let pid_bytes = pid.to_be_bytes();
             buffer[offset] = pid_bytes[0];
             buffer[offset + 1] = pid_bytes[1];
@@ -115,7 +115,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // 6. Write payload
         if offset + self.payload.len() > buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall {
+            return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
@@ -125,20 +125,20 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         let mut offset = 0;
 
         // 1. Validate packet type
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let header_byte = bytes[offset];
         offset += 1;
         let packet_type = (header_byte >> 4) & 0x0F;
         if packet_type != PacketType::Publish as u8 {
-            return Err(PacketEncodingError::InvalidPacketType { packet_type });
+            return Err(ProtocolError::InvalidPacketType { packet_type });
         }
 
         // 2. Parse flags from header byte
@@ -156,11 +156,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 4. Read topic name
         let topic_str = crate::protocol::utils::read_string(bytes, &mut offset)?;
         if topic_str.is_empty() {
-            return Err(PacketEncodingError::TopicEmpty);
+            return Err(ProtocolError::TopicEmpty);
         }
         let topic_name = HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(topic_str)
             .map(TopicName::new)
-            .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
+            .map_err(|_| ProtocolError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: topic_str.len(),
             })?;
@@ -168,13 +168,13 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 5. Read packet ID if QoS > 0
         let packet_id = if publish_flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
-                return Err(PacketEncodingError::IncompletePacket {
-                    buffer_size: bytes.len(),
+                return Err(ProtocolError::IncompletePacket {
+                    available: bytes.len(),
                 });
             }
             let pid = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
             if pid == 0 {
-                return Err(PacketEncodingError::MissingPacketId);
+                return Err(ProtocolError::MissingPacketId);
             }
             offset += 2;
             Some(pid)
@@ -185,14 +185,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 6. Read payload
         let payload_end = start_offset + remaining_length;
         if payload_end > bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let payload_bytes = &bytes[offset..payload_end];
         let mut payload = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
         payload.extend_from_slice(payload_bytes).map_err(|_| {
-            PacketEncodingError::PayloadTooLarge {
+            ProtocolError::PayloadTooLarge {
                 max_size: MAX_PAYLOAD_SIZE,
                 actual_size: payload_bytes.len(),
             }
@@ -201,7 +201,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // 7. Validate remaining length matched actual data
         let actual_consumed = offset - start_offset + payload_bytes.len();
         if actual_consumed != remaining_length {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 expected: remaining_length,
                 actual: actual_consumed,
             });

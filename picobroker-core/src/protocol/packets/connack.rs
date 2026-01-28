@@ -1,4 +1,4 @@
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{
     PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
@@ -18,7 +18,7 @@ pub enum ConnectReturnCode {
 }
 
 impl TryFrom<u8> for ConnectReturnCode {
-    type Error = PacketEncodingError;
+    type Error = ProtocolError;
 
     fn try_from(code: u8) -> Result<Self, Self::Error> {
         match code {
@@ -28,7 +28,7 @@ impl TryFrom<u8> for ConnectReturnCode {
             3 => Ok(ConnectReturnCode::ServerUnavailable),
             4 => Ok(ConnectReturnCode::BadUserNameOrPassword),
             5 => Ok(ConnectReturnCode::NotAuthorized),
-            _ => Err(PacketEncodingError::InvalidConnectReturnCode { return_code: code }),
+            _ => Err(ProtocolError::InvalidConnectReturnCode { return_code: code }),
         }
     }
 }
@@ -52,7 +52,7 @@ impl PacketFlagsConst for ConnAckPacket {
 }
 
 impl PacketEncoder for ConnAckPacket {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         Self::validate_buffer_size(buffer.len())?;
         buffer[0] = self.header_first_byte();
         buffer[1] = 2u8;
@@ -65,7 +65,7 @@ impl PacketEncoder for ConnAckPacket {
         Ok(4)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         Self::validate_buffer_size(bytes.len())?;
         Self::validate_packet_type(bytes[0])?;
         let (remaining_length, _) = read_variable_length(&bytes[1..])?;
@@ -75,7 +75,7 @@ impl PacketEncoder for ConnAckPacket {
             0b0000_0000 => false,
             0b0000_0001 => true,
             _ => {
-                return Err(PacketEncodingError::InvalidSessionPresentFlag {
+                return Err(ProtocolError::InvalidSessionPresentFlag {
                     flag: session_present_byte,
                 })
             }

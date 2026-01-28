@@ -1,5 +1,5 @@
 use crate::protocol::heapless::HeaplessString;
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{
@@ -28,7 +28,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketFlagsConst
 impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
     for UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>
 {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         let mut offset = 0;
 
         // 1. Calculate remaining length
@@ -37,7 +37,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
 
         // 2. Write header byte (type + flags)
         if offset >= buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall {
+            return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
@@ -50,7 +50,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
 
         // 4. Write packet ID
         if offset + 2 > buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall {
+            return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
@@ -65,20 +65,20 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         let mut offset = 0;
 
         // 1. Validate packet type
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let header_byte = bytes[offset];
         offset += 1;
         let packet_type = (header_byte >> 4) & 0x0F;
         if packet_type != Self::PACKET_TYPE as u8 {
-            return Err(PacketEncodingError::InvalidPacketType { packet_type });
+            return Err(ProtocolError::InvalidPacketType { packet_type });
         }
 
         // 2. Read remaining length
@@ -90,15 +90,15 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
 
         // 3. Read packet ID
         if offset + 2 > bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let packet_id = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
 
         // MQTT 3.1.1 spec: Packet Identifier MUST be non-zero
         if packet_id == 0 {
-            return Err(PacketEncodingError::MissingPacketId);
+            return Err(ProtocolError::MissingPacketId);
         }
 
         offset += 2;
@@ -106,11 +106,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
         // 4. Read topic filter
         let topic_filter = read_string(bytes, &mut offset)?;
         if topic_filter.is_empty() {
-            return Err(PacketEncodingError::TopicEmpty);
+            return Err(ProtocolError::TopicEmpty);
         }
         let topic_name = HeaplessString::try_from(topic_filter)
             .map(TopicName::new)
-            .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
+            .map_err(|_| ProtocolError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: topic_filter.len(),
             })?;
@@ -118,7 +118,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> PacketEncoder
         // 5. Validate remaining length matched actual data
         let actual_consumed = offset - start_offset;
         if actual_consumed != remaining_length {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 expected: remaining_length,
                 actual: actual_consumed,
             });
@@ -146,7 +146,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::packet_error::PacketEncodingError;
+    use crate::protocol::ProtocolError;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
 
@@ -176,7 +176,7 @@ mod tests {
     #[allow(dead_code)]
     fn decode_test(
         bytes: &[u8],
-    ) -> Result<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>, PacketEncodingError> {
+    ) -> Result<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>, ProtocolError> {
         UnsubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes)
     }
 

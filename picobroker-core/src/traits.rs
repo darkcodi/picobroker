@@ -50,27 +50,53 @@ impl core::fmt::Display for SocketAddr {
 pub enum NetworkError {
     /// Connection closed
     ConnectionClosed,
-    /// I/O error occurred
-    IoError,
+
+    /// Read operation failed
+    ReadFailed,
+    /// Read operation would block
+    ReadWouldBlock,
+    /// Read operation timed out
+    ReadTimedOut,
+    /// Read operation interrupted
+    ReadInterrupted,
+
+    /// Write operation failed
+    WriteFailed,
+    /// Write operation would block
+    WriteWouldBlock,
+    /// Write operation timed out
+    WriteTimedOut,
+    /// Write operation interrupted
+    WriteInterrupted,
+
+    /// Flush operation failed
+    FlushFailed,
+
+    /// Accept connection failed
+    AcceptFailed,
     /// No pending connection to accept
-    NoPendingConnection,
-    /// Operation would block
-    WouldBlock,
-    /// Operation timed out
-    TimedOut,
-    /// Operation interrupted
-    Interrupted,
+    AcceptWouldBlock,
+
+    /// Close operation failed
+    CloseFailed,
 }
 
 impl core::fmt::Display for NetworkError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             NetworkError::ConnectionClosed => write!(f, "Connection closed"),
-            NetworkError::IoError => write!(f, "I/O error occurred"),
-            NetworkError::NoPendingConnection => write!(f, "No pending connection to accept"),
-            NetworkError::WouldBlock => write!(f, "Operation would block"),
-            NetworkError::TimedOut => write!(f, "Operation timed out"),
-            NetworkError::Interrupted => write!(f, "Operation interrupted"),
+            NetworkError::ReadFailed => write!(f, "Read operation failed"),
+            NetworkError::ReadWouldBlock => write!(f, "Read operation would block"),
+            NetworkError::ReadTimedOut => write!(f, "Read operation timed out"),
+            NetworkError::ReadInterrupted => write!(f, "Read operation interrupted"),
+            NetworkError::WriteFailed => write!(f, "Write operation failed"),
+            NetworkError::WriteWouldBlock => write!(f, "Write operation would block"),
+            NetworkError::WriteTimedOut => write!(f, "Write operation timed out"),
+            NetworkError::WriteInterrupted => write!(f, "Write operation interrupted"),
+            NetworkError::FlushFailed => write!(f, "Flush operation failed"),
+            NetworkError::AcceptFailed => write!(f, "Accept connection failed"),
+            NetworkError::AcceptWouldBlock => write!(f, "No pending connection to accept"),
+            NetworkError::CloseFailed => write!(f, "Close operation failed"),
         }
     }
 }

@@ -13,7 +13,7 @@ mod subscribe;
 mod unsuback;
 mod unsubscribe;
 
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 pub use crate::protocol::packets::connack::ConnAckPacket;
 pub use crate::protocol::packets::connack::ConnectReturnCode;
@@ -35,11 +35,11 @@ use crate::protocol::utils::variable_length_length;
 pub trait PacketTypeConst {
     const PACKET_TYPE: PacketType;
 
-    fn validate_packet_type(header_first_byte: u8) -> Result<(), PacketEncodingError> {
+    fn validate_packet_type(header_first_byte: u8) -> Result<(), ProtocolError> {
         let type_byte = header_first_byte >> 4;
         let packet_type = PacketType::from(type_byte);
         if packet_type != Self::PACKET_TYPE {
-            return Err(PacketEncodingError::InvalidPacketType {
+            return Err(ProtocolError::InvalidPacketType {
                 packet_type: type_byte,
             });
         }
@@ -74,18 +74,18 @@ impl<T: PacketFlagsConst> PacketFlagsDynamic for T {
 trait PacketFixedSize {
     const PACKET_SIZE: usize;
 
-    fn validate_buffer_size(buffer_size: usize) -> Result<(), PacketEncodingError> {
+    fn validate_buffer_size(buffer_size: usize) -> Result<(), ProtocolError> {
         if buffer_size < Self::PACKET_SIZE {
-            return Err(PacketEncodingError::BufferTooSmall { buffer_size });
+            return Err(ProtocolError::BufferTooSmall { buffer_size });
         }
         Ok(())
     }
 
-    fn validate_remaining_length(remaining_length: usize) -> Result<(), PacketEncodingError> {
+    fn validate_remaining_length(remaining_length: usize) -> Result<(), ProtocolError> {
         let int_length = variable_length_length(remaining_length);
         let expected_remaining_length = Self::PACKET_SIZE - int_length - 1;
         if remaining_length != expected_remaining_length {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 actual: remaining_length + int_length + 1,
                 expected: Self::PACKET_SIZE,
             });
@@ -105,8 +105,8 @@ impl<T: PacketTypeDynamic + PacketFlagsDynamic> PacketHeader for T {
 }
 
 pub trait PacketEncoder: Sized {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError>;
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError>;
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError>;
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,7 +176,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFl
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder
     for Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
 {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         match self {
             Packet::Connect(packet) => packet.encode(buffer),
             Packet::ConnAck(packet) => packet.encode(buffer),
@@ -195,11 +195,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         }
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         let type_byte = bytes[0] >> 4;
         let packet_type = PacketType::from(type_byte);
         match packet_type {
-            PacketType::Reserved => Err(PacketEncodingError::InvalidPacketType {
+            PacketType::Reserved => Err(ProtocolError::InvalidPacketType {
                 packet_type: type_byte,
             }),
             PacketType::Connect => Ok(Packet::Connect(ConnectPacket::decode(bytes)?)),
@@ -216,7 +216,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             PacketType::PingReq => Ok(Packet::PingReq(PingReqPacket::decode(bytes)?)),
             PacketType::PingResp => Ok(Packet::PingResp(PingRespPacket::decode(bytes)?)),
             PacketType::Disconnect => Ok(Packet::Disconnect(DisconnectPacket::decode(bytes)?)),
-            PacketType::Reserved2 => Err(PacketEncodingError::InvalidPacketType {
+            PacketType::Reserved2 => Err(ProtocolError::InvalidPacketType {
                 packet_type: type_byte,
             }),
         }

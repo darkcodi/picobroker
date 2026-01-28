@@ -1,5 +1,5 @@
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use core::fmt::Write;
 
 pub const fn variable_length_length(value: usize) -> usize {
@@ -14,7 +14,7 @@ pub const fn variable_length_length(value: usize) -> usize {
     }
 }
 
-pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), PacketEncodingError> {
+pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), ProtocolError> {
     // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
     const MAX_VARIABLE_LENGTH: usize = 268_435_455;
 
@@ -24,8 +24,8 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), PacketEncodi
 
     loop {
         if bytes_read >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let byte = bytes[bytes_read] as usize;
@@ -34,7 +34,7 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), PacketEncodi
 
         // Check if value exceeds MQTT spec maximum BEFORE processing continuation
         if value > MAX_VARIABLE_LENGTH {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 expected: MAX_VARIABLE_LENGTH,
                 actual: value,
             });
@@ -44,7 +44,7 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), PacketEncodi
 
         // Check multiplier to prevent more than 4 bytes (spec limit)
         if multiplier > 128 * 128 * 128 * 128 {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 expected: MAX_VARIABLE_LENGTH,
                 actual: value,
             });
@@ -61,12 +61,12 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), PacketEncodi
 pub fn write_variable_length(
     value: usize,
     buffer: &mut [u8],
-) -> Result<usize, PacketEncodingError> {
+) -> Result<usize, ProtocolError> {
     // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
     const MAX_VARIABLE_LENGTH: usize = 268_435_455;
 
     if value > MAX_VARIABLE_LENGTH {
-        return Err(PacketEncodingError::InvalidPacketLength {
+        return Err(ProtocolError::InvalidPacketLength {
             expected: MAX_VARIABLE_LENGTH,
             actual: value,
         });
@@ -77,7 +77,7 @@ pub fn write_variable_length(
 
     loop {
         if bytes_written >= buffer.len() {
-            return Err(PacketEncodingError::BufferTooSmall {
+            return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
             });
         }
@@ -99,23 +99,23 @@ pub fn write_variable_length(
 pub fn read_string<'a>(
     bytes: &'a [u8],
     offset: &'_ mut usize,
-) -> Result<&'a str, PacketEncodingError> {
+) -> Result<&'a str, ProtocolError> {
     if *offset + 2 > bytes.len() {
-        return Err(PacketEncodingError::IncompletePacket {
-            buffer_size: bytes.len(),
+        return Err(ProtocolError::IncompletePacket {
+            available: bytes.len(),
         });
     }
     let len = u16::from_be_bytes([bytes[*offset], bytes[*offset + 1]]) as usize;
     *offset += 2;
     if *offset + len > bytes.len() {
-        return Err(PacketEncodingError::IncompletePacket {
-            buffer_size: bytes.len(),
+        return Err(ProtocolError::IncompletePacket {
+            available: bytes.len(),
         });
     }
     let str_bytes = &bytes[*offset..*offset + len];
     *offset += len;
     let str_slice =
-        core::str::from_utf8(str_bytes).map_err(|_| PacketEncodingError::InvalidUtf8String)?;
+        core::str::from_utf8(str_bytes).map_err(|_| ProtocolError::InvalidUtf8String)?;
     Ok(str_slice)
 }
 
@@ -123,11 +123,11 @@ pub fn write_string(
     s: &str,
     buffer: &mut [u8],
     offset: &mut usize,
-) -> Result<(), PacketEncodingError> {
+) -> Result<(), ProtocolError> {
     let bytes = s.as_bytes();
     let len = bytes.len();
     if *offset + 2 + len > buffer.len() {
-        return Err(PacketEncodingError::BufferTooSmall {
+        return Err(ProtocolError::BufferTooSmall {
             buffer_size: buffer.len(),
         });
     }
@@ -143,17 +143,17 @@ pub fn write_string(
 pub fn read_binary<'a>(
     bytes: &'a [u8],
     offset: &'_ mut usize,
-) -> Result<&'a [u8], PacketEncodingError> {
+) -> Result<&'a [u8], ProtocolError> {
     if *offset + 2 > bytes.len() {
-        return Err(PacketEncodingError::IncompletePacket {
-            buffer_size: bytes.len(),
+        return Err(ProtocolError::IncompletePacket {
+            available: bytes.len(),
         });
     }
     let len = u16::from_be_bytes([bytes[*offset], bytes[*offset + 1]]) as usize;
     *offset += 2;
     if *offset + len > bytes.len() {
-        return Err(PacketEncodingError::IncompletePacket {
-            buffer_size: bytes.len(),
+        return Err(ProtocolError::IncompletePacket {
+            available: bytes.len(),
         });
     }
     let bin_bytes = &bytes[*offset..*offset + len];
@@ -165,10 +165,10 @@ pub fn write_binary(
     data: &[u8],
     buffer: &mut [u8],
     offset: &mut usize,
-) -> Result<(), PacketEncodingError> {
+) -> Result<(), ProtocolError> {
     let len = data.len();
     if *offset + 2 + len > buffer.len() {
-        return Err(PacketEncodingError::BufferTooSmall {
+        return Err(ProtocolError::BufferTooSmall {
             buffer_size: buffer.len(),
         });
     }

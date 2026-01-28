@@ -2,9 +2,9 @@
 //!
 //! Manages topic subscriptions
 
-use crate::broker_error::BrokerError;
+use crate::error::BrokerError;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 
 /// Topic name
 /// Represents an MQTT topic name with a maximum length.
@@ -26,11 +26,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> From<HeaplessString<MAX_TOPIC_NAME_LENG
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize> TryFrom<&str> for TopicName<MAX_TOPIC_NAME_LENGTH> {
-    type Error = PacketEncodingError;
+    type Error = ProtocolError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let topic_str = HeaplessString::try_from(value).map_err(|_| {
-            PacketEncodingError::TopicNameLengthExceeded {
+            ProtocolError::TopicNameLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: value.len(),
             }
@@ -89,10 +89,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
         if self.subscribers.iter().any(|x| *x == session_id) {
             return Ok(()); // Already subscribed
         }
+        let current = self.subscribers.len();
         self.subscribers
             .push(session_id)
             .map_err(|_| BrokerError::MaxSubscribersPerTopicReached {
-                max_subscribers: MAX_SUBSCRIBERS_PER_TOPIC,
+                current,
+                max: MAX_SUBSCRIBERS_PER_TOPIC,
             })
     }
 
@@ -174,9 +176,11 @@ impl<
             topic_entry.add_subscriber(session_id)
         } else {
             // Check if we've reached the max topics limit
-            if self.topics.len() >= MAX_TOPICS {
+            let current = self.topics.len();
+            if current >= MAX_TOPICS {
                 return Err(BrokerError::MaxTopicsReached {
-                    max_topics: MAX_TOPICS,
+                    current,
+                    max: MAX_TOPICS,
                 });
             }
 
@@ -185,9 +189,7 @@ impl<
             new_entry.add_subscriber(session_id)?;
             self.topics
                 .push(new_entry)
-                .map_err(|_| BrokerError::MaxTopicsReached {
-                    max_topics: MAX_TOPICS,
-                })
+                .map_err(|_| BrokerError::BufferFull)
         }
     }
 

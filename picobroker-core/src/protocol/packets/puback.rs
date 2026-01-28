@@ -1,4 +1,4 @@
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{
     PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
@@ -23,7 +23,7 @@ impl PacketFlagsConst for PubAckPacket {
 }
 
 impl PacketEncoder for PubAckPacket {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         Self::validate_buffer_size(buffer.len())?;
         buffer[0] = self.header_first_byte();
         buffer[1] = 2u8;
@@ -33,7 +33,7 @@ impl PacketEncoder for PubAckPacket {
         Ok(4)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         Self::validate_buffer_size(bytes.len())?;
         Self::validate_packet_type(bytes[0])?;
         let (remaining_length, _) = read_variable_length(&bytes[1..])?;

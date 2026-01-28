@@ -3,7 +3,7 @@
 //! Manages client connections, message routing, and keep-alive monitoring
 
 use log::info;
-use crate::broker_error::BrokerError;
+use crate::error::BrokerError;
 use crate::protocol::packets::{
     ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
     SubAckPacket, SubscribePacket,

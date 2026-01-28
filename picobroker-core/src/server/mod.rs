@@ -4,9 +4,8 @@
 //! message processing, and client lifecycle management.
 
 use crate::broker::PicoBroker;
-use crate::broker_error::BrokerError;
+use crate::error::BrokerError;
 use crate::protocol::packets::{Packet, PacketEncoder};
-use crate::protocol::packet_error::PacketEncodingError;
 use crate::traits::{Delay, NetworkError, TcpListener, TcpStream, TimeSource};
 use log::{error, info, warn};
 
@@ -191,14 +190,14 @@ impl<
         for session_id in self.broker.get_all_sessions().into_iter().flatten() {
             if let Err(e) = self.read_single_session(session_id).await {
                 match e {
-                    ReadError::StreamNotFound => {
-                        error!("Stream not found for session {}", session_id);
+                    BrokerError::SessionDisconnected { session_id: sid } => {
+                        info!("Session {} disconnected", sid);
                     }
-                    ReadError::ConnectionClosed => {
-                        info!("Session {} disconnected", session_id);
+                    BrokerError::Network(NetworkError::ConnectionClosed) => {
+                        info!("Session {} disconnected due to connection closed", session_id);
                     }
-                    ReadError::Fatal(e) => {
-                        info!("Session {} forcefully disconnected due to network fatal error: {:?}", session_id, e);
+                    _ => {
+                        error!("Error reading from session {}: {:?}", session_id, e);
                     }
                 }
             }
@@ -206,12 +205,11 @@ impl<
     }
 
     /// Read messages from a single session
-    async fn read_single_session(&mut self, session_id: u128) -> Result<(), ReadError>
+    async fn read_single_session(&mut self, session_id: u128) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
     {
-        self.ensure_buffer_space(session_id)
-            .map_err(|_| ReadError::StreamNotFound)?;
+        self.ensure_buffer_space(session_id)?;
 
         let remaining_space = self.buffer_manager.get_remaining_space(session_id);
         let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
@@ -225,7 +223,7 @@ impl<
                 None => {
                     error!("No stream found for session {}", session_id);
                     let _ = self.broker.mark_session_disconnected(session_id);
-                    return Err(ReadError::StreamNotFound);
+                    return Err(BrokerError::SessionDisconnected { session_id });
                 }
             };
 
@@ -233,16 +231,21 @@ impl<
                 Ok(0) => {
                     info!("Connection closed by peer (0 bytes read)");
                     let _ = self.broker.mark_session_disconnected(session_id);
-                    return Err(ReadError::ConnectionClosed);
+                    return Err(BrokerError::SessionDisconnected { session_id });
                 }
                 Ok(n) => {
                     info!("Read {} bytes from session {}", n, session_id);
                     n
                 }
-                Err(e) if matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError) => {
-                    error!("Fatal error reading from session {}: {}", session_id, e);
+                Err(NetworkError::ConnectionClosed) => {
+                    error!("Fatal error reading from session {}: Connection closed", session_id);
                     let _ = self.broker.mark_session_disconnected(session_id);
-                    return Err(ReadError::Fatal(e));
+                    return Err(BrokerError::SessionDisconnected { session_id });
+                }
+                Err(NetworkError::ReadFailed) => {
+                    error!("Fatal error reading from session {}: Read failed", session_id);
+                    let _ = self.broker.mark_session_disconnected(session_id);
+                    return Err(BrokerError::SessionDisconnected { session_id });
                 }
                 Err(_) => 0,
             }
@@ -251,8 +254,7 @@ impl<
         if bytes_read > 0 {
             let buffer = self.buffer_manager.get_buffer_mut(session_id);
             buffer.append(&read_buf[..bytes_read]);
-            self.process_received_data(session_id)
-                .map_err(|_| ReadError::StreamNotFound)?;
+            self.process_received_data(session_id)?;
         }
 
         Ok(())
@@ -348,7 +350,7 @@ impl<
         &mut self,
         session_id: u128,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-    ) -> Result<(), WriteError>
+    ) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
     {
@@ -358,7 +360,7 @@ impl<
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
         let packet_size = packet.encode(&mut buffer).map_err(|e| {
             error!("Error encoding packet: {}", e);
-            WriteError::EncodeError(e)
+            BrokerError::Protocol(e)
         })?;
         let encoded_packet = &buffer[..packet_size];
         info!("Encoded packet: {} bytes", packet_size);
@@ -373,14 +375,14 @@ impl<
                 .ok_or_else(|| {
                     error!("No stream found for session {}", session_id);
                     let _ = self.broker.mark_session_disconnected(session_id);
-                    WriteError::StreamNotFound
+                    BrokerError::SessionDisconnected { session_id }
                 })?;
 
             match stream.write(&encoded_packet[total_written..]).await {
                 Ok(0) => {
                     error!("Write returned 0 bytes, connection closed");
                     let _ = self.broker.mark_session_disconnected(session_id);
-                    return Err(WriteError::ConnectionClosed);
+                    return Err(BrokerError::SessionDisconnected { session_id });
                 }
                 Ok(bytes_written) => {
                     total_written += bytes_written;
@@ -391,20 +393,20 @@ impl<
                         let stream = self
                             .connection_manager
                             .get_stream_mut(session_id)
-                            .ok_or(WriteError::StreamNotFound)?;
+                            .ok_or(BrokerError::SessionDisconnected { session_id })?;
 
                         stream.flush().await.map_err(|e| {
                             error!("Error flushing stream: {}", e);
                             let _ = self.broker.mark_session_disconnected(session_id);
-                            WriteError::FlushError(e)
+                            BrokerError::Network(e)
                         })?;
                         break;
                     }
                 }
-                Err(e) if matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError) => {
-                    error!("Fatal error writing to session {}: {}", session_id, e);
+                Err(NetworkError::ConnectionClosed | NetworkError::WriteFailed) => {
+                    error!("Fatal error writing to session {}: Connection closed or write failed", session_id);
                     let _ = self.broker.mark_session_disconnected(session_id);
-                    return Err(WriteError::Fatal(e));
+                    return Err(BrokerError::SessionDisconnected { session_id });
                 }
                 Err(_) => {
                     // Retry for non-fatal errors
@@ -415,22 +417,4 @@ impl<
 
         Ok(())
     }
-}
-
-/// Error type for read operations
-#[derive(Debug)]
-enum ReadError {
-    StreamNotFound,
-    ConnectionClosed,
-    Fatal(NetworkError),
-}
-
-/// Error type for write operations
-#[derive(Debug)]
-enum WriteError {
-    StreamNotFound,
-    EncodeError(PacketEncodingError),
-    FlushError(NetworkError),
-    Fatal(NetworkError),
-    ConnectionClosed,
 }

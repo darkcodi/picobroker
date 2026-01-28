@@ -1,6 +1,6 @@
 use crate::client::ClientId;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
-use crate::protocol::packet_error::PacketEncodingError;
+use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::utils::{
@@ -89,7 +89,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketFl
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEncoder
     for ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>
 {
-    fn encode(&self, buffer: &mut [u8]) -> Result<usize, PacketEncodingError> {
+    fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         // calculate remaining length
         let mut remaining_length = 0;
         remaining_length += 2 + MQTT_PROTOCOL_NAME.len(); // Protocol Name
@@ -144,40 +144,40 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         Ok(offset)
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, PacketEncodingError> {
+    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         Self::validate_packet_type(bytes[0])?;
         let (remaining_length, int_length) = read_variable_length(&bytes[1..])?;
 
         // validate protocol name
         let mut offset = 1 + int_length;
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let protocol_name = read_string(bytes, &mut offset)?;
         if protocol_name != MQTT_PROTOCOL_NAME {
-            return Err(PacketEncodingError::InvalidProtocolName);
+            return Err(ProtocolError::InvalidProtocolName);
         }
 
         // validate protocol level
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let protocol_level = bytes[offset];
         offset += 1;
         if protocol_level != MQTT_3_1_1_PROTOCOL_LEVEL {
-            return Err(PacketEncodingError::UnsupportedProtocolLevel {
+            return Err(ProtocolError::UnsupportedProtocolLevel {
                 level: protocol_level,
             });
         }
 
         // validate connect flags
         if offset >= bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let connect_flags_byte = bytes[offset];
@@ -185,7 +185,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         let connect_flags = ConnectFlags(connect_flags_byte);
         // validate reserved bits per MQTT 3.1.1 spec: Bit 0 (reserved) must be 0
         if connect_flags.contains(ConnectFlags::RESERVED) {
-            return Err(PacketEncodingError::InvalidConnectFlags {
+            return Err(ProtocolError::InvalidConnectFlags {
                 flags: connect_flags_byte,
             });
         }
@@ -196,8 +196,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
 
         // extract keep alive
         if offset + 2 > bytes.len() {
-            return Err(PacketEncodingError::IncompletePacket {
-                buffer_size: bytes.len(),
+            return Err(ProtocolError::IncompletePacket {
+                available: bytes.len(),
             });
         }
         let keep_alive = u16::from_be_bytes([bytes[offset], bytes[offset + 1]]);
@@ -206,11 +206,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // extract client id
         let client_id = read_string(bytes, &mut offset)?;
         if client_id.is_empty() && !clean_session {
-            return Err(PacketEncodingError::ClientIdEmpty);
+            return Err(ProtocolError::ClientIdEmpty);
         }
         let client_id = HeaplessString::try_from(client_id)
             .map(ClientId::from)
-            .map_err(|_| PacketEncodingError::ClientIdLengthExceeded {
+            .map_err(|_| ProtocolError::ClientIdLengthExceeded {
                 max_length: MAX_TOPIC_NAME_LENGTH,
                 actual_length: client_id.len(),
             })?;
@@ -222,12 +222,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             // extract will topic
             let will_topic_str = read_string(bytes, &mut offset)?;
             if will_topic_str.is_empty() {
-                return Err(PacketEncodingError::TopicEmpty);
+                return Err(ProtocolError::TopicEmpty);
             }
             will_topic = Some(
                 HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(will_topic_str)
                     .map(TopicName::new)
-                    .map_err(|_| PacketEncodingError::TopicNameLengthExceeded {
+                    .map_err(|_| ProtocolError::TopicNameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: will_topic_str.len(),
                     })?,
@@ -237,7 +237,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             let will_payload_bytes = read_binary(bytes, &mut offset)?;
             let mut will_payload_vec = HeaplessVec::<u8, MAX_PAYLOAD_SIZE>::new();
             if will_payload_bytes.len() > MAX_PAYLOAD_SIZE {
-                return Err(PacketEncodingError::PayloadTooLarge {
+                return Err(ProtocolError::PayloadTooLarge {
                     max_size: MAX_PAYLOAD_SIZE,
                     actual_size: will_payload_bytes.len(),
                 });
@@ -245,7 +245,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             // Note: MQTT 3.1.1 spec does not limit will payload size, but we enforce MAX_PAYLOAD_SIZE here
             will_payload_vec
                 .extend_from_slice(will_payload_bytes)
-                .map_err(|_| PacketEncodingError::PayloadTooLarge {
+                .map_err(|_| ProtocolError::PayloadTooLarge {
                     max_size: MAX_PAYLOAD_SIZE,
                     actual_size: will_payload_bytes.len(),
                 })?;
@@ -258,7 +258,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             let username_str = read_string(bytes, &mut offset)?;
             username = Some(
                 HeaplessString::<MAX_TOPIC_NAME_LENGTH>::try_from(username_str).map_err(|_| {
-                    PacketEncodingError::UsernameLengthExceeded {
+                    ProtocolError::UsernameLengthExceeded {
                         max_length: MAX_TOPIC_NAME_LENGTH,
                         actual_length: username_str.len(),
                     }
@@ -273,7 +273,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             let mut password_vec = HeaplessVec::<u8, MAX_TOPIC_NAME_LENGTH>::new();
             password_vec
                 .extend_from_slice(password_bytes)
-                .map_err(|_| PacketEncodingError::PasswordLengthExceeded {
+                .map_err(|_| ProtocolError::PasswordLengthExceeded {
                     max_length: MAX_TOPIC_NAME_LENGTH,
                     actual_length: password_bytes.len(),
                 })?;
@@ -283,7 +283,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         // Validate that the remaining length matches the actual bytes read
         let actual_payload_size = offset - 1 - int_length;
         if actual_payload_size != remaining_length {
-            return Err(PacketEncodingError::InvalidPacketLength {
+            return Err(ProtocolError::InvalidPacketLength {
                 expected: remaining_length,
                 actual: actual_payload_size,
             });
@@ -322,7 +322,7 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fm
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::packet_error::PacketEncodingError;
+    use crate::protocol::ProtocolError;
     use crate::protocol::packets::ConnectPacket;
     use crate::protocol::utils::hex_to_bytes;
 
@@ -350,7 +350,7 @@ mod tests {
     #[allow(dead_code)]
     fn decode_test(
         bytes: &[u8],
-    ) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, PacketEncodingError> {
+    ) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, ProtocolError> {
         ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
     }
 
@@ -461,7 +461,7 @@ mod tests {
         let result = ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(&bytes);
         assert!(matches!(
             result,
-            Err(PacketEncodingError::InvalidConnectFlags { flags: 3 })
+            Err(ProtocolError::InvalidConnectFlags { flags: 3 })
         ));
     }
 

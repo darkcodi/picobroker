@@ -1,5 +1,5 @@
 use log::error;
-use crate::broker_error::BrokerError;
+use crate::error::BrokerError;
 use crate::client::ClientId;
 use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::Packet;
@@ -85,9 +85,7 @@ impl<
     ) -> Result<(), BrokerError> {
         self.tx_queue
             .push(Some(packet))
-            .map_err(|_| BrokerError::SessionQueueFull {
-                queue_size: QUEUE_SIZE,
-            })
+            .map_err(|_| BrokerError::BufferFull)
     }
 
     /// Dequeue a packet to send to the session
@@ -102,9 +100,7 @@ impl<
     ) -> Result<(), BrokerError> {
         self.rx_queue
             .push(Some(packet))
-            .map_err(|_| BrokerError::SessionQueueFull {
-                queue_size: QUEUE_SIZE,
-            })
+            .map_err(|_| BrokerError::BufferFull)
     }
 
     /// Dequeue a received packet from the session
@@ -224,7 +220,7 @@ SessionRegistry<
             session.state = SessionState::Connected;
             Ok(())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -234,7 +230,7 @@ SessionRegistry<
             session.state = SessionState::Disconnected;
             Ok(())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -245,22 +241,22 @@ SessionRegistry<
         keep_alive_secs: u16,
         current_time: u128,
     ) -> Result<(), BrokerError> {
-        if self.sessions.len() >= MAX_SESSIONS {
+        let current = self.sessions.len();
+        if current >= MAX_SESSIONS {
             return Err(BrokerError::MaxSessionsReached {
-                max_sessions: MAX_SESSIONS,
+                current,
+                max: MAX_SESSIONS,
             });
         }
 
         if self.find_session(session_id).is_some() {
-            return Err(BrokerError::SessionAlreadyExists);
+            return Err(BrokerError::SessionAlreadyExists { session_id });
         }
 
         let session = Session::new(session_id, keep_alive_secs, current_time);
         self.sessions
             .push(Some(session))
-            .map_err(|_| BrokerError::MaxSessionsReached {
-                max_sessions: MAX_SESSIONS,
-            })?;
+            .map_err(|_| BrokerError::BufferFull)?;
         Ok(())
     }
 
@@ -291,7 +287,7 @@ SessionRegistry<
             session.update_activity(current_time);
             Ok(())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -305,7 +301,7 @@ SessionRegistry<
             session.client_id = Some(client_id);
             Ok(())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -319,7 +315,7 @@ SessionRegistry<
             session.keep_alive_secs = keep_alive_secs;
             Ok(())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -330,9 +326,12 @@ SessionRegistry<
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.find_session(session_id) {
-            session.queue_rx_packet(packet)
+            session.queue_rx_packet(packet).map_err(|_| BrokerError::SessionQueueFull {
+                session_id,
+                queue_size: QUEUE_SIZE,
+            })
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -343,9 +342,12 @@ SessionRegistry<
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.find_session(session_id) {
-            session.queue_tx_packet(packet)
+            session.queue_tx_packet(packet).map_err(|_| BrokerError::SessionQueueFull {
+                session_id,
+                queue_size: QUEUE_SIZE,
+            })
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -357,7 +359,7 @@ SessionRegistry<
         if let Some(session) = self.find_session(session_id) {
             Ok(session.dequeue_rx_packet())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
@@ -369,7 +371,7 @@ SessionRegistry<
         if let Some(session) = self.find_session(session_id) {
             Ok(session.dequeue_tx_packet())
         } else {
-            Err(BrokerError::SessionNotFound)
+            Err(BrokerError::SessionNotFound { session_id })
         }
     }
 
