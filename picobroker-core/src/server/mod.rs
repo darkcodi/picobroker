@@ -130,6 +130,7 @@ impl<
             .into_iter()
             .flatten()
         {
+            info!("Cleaning up disconnected session {}", session_id);
             self.remove_session(session_id);
         }
 
@@ -141,6 +142,7 @@ impl<
             .into_iter()
             .flatten()
         {
+            info!("Cleaning up expired session {}", session_id);
             self.remove_session(session_id);
         }
     }

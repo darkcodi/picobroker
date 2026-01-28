@@ -105,6 +105,7 @@ impl<
 
     /// Mark a session as disconnected
     pub fn mark_session_disconnected(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        info!("Marking session {} as disconnected", session_id);
         self.sessions.mark_disconnected(session_id)
     }
 

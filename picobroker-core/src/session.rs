@@ -69,8 +69,9 @@ impl<
     /// Returns true if the time since last activity exceeds 1.5x the keep-alive value
     pub fn is_expired(&self, current_time: u128) -> bool {
         let timeout_secs = (self.keep_alive_secs as u128) * 3 / 2;
+        let timeout_nanos = timeout_secs * 1_000_000_000;
         let elapsed = current_time.saturating_sub(self.last_activity);
-        elapsed > timeout_secs
+        elapsed > timeout_nanos
     }
 
     /// Update the last activity timestamp
