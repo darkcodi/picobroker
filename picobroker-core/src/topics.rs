@@ -403,8 +403,7 @@ mod integration_tests {
 
     #[test]
     fn test_exact_match_subscription() {
-        let mut registry =
-            TopicRegistry::<50, 10, 5>::default();
+        let mut registry = TopicRegistry::<50, 10, 5>::default();
 
         let session1 = 1;
         let filter = TopicName::try_from("sensors/temp").unwrap();
@@ -425,8 +424,7 @@ mod integration_tests {
 
     #[test]
     fn test_plus_wildcard_subscription() {
-        let mut registry =
-            TopicRegistry::<50, 10, 5>::default();
+        let mut registry = TopicRegistry::<50, 10, 5>::default();
 
         let session1 = 1;
         let filter = TopicName::try_from("sensors/+/temp").unwrap();
@@ -443,12 +441,7 @@ mod integration_tests {
         for topic_str in test_cases {
             let topic = TopicName::try_from(topic_str).unwrap();
             let subscribers = registry.get_subscribers(&topic);
-            assert_eq!(
-                subscribers.len(),
-                1,
-                "Should match {}",
-                topic_str
-            );
+            assert_eq!(subscribers.len(), 1, "Should match {}", topic_str);
             assert!(subscribers.contains(&session1));
         }
 
@@ -465,8 +458,7 @@ mod integration_tests {
 
     #[test]
     fn test_hash_wildcard_subscription() {
-        let mut registry =
-            TopicRegistry::<50, 10, 5>::default();
+        let mut registry = TopicRegistry::<50, 10, 5>::default();
 
         let session1 = 1;
         let filter = TopicName::try_from("sensors/#").unwrap();
@@ -483,12 +475,7 @@ mod integration_tests {
         for topic_str in test_cases {
             let topic = TopicName::try_from(topic_str).unwrap();
             let subscribers = registry.get_subscribers(&topic);
-            assert_eq!(
-                subscribers.len(),
-                1,
-                "Should match {}",
-                topic_str
-            );
+            assert_eq!(subscribers.len(), 1, "Should match {}", topic_str);
             assert!(subscribers.contains(&session1));
         }
 
@@ -500,8 +487,7 @@ mod integration_tests {
 
     #[test]
     fn test_multiple_wildcard_subscriptions() {
-        let mut registry =
-            TopicRegistry::<50, 10, 5>::default();
+        let mut registry = TopicRegistry::<50, 10, 5>::default();
 
         let session1 = 1;
         let session2 = 2;
@@ -544,8 +530,7 @@ mod integration_tests {
 
     #[test]
     fn test_duplicate_subscribers_via_wildcards() {
-        let mut registry =
-            TopicRegistry::<50, 10, 5>::default();
+        let mut registry = TopicRegistry::<50, 10, 5>::default();
 
         let session1 = 1;
 
@@ -569,8 +554,7 @@ mod integration_tests {
 
     #[test]
     fn test_invalid_wildcard_placement_literal_treatment() {
-        let mut registry =
-            TopicRegistry::<50, 10, 5>::default();
+        let mut registry = TopicRegistry::<50, 10, 5>::default();
 
         let session1 = 1;
 
@@ -626,7 +610,10 @@ mod wildcard_tests {
     fn test_plus_wildcard_middle() {
         assert!(topic_matches("sensors/room1/temp", "sensors/+/temp"));
         assert!(topic_matches("sensors/xyz/temp", "sensors/+/temp"));
-        assert!(!topic_matches("sensors/room1/temp/humidity", "sensors/+/temp"));
+        assert!(!topic_matches(
+            "sensors/room1/temp/humidity",
+            "sensors/+/temp"
+        ));
     }
 
     #[test]

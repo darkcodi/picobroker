@@ -4,9 +4,9 @@
 //! overflow handling, and packet decoding from buffers.
 
 use crate::protocol::heapless::HeaplessVec;
-use crate::protocol::ProtocolError;
 use crate::protocol::packets::{Packet, PacketEncoder};
 use crate::protocol::utils::read_variable_length;
+use crate::protocol::ProtocolError;
 use log::{error, info};
 
 /// Session read buffer
@@ -93,10 +93,7 @@ impl<const MAX_PAYLOAD_SIZE: usize, const MAX_SESSIONS: usize>
     }
 
     /// Get or create a buffer for a session
-    pub fn get_buffer_mut(
-        &mut self,
-        session_id: u128,
-    ) -> &mut SessionReadBuffer<MAX_PAYLOAD_SIZE> {
+    pub fn get_buffer_mut(&mut self, session_id: u128) -> &mut SessionReadBuffer<MAX_PAYLOAD_SIZE> {
         // Check if buffer exists
         let idx = self.buffers.iter().position(|b| b.session_id == session_id);
         if let Some(idx) = idx {
@@ -124,8 +121,7 @@ impl<const MAX_PAYLOAD_SIZE: usize, const MAX_SESSIONS: usize>
         if let Some(idx) = idx {
             self.buffers.remove(idx);
             true
-        }
-        else {
+        } else {
             false
         }
     }

@@ -1,9 +1,9 @@
 use crate::protocol::heapless::HeaplessString;
-use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::qos::QoS;
 use crate::protocol::utils::{read_string, write_string};
+use crate::protocol::ProtocolError;
 use crate::topics::TopicName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -166,8 +166,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::ProtocolError;
     use crate::protocol::qos::QoS;
+    use crate::protocol::ProtocolError;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
 
@@ -195,9 +195,7 @@ mod tests {
     }
 
     #[allow(dead_code)]
-    fn decode_test(
-        bytes: &[u8],
-    ) -> Result<SubscribePacket<MAX_TOPIC_NAME_LENGTH>, ProtocolError> {
+    fn decode_test(bytes: &[u8]) -> Result<SubscribePacket<MAX_TOPIC_NAME_LENGTH>, ProtocolError> {
         SubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes)
     }
 

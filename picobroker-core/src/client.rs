@@ -1,4 +1,4 @@
-use crate::protocol::heapless::{HeaplessString};
+use crate::protocol::heapless::HeaplessString;
 use crate::protocol::ProtocolError;
 
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
@@ -25,12 +25,11 @@ impl TryFrom<&str> for ClientId {
     type Error = ProtocolError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let client_id_str = HeaplessString::try_from(value).map_err(|_| {
-            ProtocolError::ClientIdLengthExceeded {
+        let client_id_str =
+            HeaplessString::try_from(value).map_err(|_| ProtocolError::ClientIdLengthExceeded {
                 max_length: MAX_CLIENT_ID_LENGTH,
                 actual_length: value.len(),
-            }
-        })?;
+            })?;
         Ok(ClientId(client_id_str))
     }
 }

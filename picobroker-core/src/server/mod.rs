@@ -124,13 +124,23 @@ impl<
     /// Cleanup all disconnected and expired sessions
     pub fn cleanup_disconnected(&mut self) {
         // Remove disconnected sessions
-        for session_id in self.broker.get_disconnected_sessions().into_iter().flatten() {
+        for session_id in self
+            .broker
+            .get_disconnected_sessions()
+            .into_iter()
+            .flatten()
+        {
             self.remove_session(session_id);
         }
 
         // Remove expired sessions
         let current_time = self.time_source.now_nano_secs();
-        for session_id in self.broker.get_expired_sessions(current_time).into_iter().flatten() {
+        for session_id in self
+            .broker
+            .get_expired_sessions(current_time)
+            .into_iter()
+            .flatten()
+        {
             self.remove_session(session_id);
         }
     }
@@ -194,7 +204,10 @@ impl<
                         info!("Session {} disconnected", sid);
                     }
                     BrokerError::Network(NetworkError::ConnectionClosed) => {
-                        info!("Session {} disconnected due to connection closed", session_id);
+                        info!(
+                            "Session {} disconnected due to connection closed",
+                            session_id
+                        );
                     }
                     _ => {
                         error!("Error reading from session {}: {:?}", session_id, e);
@@ -216,9 +229,7 @@ impl<
 
         // Get stream, read data, and release stream borrow before processing
         let bytes_read = {
-            let stream = match self
-                .connection_manager
-                .get_stream_mut(session_id) {
+            let stream = match self.connection_manager.get_stream_mut(session_id) {
                 Some(s) => s,
                 None => {
                     error!("No stream found for session {}", session_id);
@@ -238,12 +249,18 @@ impl<
                     n
                 }
                 Err(NetworkError::ConnectionClosed) => {
-                    error!("Fatal error reading from session {}: Connection closed", session_id);
+                    error!(
+                        "Fatal error reading from session {}: Connection closed",
+                        session_id
+                    );
                     let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(BrokerError::SessionDisconnected { session_id });
                 }
                 Err(NetworkError::ReadFailed) => {
-                    error!("Fatal error reading from session {}: Read failed", session_id);
+                    error!(
+                        "Fatal error reading from session {}: Read failed",
+                        session_id
+                    );
                     let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(BrokerError::SessionDisconnected { session_id });
                 }
@@ -284,11 +301,8 @@ impl<
         {
             Ok(Some(packet)) => {
                 info!("Received packet from session {}: {:?}", session_id, packet);
-                self.broker.queue_packet_received_from_client(
-                    session_id,
-                    packet,
-                    current_time,
-                )?;
+                self.broker
+                    .queue_packet_received_from_client(session_id, packet, current_time)?;
             }
             Ok(None) => {
                 // No complete packet yet, that's ok
@@ -333,10 +347,7 @@ impl<
     where
         TL::Stream: Send + 'static,
     {
-        while let Some(packet) = self
-            .broker
-            .dequeue_packet_to_send_to_client(session_id)?
-        {
+        while let Some(packet) = self.broker.dequeue_packet_to_send_to_client(session_id)? {
             if let Err(e) = self.write_single_packet(session_id, packet).await {
                 warn!("Error writing packet to session {}: {:?}", session_id, e);
                 break;
@@ -404,7 +415,10 @@ impl<
                     }
                 }
                 Err(NetworkError::ConnectionClosed | NetworkError::WriteFailed) => {
-                    error!("Fatal error writing to session {}: Connection closed or write failed", session_id);
+                    error!(
+                        "Fatal error writing to session {}: Connection closed or write failed",
+                        session_id
+                    );
                     let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(BrokerError::SessionDisconnected { session_id });
                 }

@@ -13,7 +13,6 @@ mod subscribe;
 mod unsuback;
 mod unsubscribe;
 
-use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 pub use crate::protocol::packets::connack::ConnAckPacket;
 pub use crate::protocol::packets::connack::ConnectReturnCode;
@@ -31,6 +30,7 @@ pub use crate::protocol::packets::subscribe::SubscribePacket;
 pub use crate::protocol::packets::unsuback::UnsubAckPacket;
 pub use crate::protocol::packets::unsubscribe::UnsubscribePacket;
 use crate::protocol::utils::variable_length_length;
+use crate::protocol::ProtocolError;
 
 pub trait PacketTypeConst {
     const PACKET_TYPE: PacketType;

@@ -58,10 +58,7 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), ProtocolErro
     Ok((value, bytes_read))
 }
 
-pub fn write_variable_length(
-    value: usize,
-    buffer: &mut [u8],
-) -> Result<usize, ProtocolError> {
+pub fn write_variable_length(value: usize, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
     // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
     const MAX_VARIABLE_LENGTH: usize = 268_435_455;
 
@@ -96,10 +93,7 @@ pub fn write_variable_length(
     Ok(bytes_written)
 }
 
-pub fn read_string<'a>(
-    bytes: &'a [u8],
-    offset: &'_ mut usize,
-) -> Result<&'a str, ProtocolError> {
+pub fn read_string<'a>(bytes: &'a [u8], offset: &'_ mut usize) -> Result<&'a str, ProtocolError> {
     if *offset + 2 > bytes.len() {
         return Err(ProtocolError::IncompletePacket {
             available: bytes.len(),
@@ -119,11 +113,7 @@ pub fn read_string<'a>(
     Ok(str_slice)
 }
 
-pub fn write_string(
-    s: &str,
-    buffer: &mut [u8],
-    offset: &mut usize,
-) -> Result<(), ProtocolError> {
+pub fn write_string(s: &str, buffer: &mut [u8], offset: &mut usize) -> Result<(), ProtocolError> {
     let bytes = s.as_bytes();
     let len = bytes.len();
     if *offset + 2 + len > buffer.len() {
@@ -140,10 +130,7 @@ pub fn write_string(
     Ok(())
 }
 
-pub fn read_binary<'a>(
-    bytes: &'a [u8],
-    offset: &'_ mut usize,
-) -> Result<&'a [u8], ProtocolError> {
+pub fn read_binary<'a>(bytes: &'a [u8], offset: &'_ mut usize) -> Result<&'a [u8], ProtocolError> {
     if *offset + 2 > bytes.len() {
         return Err(ProtocolError::IncompletePacket {
             available: bytes.len(),

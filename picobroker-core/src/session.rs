@@ -1,8 +1,8 @@
-use log::error;
-use crate::error::BrokerError;
 use crate::client::ClientId;
+use crate::error::BrokerError;
 use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::Packet;
+use log::error;
 
 /// Session state machine
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -46,10 +46,10 @@ pub struct Session<
 }
 
 impl<
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-> Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+    > Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
 {
     /// Create a new session
     pub fn new(session_id: u128, keep_alive_secs: u16, current_time: u128) -> Self {
@@ -129,21 +129,21 @@ pub struct SessionRegistry<
 }
 
 impl<
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-    const MAX_SESSIONS: usize,
-    const MAX_TOPICS: usize,
-    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-> Default
-for SessionRegistry<
-    MAX_TOPIC_NAME_LENGTH,
-    MAX_PAYLOAD_SIZE,
-    QUEUE_SIZE,
-    MAX_SESSIONS,
-    MAX_TOPICS,
-    MAX_SUBSCRIBERS_PER_TOPIC,
->
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_SESSIONS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    > Default
+    for SessionRegistry<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_SESSIONS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     fn default() -> Self {
         Self {
@@ -153,21 +153,21 @@ for SessionRegistry<
 }
 
 impl<
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-    const MAX_SESSIONS: usize,
-    const MAX_TOPICS: usize,
-    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
->
-SessionRegistry<
-    MAX_TOPIC_NAME_LENGTH,
-    MAX_PAYLOAD_SIZE,
-    QUEUE_SIZE,
-    MAX_SESSIONS,
-    MAX_TOPICS,
-    MAX_SUBSCRIBERS_PER_TOPIC,
->
+        const MAX_TOPIC_NAME_LENGTH: usize,
+        const MAX_PAYLOAD_SIZE: usize,
+        const QUEUE_SIZE: usize,
+        const MAX_SESSIONS: usize,
+        const MAX_TOPICS: usize,
+        const MAX_SUBSCRIBERS_PER_TOPIC: usize,
+    >
+    SessionRegistry<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_SESSIONS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     /// Get all session IDs
     pub fn get_all_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
@@ -326,10 +326,12 @@ SessionRegistry<
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.find_session(session_id) {
-            session.queue_rx_packet(packet).map_err(|_| BrokerError::SessionQueueFull {
-                session_id,
-                queue_size: QUEUE_SIZE,
-            })
+            session
+                .queue_rx_packet(packet)
+                .map_err(|_| BrokerError::SessionQueueFull {
+                    session_id,
+                    queue_size: QUEUE_SIZE,
+                })
         } else {
             Err(BrokerError::SessionNotFound { session_id })
         }
@@ -342,10 +344,12 @@ SessionRegistry<
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         if let Some(session) = self.find_session(session_id) {
-            session.queue_tx_packet(packet).map_err(|_| BrokerError::SessionQueueFull {
-                session_id,
-                queue_size: QUEUE_SIZE,
-            })
+            session
+                .queue_tx_packet(packet)
+                .map_err(|_| BrokerError::SessionQueueFull {
+                    session_id,
+                    queue_size: QUEUE_SIZE,
+                })
         } else {
             Err(BrokerError::SessionNotFound { session_id })
         }

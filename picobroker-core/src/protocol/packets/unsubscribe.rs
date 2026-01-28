@@ -1,10 +1,10 @@
 use crate::protocol::heapless::HeaplessString;
-use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketTypeConst};
 use crate::protocol::utils::{
     read_string, read_variable_length, write_string, write_variable_length,
 };
+use crate::protocol::ProtocolError;
 use crate::topics::TopicName;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

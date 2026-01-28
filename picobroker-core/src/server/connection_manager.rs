@@ -56,7 +56,10 @@ where
 
         // No empty slot found, try to push a new entry
         if self.streams.push((session_id, Some(stream))).is_err() {
-            log::error!("Failed to add stream for session {}: connection manager full", session_id);
+            log::error!(
+                "Failed to add stream for session {}: connection manager full",
+                session_id
+            );
         }
     }
 

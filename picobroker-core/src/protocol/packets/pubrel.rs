@@ -1,9 +1,9 @@
-use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{
     PacketEncoder, PacketFixedSize, PacketFlagsConst, PacketHeader, PacketTypeConst,
 };
 use crate::protocol::utils::read_variable_length;
+use crate::protocol::ProtocolError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubRelPacket {

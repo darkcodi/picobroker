@@ -16,10 +16,7 @@ pub enum ProtocolError {
     /// Invalid connect return code in CONNACK
     InvalidConnectReturnCode { return_code: u8 },
     /// Packet length does not match expected length
-    InvalidPacketLength {
-        expected: usize,
-        actual: usize,
-    },
+    InvalidPacketLength { expected: usize, actual: usize },
     /// Invalid packet type
     InvalidPacketType { packet_type: u8 },
     /// Invalid protocol name in CONNECT
@@ -36,10 +33,7 @@ pub enum ProtocolError {
         actual_length: usize,
     },
     /// Payload size exceeded maximum allowed size
-    PayloadTooLarge {
-        max_size: usize,
-        actual_size: usize,
-    },
+    PayloadTooLarge { max_size: usize, actual_size: usize },
     /// Invalid QoS level
     InvalidQosLevel { level: u8 },
     /// Topic name is empty

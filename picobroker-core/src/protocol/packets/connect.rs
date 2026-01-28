@@ -1,12 +1,12 @@
 use crate::client::ClientId;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
-use crate::protocol::ProtocolError;
 use crate::protocol::packet_type::PacketType;
 use crate::protocol::packets::{PacketEncoder, PacketFlagsConst, PacketHeader, PacketTypeConst};
 use crate::protocol::utils::{
     read_binary, read_string, read_variable_length, write_binary, write_string,
     write_variable_length,
 };
+use crate::protocol::ProtocolError;
 use crate::topics::TopicName;
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
@@ -322,9 +322,9 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> core::fm
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::ProtocolError;
     use crate::protocol::packets::ConnectPacket;
     use crate::protocol::utils::hex_to_bytes;
+    use crate::protocol::ProtocolError;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
     const MAX_PAYLOAD_SIZE: usize = 128;

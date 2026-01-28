@@ -2,7 +2,6 @@
 //!
 //! Manages client connections, message routing, and keep-alive monitoring
 
-use log::info;
 use crate::error::BrokerError;
 use crate::protocol::packets::{
     ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
@@ -11,6 +10,7 @@ use crate::protocol::packets::{
 use crate::protocol::qos::QoS;
 use crate::session::SessionRegistry;
 use crate::topics::TopicRegistry;
+use log::info;
 
 /// MQTT broker (core logic)
 ///
@@ -268,7 +268,8 @@ impl<
         session_id: u128,
         subscribe: &SubscribePacket<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
-        self.topics.subscribe(session_id, subscribe.topic_filter.clone())?;
+        self.topics
+            .subscribe(session_id, subscribe.topic_filter.clone())?;
 
         // For simplicity, grant requested QoS directly, but in real implementation, it should be min(requested, supported)
         let granted_qos = subscribe.requested_qos;
