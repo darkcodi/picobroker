@@ -3,7 +3,6 @@
 //! Manages topic subscriptions
 
 use crate::broker_error::BrokerError;
-use crate::client::ClientId;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_error::PacketEncodingError;
 
@@ -63,11 +62,11 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display for TopicName<MAX_TO
 /// Represents a single topic with its subscribers
 ///
 /// This is the primary data structure in the topic-centric organization.
-/// Each topic maintains a list of clients subscribed to it.
+/// Each topic maintains a list of sessions subscribed to it.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TopicEntry<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize> {
     topic_name: TopicName<MAX_TOPIC_NAME_LENGTH>,
-    subscribers: HeaplessVec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC>,
+    subscribers: HeaplessVec<u128, MAX_SUBSCRIBERS_PER_TOPIC>,
 }
 
 impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
@@ -84,14 +83,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     /// Add a subscriber to this topic
     ///
     /// Returns an error if MAX_SUBSCRIBERS_PER_TOPIC is reached.
-    /// Does nothing if the client is already subscribed (prevents duplicates).
-    pub fn add_subscriber(&mut self, id: ClientId) -> Result<(), BrokerError> {
+    /// Does nothing if the session is already subscribed (prevents duplicates).
+    pub fn add_subscriber(&mut self, session_id: u128) -> Result<(), BrokerError> {
         // Check for duplicates first
-        if self.subscribers.iter().any(|c| c == &id) {
+        if self.subscribers.iter().any(|x| *x == session_id) {
             return Ok(()); // Already subscribed
         }
         self.subscribers
-            .push(id)
+            .push(session_id)
             .map_err(|_| BrokerError::MaxSubscribersPerTopicReached {
                 max_subscribers: MAX_SUBSCRIBERS_PER_TOPIC,
             })
@@ -100,8 +99,8 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
     /// Remove a subscriber from this topic
     ///
     /// Returns true if the subscriber was removed, false if not found.
-    pub fn remove_subscriber(&mut self, id: &ClientId) -> bool {
-        if let Some(pos) = self.subscribers.iter().position(|c| c == id) {
+    pub fn remove_subscriber(&mut self, session_id: u128) -> bool {
+        if let Some(pos) = self.subscribers.iter().position(|x| *x == session_id) {
             self.subscribers.remove(pos);
             true
         } else {
@@ -129,20 +128,14 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_SUBSCRIBERS_PER_TOPIC: usize>
 ///
 /// Manages topic subscriptions using a topic-centric organization.
 /// This is optimized for MQTT workloads where publishes are frequent
-/// and client connections/disconnections are rare.
-///
-/// # Performance
-///
-/// - **get_subscribers()**: O(topics) - optimized for the publish path
-/// - **subscribe()**: O(topics) - find or create topic entry
-/// - **unregister_client()**: O(topics * subscribers) - acceptable for rare disconnects
+/// and session connections/disconnections are rare.
 ///
 /// # Design
 ///
-/// The registry is organized by topics, not by clients. Each topic
-/// maintains its own list of subscribers (client IDs). This provides
+/// The registry is organized by topics, not by sessions. Each topic
+/// maintains its own list of subscribers (session IDs). This provides
 /// significantly better performance for the common publish operation
-/// at the cost of slightly more complex client disconnect handling.
+/// at the cost of slightly more complex session disconnect handling.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TopicRegistry<
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -158,10 +151,10 @@ impl<
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     > TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
 {
-    /// Subscribe a client to a topic filter
+    /// Subscribe a session to a topic filter
     ///
     /// If the topic doesn't exist, it will be created. If it exists,
-    /// the client will be added to the subscriber list (unless already
+    /// the session will be added to the subscriber list (unless already
     /// subscribed, in which case this is a no-op).
     ///
     /// # Errors
@@ -171,14 +164,14 @@ impl<
     /// reached MAX_SUBSCRIBERS_PER_TOPIC.
     pub fn subscribe(
         &mut self,
-        id: ClientId,
+        session_id: u128,
         filter: TopicName<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
         let topic_name = filter;
 
         // Find existing topic or create new
         if let Some(topic_entry) = self.topics.iter_mut().find(|t| t.topic_name == topic_name) {
-            topic_entry.add_subscriber(id)
+            topic_entry.add_subscriber(session_id)
         } else {
             // Check if we've reached the max topics limit
             if self.topics.len() >= MAX_TOPICS {
@@ -189,7 +182,7 @@ impl<
 
             // Create new topic entry
             let mut new_entry = TopicEntry::new(topic_name);
-            new_entry.add_subscriber(id)?;
+            new_entry.add_subscriber(session_id)?;
             self.topics
                 .push(new_entry)
                 .map_err(|_| BrokerError::MaxTopicsReached {
@@ -213,7 +206,7 @@ impl<
     pub fn get_subscribers(
         &self,
         topic: &TopicName<MAX_TOPIC_NAME_LENGTH>,
-    ) -> HeaplessVec<ClientId, MAX_SUBSCRIBERS_PER_TOPIC> {
+    ) -> HeaplessVec<u128, MAX_SUBSCRIBERS_PER_TOPIC> {
         let mut subscribers = HeaplessVec::new();
         let published_topic = topic.as_str();
 
@@ -235,13 +228,13 @@ impl<
         subscribers
     }
 
-    /// Unsubscribe a client from a specific topic
+    /// Unsubscribe a session from a specific topic
     ///
     /// Returns true if the subscription was removed, false if not found.
     /// Automatically cleans up empty topics.
     pub fn unsubscribe(
         &mut self,
-        id: ClientId,
+        session_id: u128,
         filter: &TopicName<MAX_TOPIC_NAME_LENGTH>,
     ) -> bool {
         let topic_name = filter;
@@ -250,7 +243,7 @@ impl<
         let topic_idx = self.topics.iter().position(|e| e.topic_name == *topic_name);
 
         if let Some(idx) = topic_idx {
-            let removed = self.topics[idx].remove_subscriber(&id);
+            let removed = self.topics[idx].remove_subscriber(session_id);
 
             // Auto-cleanup empty topics
             if self.topics[idx].is_empty() {
@@ -263,18 +256,18 @@ impl<
         }
     }
 
-    /// Unsubscribe a client from ALL topics
+    /// Unsubscribe a session from ALL topics
     ///
-    /// This is called when a client disconnects. Returns the number of
-    /// topics from which the client was removed.
+    /// This is called when a session disconnects. Returns the number of
+    /// topics from which the session was removed.
     ///
     /// Automatically cleans up empty topics.
-    pub fn unregister_client(&mut self, client_id: &ClientId) -> usize {
+    pub fn unregister_all(&mut self, session_id: u128) -> usize {
         let mut removed_count = 0;
 
-        // Remove client from all topics
+        // Remove session from all topics
         for entry in &mut self.topics {
-            if entry.remove_subscriber(client_id) {
+            if entry.remove_subscriber(session_id) {
                 removed_count += 1;
             }
         }
@@ -405,33 +398,22 @@ impl<'a> Iterator for LevelIterator<'a> {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use crate::client::ClientId;
-
-    fn make_client_id(id: u8) -> ClientId {
-        let mut s = HeaplessString::<20>::new();
-        if id < 10 {
-            let _ = core::fmt::write(&mut s, format_args!("client_{}", id));
-        } else {
-            let _ = core::fmt::write(&mut s, format_args!("client_{}", id));
-        }
-        HeaplessString::<23>::try_from(s.as_str()).unwrap().into()
-    }
 
     #[test]
     fn test_exact_match_subscription() {
         let mut registry =
             TopicRegistry::<50, 10, 5>::default();
 
-        let client1 = make_client_id(1);
+        let session1 = 1;
         let filter = TopicName::try_from("sensors/temp").unwrap();
 
-        registry.subscribe(client1.clone(), filter).unwrap();
+        registry.subscribe(session1, filter).unwrap();
 
         // Exact match should return subscriber
         let topic = TopicName::try_from("sensors/temp").unwrap();
         let subscribers = registry.get_subscribers(&topic);
         assert_eq!(subscribers.len(), 1);
-        assert!(subscribers.contains(&client1));
+        assert!(subscribers.contains(&session1));
 
         // Different topic should not match
         let topic2 = TopicName::try_from("sensors/humidity").unwrap();
@@ -444,9 +426,9 @@ mod integration_tests {
         let mut registry =
             TopicRegistry::<50, 10, 5>::default();
 
-        let client1 = make_client_id(1);
+        let session1 = 1;
         let filter = TopicName::try_from("sensors/+/temp").unwrap();
-        registry.subscribe(client1.clone(), filter).unwrap();
+        registry.subscribe(session1, filter).unwrap();
 
         // Should match various room sensors
         let test_cases = [
@@ -465,7 +447,7 @@ mod integration_tests {
                 "Should match {}",
                 topic_str
             );
-            assert!(subscribers.contains(&client1));
+            assert!(subscribers.contains(&session1));
         }
 
         // Should not match extra levels
@@ -484,9 +466,9 @@ mod integration_tests {
         let mut registry =
             TopicRegistry::<50, 10, 5>::default();
 
-        let client1 = make_client_id(1);
+        let session1 = 1;
         let filter = TopicName::try_from("sensors/#").unwrap();
-        registry.subscribe(client1.clone(), filter).unwrap();
+        registry.subscribe(session1, filter).unwrap();
 
         // Should match all sensors topics
         let test_cases = [
@@ -505,7 +487,7 @@ mod integration_tests {
                 "Should match {}",
                 topic_str
             );
-            assert!(subscribers.contains(&client1));
+            assert!(subscribers.contains(&session1));
         }
 
         // Should not match non-sensors topics
@@ -519,43 +501,43 @@ mod integration_tests {
         let mut registry =
             TopicRegistry::<50, 10, 5>::default();
 
-        let client1 = make_client_id(1);
-        let client2 = make_client_id(2);
-        let client3 = make_client_id(3);
+        let session1 = 1;
+        let session2 = 2;
+        let session3 = 3;
 
         // Three different subscriptions
         registry
-            .subscribe(client1.clone(), TopicName::try_from("sensors/temp").unwrap())
+            .subscribe(session1, TopicName::try_from("sensors/temp").unwrap())
             .unwrap();
         registry
-            .subscribe(client2.clone(), TopicName::try_from("sensors/+/temp").unwrap())
+            .subscribe(session2, TopicName::try_from("sensors/+/temp").unwrap())
             .unwrap();
         registry
-            .subscribe(client3.clone(), TopicName::try_from("sensors/#").unwrap())
+            .subscribe(session3, TopicName::try_from("sensors/#").unwrap())
             .unwrap();
 
-        // Publish to "sensors/room1/temp" should match client2 and client3
+        // Publish to "sensors/room1/temp" should match session2 and session3
         let topic = TopicName::try_from("sensors/room1/temp").unwrap();
         let subscribers = registry.get_subscribers(&topic);
         assert_eq!(subscribers.len(), 2);
-        assert!(subscribers.contains(&client2));
-        assert!(subscribers.contains(&client3));
-        assert!(!subscribers.contains(&client1));
+        assert!(subscribers.contains(&session2));
+        assert!(subscribers.contains(&session3));
+        assert!(!subscribers.contains(&session1));
 
-        // Publish to "sensors/temp" should match client1 (exact) and client3 (# wildcard)
-        // But NOT client2 because sensors/+/temp expects 3 levels while sensors/temp has only 2
+        // Publish to "sensors/temp" should match session1 (exact) and session3 (# wildcard)
+        // But NOT session2 because sensors/+/temp expects 3 levels while sensors/temp has only 2
         let topic2 = TopicName::try_from("sensors/temp").unwrap();
         let subscribers2 = registry.get_subscribers(&topic2);
         assert_eq!(subscribers2.len(), 2);
-        assert!(subscribers2.contains(&client1));
-        assert!(subscribers2.contains(&client3));
-        assert!(!subscribers2.contains(&client2));
+        assert!(subscribers2.contains(&session1));
+        assert!(subscribers2.contains(&session3));
+        assert!(!subscribers2.contains(&session2));
 
-        // Publish to "sensors/humidity" should only match client3
+        // Publish to "sensors/humidity" should only match session3
         let topic3 = TopicName::try_from("sensors/humidity").unwrap();
         let subscribers3 = registry.get_subscribers(&topic3);
         assert_eq!(subscribers3.len(), 1);
-        assert!(subscribers3.contains(&client3));
+        assert!(subscribers3.contains(&session3));
     }
 
     #[test]
@@ -563,24 +545,24 @@ mod integration_tests {
         let mut registry =
             TopicRegistry::<50, 10, 5>::default();
 
-        let client1 = make_client_id(1);
+        let session1 = 1;
 
-        // Same client subscribes via multiple wildcards
+        // Same session subscribes via multiple wildcards
         registry
-            .subscribe(client1.clone(), TopicName::try_from("sensors/temp").unwrap())
+            .subscribe(session1, TopicName::try_from("sensors/temp").unwrap())
             .unwrap();
         registry
-            .subscribe(client1.clone(), TopicName::try_from("sensors/+").unwrap())
+            .subscribe(session1, TopicName::try_from("sensors/+").unwrap())
             .unwrap();
         registry
-            .subscribe(client1.clone(), TopicName::try_from("#").unwrap())
+            .subscribe(session1, TopicName::try_from("#").unwrap())
             .unwrap();
 
         // Should only receive message once (no duplicates)
         let topic = TopicName::try_from("sensors/temp").unwrap();
         let subscribers = registry.get_subscribers(&topic);
         assert_eq!(subscribers.len(), 1);
-        assert!(subscribers.contains(&client1));
+        assert!(subscribers.contains(&session1));
     }
 
     #[test]
@@ -588,11 +570,11 @@ mod integration_tests {
         let mut registry =
             TopicRegistry::<50, 10, 5>::default();
 
-        let client1 = make_client_id(1);
+        let session1 = 1;
 
         // # not at end (per requirements: treat as literal, won't match)
         registry
-            .subscribe(client1.clone(), TopicName::try_from("sensors/#/temp").unwrap())
+            .subscribe(session1, TopicName::try_from("sensors/#/temp").unwrap())
             .unwrap();
 
         // Should not match anything

@@ -38,9 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a new broker
     let mut broker = TokioPicoBroker::<30, 30, 4, 4, 4>::new_tokio();
 
-    // Register a client
-    let client_name = ClientName::try_from("test_client")?;
-    broker.register_client(client_name.clone(), 60)?;
+    // Register a session (using ClientId for MQTT client identifier)
+    let client_id = ClientId::try_from("test_client")?;
+    broker.register_new_session(client_id.clone(), 60)?;
 
     // Use the broker...
     Ok(())
@@ -66,9 +66,9 @@ async fn main(sp: embassy_executor::Spawner) {
     // Create a new broker
     let mut broker = EmbassyPicoBroker::<30, 30, 4, 4, 4>::new_embassy();
 
-    // Register a client
-    let client_name = ClientName::try_from("test_client").unwrap();
-    broker.register_client(client_name.clone(), 60).unwrap();
+    // Register a session (using ClientId for MQTT client identifier)
+    let client_id = ClientId::try_from("test_client").unwrap();
+    broker.register_new_session(client_id.clone(), 60).unwrap();
 
     // Use the broker...
 }

@@ -588,7 +588,7 @@ mod tests {
     // ===== CLIENT ID FIELD TESTS =====
 
     #[test]
-    fn test_client_id_value_abc() {
+    fn test_session_client_id_value_abc() {
         let bytes =
             hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0F 00 04 4D 51 54 54 04 02 00 3C 00 03 61 62 63");
         let packet = roundtrip_test(&bytes);
@@ -596,21 +596,21 @@ mod tests {
     }
 
     #[test]
-    fn test_client_id_empty_with_clean_session() {
+    fn test_session_client_id_empty_with_clean_session() {
         let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 0C 00 04 4D 51 54 54 04 02 00 3C 00 00");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.as_str(), "");
     }
 
     #[test]
-    fn test_client_id_exactly_max_length() {
+    fn test_session_client_id_exactly_max_length() {
         let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>("10 23 00 04 4D 51 54 54 04 02 00 3C 00 17 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61 61");
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.client_id.len(), 23);
     }
 
     #[test]
-    fn test_client_id_unicode() {
+    fn test_session_client_id_unicode() {
         let bytes = hex_to_bytes::<MAX_PAYLOAD_SIZE>(
             "10 15 00 04 4D 51 54 54 04 02 00 3C 00 09 E4 BD A0 E5 A5 BD E4 B8 96",
         );

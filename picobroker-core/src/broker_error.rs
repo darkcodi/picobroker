@@ -7,14 +7,14 @@ use crate::traits::NetworkError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrokerError {
-    /// Client with the given ID is already connected
-    ClientAlreadyConnected,
-    /// Client with the given ID was not found
-    ClientNotFound,
-    /// Client's message queue is full
-    ClientQueueFull { queue_size: usize },
-    /// Maximum number of clients reached
-    MaxClientsReached { max_clients: usize },
+    /// Session with the given ID is already exists
+    SessionAlreadyExists,
+    /// Session with the given ID was not found
+    SessionNotFound,
+    /// Session's message queue is full
+    SessionQueueFull { queue_size: usize },
+    /// Maximum number of sessions reached
+    MaxSessionsReached { max_sessions: usize },
     /// Maximum number of subscribers per topic reached
     MaxSubscribersPerTopicReached { max_subscribers: usize },
     /// Maximum number of topics reached
@@ -28,17 +28,17 @@ pub enum BrokerError {
 impl core::fmt::Display for BrokerError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            BrokerError::ClientAlreadyConnected => {
-                write!(f, "Client with the given ID is already connected")
+            BrokerError::SessionAlreadyExists => {
+                write!(f, "Session with the given ID is already exists")
             }
-            BrokerError::ClientNotFound => {
-                write!(f, "Client with the given ID was not found")
+            BrokerError::SessionNotFound => {
+                write!(f, "Session with the given ID was not found")
             }
-            BrokerError::ClientQueueFull { queue_size } => {
-                write!(f, "Client's message queue is full (size: {})", queue_size)
+            BrokerError::SessionQueueFull { queue_size } => {
+                write!(f, "Session's message queue is full (size: {})", queue_size)
             }
-            BrokerError::MaxClientsReached { max_clients } => {
-                write!(f, "Maximum number of clients reached: {}", max_clients)
+            BrokerError::MaxSessionsReached { max_sessions } => {
+                write!(f, "Maximum number of sessions reached: {}", max_sessions)
             }
             BrokerError::MaxSubscribersPerTopicReached { max_subscribers } => {
                 write!(

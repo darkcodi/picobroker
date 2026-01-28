@@ -24,7 +24,7 @@ pub trait TcpListener {
     ///
     /// Returns immediately with an error if no connection is pending.
     /// This is used in the server main loop to allow periodic processing
-    /// of client messages between connection attempts.
+    /// of session messages between connection attempts.
     async fn try_accept(&mut self) -> Result<(Self::Stream, SocketAddr), NetworkError>;
 }
 
@@ -81,8 +81,8 @@ impl core::error::Error for NetworkError {}
 ///
 /// Abstracts time operations for both std and embedded platforms
 pub trait TimeSource {
-    /// Get current time in seconds since Unix epoch
-    fn now_secs(&self) -> u64;
+    /// Get current time in nanoseconds since Unix epoch
+    fn now_nano_secs(&self) -> u128;
 }
 
 /// Delay trait for abstracting sleep/delay functionality

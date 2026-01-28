@@ -18,7 +18,7 @@ use tokio::net::TcpStream as TokioTcpStreamInner;
 const DEFAULT_MAX_TOPIC_NAME_LENGTH: usize = 32;
 const DEFAULT_MAX_PAYLOAD_SIZE: usize = 128;
 const DEFAULT_QUEUE_SIZE: usize = 8;
-const DEFAULT_MAX_CLIENTS: usize = 4;
+const DEFAULT_MAX_SESSIONS: usize = 4;
 const DEFAULT_MAX_TOPICS: usize = 16;
 const DEFAULT_MAX_SUBSCRIBERS_PER_TOPIC: usize = 4;
 
@@ -26,7 +26,7 @@ pub type DefaultTokioPicoBrokerServer = TokioPicoBrokerServer<
     DEFAULT_MAX_TOPIC_NAME_LENGTH,
     DEFAULT_MAX_PAYLOAD_SIZE,
     DEFAULT_QUEUE_SIZE,
-    DEFAULT_MAX_CLIENTS,
+    DEFAULT_MAX_SESSIONS,
     DEFAULT_MAX_TOPICS,
     DEFAULT_MAX_SUBSCRIBERS_PER_TOPIC,
 >;
@@ -35,7 +35,7 @@ pub type TokioPicoBrokerServer<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
+    const MAX_SESSIONS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > = PicoBrokerServer<
@@ -45,7 +45,7 @@ pub type TokioPicoBrokerServer<
     MAX_TOPIC_NAME_LENGTH,
     MAX_PAYLOAD_SIZE,
     QUEUE_SIZE,
-    MAX_CLIENTS,
+    MAX_SESSIONS,
     MAX_TOPICS,
     MAX_SUBSCRIBERS_PER_TOPIC,
 >;
@@ -155,12 +155,12 @@ impl TcpListener for TokioTcpListener {
 pub struct StdTimeSource;
 
 impl TimeSource for StdTimeSource {
-    fn now_secs(&self) -> u64 {
+    fn now_nano_secs(&self) -> u128 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_secs()
+            .as_nanos()
     }
 }
 

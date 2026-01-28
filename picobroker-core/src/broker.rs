@@ -4,7 +4,7 @@
 
 use log::info;
 use crate::broker_error::BrokerError;
-use crate::client::{ClientId, ClientRegistry};
+use crate::client::{SessionRegistry};
 use crate::protocol::packets::{
     ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
     SubAckPacket, SubscribePacket,
@@ -14,15 +14,15 @@ use crate::topics::TopicRegistry;
 
 /// MQTT broker (core logic)
 ///
-/// Main broker structure managing clients and topic subscriptions.
+/// Main broker structure managing sessions and topic subscriptions.
 /// This is the core that is platform-agnostic and no_std compatible.
 ///
 /// # Generic Parameters
 ///
 /// - `MAX_TOPIC_NAME_LENGTH`: Maximum length of topic names
 /// - `MAX_PAYLOAD_SIZE`: Maximum payload size for packets
-/// - `QUEUE_SIZE`: Queue size for client -> broker messages and broker -> client messages
-/// - `MAX_CLIENTS`: Maximum number of concurrent clients
+/// - `QUEUE_SIZE`: Queue size for session -> broker messages and broker -> session messages
+/// - `MAX_SESSIONS`: Maximum number of concurrent sessions
 /// - `MAX_TOPICS`: Maximum number of distinct topics
 /// - `MAX_SUBSCRIBERS_PER_TOPIC`: Maximum subscribers per topic
 #[derive(Debug)]
@@ -30,16 +30,16 @@ pub struct PicoBroker<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
+    const MAX_SESSIONS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
     topics: TopicRegistry<MAX_TOPIC_NAME_LENGTH, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>,
-    clients: ClientRegistry<
+    sessions: SessionRegistry<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >,
@@ -49,7 +49,7 @@ impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
         const QUEUE_SIZE: usize,
-        const MAX_CLIENTS: usize,
+        const MAX_SESSIONS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     > Default
@@ -57,7 +57,7 @@ impl<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
@@ -65,7 +65,7 @@ impl<
     fn default() -> Self {
         Self {
             topics: TopicRegistry::default(),
-            clients: ClientRegistry::default(),
+            sessions: SessionRegistry::default(),
         }
     }
 }
@@ -74,7 +74,7 @@ impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
         const QUEUE_SIZE: usize,
-        const MAX_CLIENTS: usize,
+        const MAX_SESSIONS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     >
@@ -82,7 +82,7 @@ impl<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
@@ -93,86 +93,86 @@ impl<
     }
 
     /// Register a new client session
-    pub fn register_client(
+    pub fn register_new_session(
         &mut self,
-        client_id: ClientId,
+        session_id: u128,
         keep_alive_secs: u16,
-        current_time: u64,
+        current_time: u128,
     ) -> Result<(), BrokerError> {
-        self.clients
-            .register_new_client(client_id, keep_alive_secs, current_time)
+        self.sessions
+            .register_new_session(session_id, keep_alive_secs, current_time)
     }
 
-    /// Mark a client as disconnected
-    pub fn mark_client_disconnected(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.clients.mark_disconnected(client_id)
+    /// Mark a session as disconnected
+    pub fn mark_session_disconnected(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        self.sessions.mark_disconnected(session_id)
     }
 
     /// Remove a client session and cleanup subscriptions
-    pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
-        self.topics.unregister_client(client_id);
-        self.clients.remove_client(client_id)
+    pub fn remove_session(&mut self, session_id: u128) -> bool {
+        self.topics.unregister_all(session_id);
+        self.sessions.remove_session(session_id)
     }
 
-    /// Get all client IDs
-    pub fn get_all_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
-        self.clients.get_all_clients()
+    /// Get all session IDs
+    pub fn get_all_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
+        self.sessions.get_all_sessions()
     }
 
-    /// Get expired clients (keep-alive timeout)
-    pub fn get_expired_clients(&mut self, current_time: u64) -> [Option<ClientId>; MAX_CLIENTS] {
-        self.clients.get_expired_clients(current_time)
+    /// Get expired session IDs (keep-alive timeout)
+    pub fn get_expired_sessions(&mut self, current_time: u128) -> [Option<u128>; MAX_SESSIONS] {
+        self.sessions.get_expired_sessions(current_time)
     }
 
-    /// Get disconnected clients
-    pub fn get_disconnected_clients(&mut self) -> [Option<ClientId>; MAX_CLIENTS] {
-        self.clients.get_disconnected_clients()
+    /// Get disconnected session IDs
+    pub fn get_disconnected_sessions(&mut self) -> [Option<u128>; MAX_SESSIONS] {
+        self.sessions.get_disconnected_sessions()
     }
 
     /// Queue a packet to a session's RX queue (network -> session)
     pub fn queue_packet_received_from_client(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-        current_time: u64,
+        current_time: u128,
     ) -> Result<(), BrokerError> {
-        self.clients
-            .update_client_activity(client_id, current_time)?;
-        self.clients.queue_rx_packet(client_id, packet)
+        self.sessions
+            .update_session_activity(session_id, current_time)?;
+        self.sessions.queue_rx_packet(session_id, packet)
     }
 
     /// Dequeue a packet from a session's TX queue
     pub fn dequeue_packet_to_send_to_client(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
     ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
-        self.clients.dequeue_tx_packet(client_id)
+        self.sessions.dequeue_tx_packet(session_id)
     }
 
     /// Process all packets from all sessions (round-robin)
     ///
     /// Returns the number of packets processed.
-    pub fn process_all_client_packets(&mut self) -> Result<(), BrokerError> {
-        // Collect client IDs (avoid holding mutable reference during iteration)
-        let client_ids = self.get_all_clients();
+    pub fn process_all_session_packets(&mut self) -> Result<(), BrokerError> {
+        // Collect session IDs (avoid holding mutable reference during iteration)
+        let session_ids = self.get_all_sessions();
 
         let mut total_processed = 0usize;
 
-        // Process each client's packets
-        for client_id in client_ids.iter().flatten() {
-            // Process all packets from this client
-            while let Some(packet) = self.clients.dequeue_rx_packet(client_id)? {
+        // Process each session's packets
+        for session_id in session_ids.into_iter().flatten() {
+            // Process all packets from this session
+            while let Some(packet) = self.sessions.dequeue_rx_packet(session_id)? {
                 // Handle packet based on type
                 match packet {
                     Packet::Connect(connect) => {
-                        self.handle_connect(client_id, &connect)?;
+                        self.handle_connect(session_id, &connect)?;
                     }
                     Packet::ConnAck(_) => {
                         // Client should not send CONNACK
-                        log::info!("Unexpected CONNACK from client {}", client_id);
+                        info!("Unexpected CONNACK from session {}", session_id);
                     }
                     Packet::Publish(publish) => {
-                        self.handle_publish(client_id, &publish)?;
+                        self.handle_publish(session_id, &publish)?;
                     }
                     Packet::PubAck(_) => {
                         // QoS 2 handling - not implemented yet
@@ -181,22 +181,22 @@ impl<
                     Packet::PubRel(_) => {}
                     Packet::PubComp(_) => {}
                     Packet::Subscribe(subscribe) => {
-                        self.handle_subscribe(client_id, &subscribe)?;
+                        self.handle_subscribe(session_id, &subscribe)?;
                     }
                     Packet::SubAck(_) => {
                         // Client should not send SUBACK
-                        log::info!("Unexpected SUBACK from client {}", client_id);
+                        info!("Unexpected SUBACK from session {}", session_id);
                     }
                     Packet::Unsubscribe(_) => {}
                     Packet::UnsubAck(_) => {}
                     Packet::PingReq(_) => {
-                        self.handle_pingreq(client_id)?;
+                        self.handle_pingreq(session_id)?;
                     }
                     Packet::PingResp(_) => {
-                        log::info!("Received PINGRESP from client {}", client_id);
+                        info!("Received PINGRESP from session {}", session_id);
                     }
                     Packet::Disconnect(_) => {
-                        self.handle_disconnect(client_id)?;
+                        self.handle_disconnect(session_id)?;
                     }
                 }
 
@@ -205,7 +205,7 @@ impl<
         }
 
         if total_processed > 0 {
-            info!("Processed {} packets from clients", total_processed);
+            info!("Processed {} packets from sessions", total_processed);
         }
 
         Ok(())
@@ -213,44 +213,41 @@ impl<
 
     fn handle_connect(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         connect: &ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        let mut client_id = client_id;
-
         // Update client_id if provided
         if !connect.client_id.is_empty() {
-            self.clients
-                .update_client_id(client_id, connect.client_id.clone())?;
-            client_id = &connect.client_id;
+            self.sessions
+                .update_client_id(session_id, connect.client_id.clone())?;
         }
 
         // Update keep_alive
-        self.clients
-            .update_client_keep_alive(client_id, connect.keep_alive)?;
+        self.sessions
+            .update_keep_alive(session_id, connect.keep_alive)?;
 
         // Update state
-        self.clients.mark_connected(client_id)?;
+        self.sessions.mark_connected(session_id)?;
 
         // Queue CONNACK
         let connack = Packet::ConnAck(ConnAckPacket::default());
-        self.clients.queue_tx_packet(client_id, connack)?;
+        self.sessions.queue_tx_packet(session_id, connack)?;
 
         Ok(())
     }
 
     fn handle_publish(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         publish: &PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         // Get subscribers for this topic
         let subscribers = self.topics.get_subscribers(&publish.topic_name);
 
         // Route to each subscriber
-        for subscriber_id in &subscribers {
+        for subscriber_id in subscribers {
             let packet = Packet::Publish(publish.clone());
-            self.clients.queue_tx_packet(subscriber_id, packet)?;
+            self.sessions.queue_tx_packet(subscriber_id, packet)?;
         }
 
         // Send PUBACK if QoS > 0
@@ -260,7 +257,7 @@ impl<
             };
 
             let puback_packet = Packet::PubAck(puback);
-            self.clients.queue_tx_packet(client_id, puback_packet)?;
+            self.sessions.queue_tx_packet(session_id, puback_packet)?;
         }
 
         Ok(())
@@ -268,10 +265,10 @@ impl<
 
     fn handle_subscribe(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         subscribe: &SubscribePacket<MAX_TOPIC_NAME_LENGTH>,
     ) -> Result<(), BrokerError> {
-        self.topics.subscribe(client_id.clone(), subscribe.topic_filter.clone())?;
+        self.topics.subscribe(session_id, subscribe.topic_filter.clone())?;
 
         // For simplicity, grant requested QoS directly, but in real implementation, it should be min(requested, supported)
         let granted_qos = subscribe.requested_qos;
@@ -281,16 +278,16 @@ impl<
             granted_qos,
         };
 
-        self.clients
-            .queue_tx_packet(client_id, Packet::SubAck(suback))
+        self.sessions
+            .queue_tx_packet(session_id, Packet::SubAck(suback))
     }
 
-    fn handle_pingreq(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.clients
-            .queue_tx_packet(client_id, Packet::PingResp(PingRespPacket))
+    fn handle_pingreq(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        self.sessions
+            .queue_tx_packet(session_id, Packet::PingResp(PingRespPacket))
     }
 
-    fn handle_disconnect(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        self.mark_client_disconnected(client_id)
+    fn handle_disconnect(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        self.mark_session_disconnected(session_id)
     }
 }

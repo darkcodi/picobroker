@@ -2,7 +2,6 @@ use crate::broker_error::BrokerError;
 use crate::protocol::heapless::{HeaplessString, HeaplessVec};
 use crate::protocol::packet_error::PacketEncodingError;
 use crate::protocol::packets::Packet;
-use core::fmt::Write;
 use log::error;
 
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
@@ -22,12 +21,6 @@ impl From<HeaplessString<MAX_CLIENT_ID_LENGTH>> for ClientId {
 impl ClientId {
     pub const fn new(value: HeaplessString<MAX_CLIENT_ID_LENGTH>) -> Self {
         ClientId(value)
-    }
-
-    pub fn generate(n: u64) -> Self {
-        let mut client_id = HeaplessString::<MAX_CLIENT_ID_LENGTH>::new();
-        let _ = core::write!(client_id, "client_{:016X}", n);
-        ClientId(client_id)
     }
 }
 
@@ -75,31 +68,34 @@ pub enum ClientState {
     Disconnected,
 }
 
-/// Client session with dual queues
+/// Session with dual queues
 ///
-/// Manages the state and communication queues for a connected client
+/// Manages the state and communication queues for a connected session
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientSession<
+pub struct Session<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
 > {
-    /// Client identifier
-    pub client_id: ClientId,
+    /// Unique session identifier
+    pub session_id: u128,
 
-    /// Current client state
+    /// Client identifier
+    pub client_id: Option<ClientId>,
+
+    /// Current session state
     pub state: ClientState,
 
     /// Keep-alive interval in seconds
     pub keep_alive_secs: u16,
 
-    /// Timestamp of last activity (seconds since epoch)
-    pub last_activity: u64,
+    /// Timestamp of last activity (nanoseconds since epoch)
+    pub last_activity: u128,
 
     /// Receive queue (client -> broker)
     pub rx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 
-    /// Transmit queue (broker -> client)
+    /// Transmit queue (broker -> session)
     pub tx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 }
 
@@ -107,12 +103,13 @@ impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
         const QUEUE_SIZE: usize,
-    > ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
+    > Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
 {
-    /// Create a new client session
-    pub fn new(client_id: ClientId, keep_alive_secs: u16, current_time: u64) -> Self {
+    /// Create a new session
+    pub fn new(session_id: u128, keep_alive_secs: u16, current_time: u128) -> Self {
         Self {
-            client_id,
+            session_id,
+            client_id: None,
             state: ClientState::Connecting,
             keep_alive_secs,
             last_activity: current_time,
@@ -121,71 +118,71 @@ impl<
         }
     }
 
-    /// Check if client's keep-alive has expired
+    /// Check if session's keep-alive has expired
     ///
     /// Returns true if the time since last activity exceeds 1.5x the keep-alive value
-    pub fn is_expired(&self, current_time: u64) -> bool {
-        let timeout_secs = (self.keep_alive_secs as u64) * 3 / 2;
+    pub fn is_expired(&self, current_time: u128) -> bool {
+        let timeout_secs = (self.keep_alive_secs as u128) * 3 / 2;
         let elapsed = current_time.saturating_sub(self.last_activity);
         elapsed > timeout_secs
     }
 
     /// Update the last activity timestamp
-    pub fn update_activity(&mut self, current_time: u64) {
+    pub fn update_activity(&mut self, current_time: u128) {
         self.last_activity = current_time;
     }
 
-    /// Queue a packet for transmission to the client
+    /// Queue a packet for transmission to the session
     pub fn queue_tx_packet(
         &mut self,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         self.tx_queue
             .push(Some(packet))
-            .map_err(|_| BrokerError::ClientQueueFull {
+            .map_err(|_| BrokerError::SessionQueueFull {
                 queue_size: QUEUE_SIZE,
             })
     }
 
-    /// Dequeue a packet to send to the client
+    /// Dequeue a packet to send to the session
     pub fn dequeue_tx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
         self.tx_queue.dequeue_front().flatten()
     }
 
-    /// Queue a received packet from the client
+    /// Queue a received packet from the session
     pub fn queue_rx_packet(
         &mut self,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
         self.rx_queue
             .push(Some(packet))
-            .map_err(|_| BrokerError::ClientQueueFull {
+            .map_err(|_| BrokerError::SessionQueueFull {
                 queue_size: QUEUE_SIZE,
             })
     }
 
-    /// Dequeue a received packet from the client
+    /// Dequeue a received packet from the session
     pub fn dequeue_rx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
         self.rx_queue.dequeue_front().flatten()
     }
 }
 
-/// Client registry
+/// Session registry
 ///
-/// Manages all client sessions
+/// Manages all sessions
 #[derive(Debug, PartialEq, Eq)]
-pub struct ClientRegistry<
+pub struct SessionRegistry<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
+    const MAX_SESSIONS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
-    /// Vector of client sessions
+    /// Vector of sessions
     sessions: HeaplessVec<
-        Option<ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
-        MAX_CLIENTS,
+        Option<Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
+        MAX_SESSIONS,
     >,
 }
 
@@ -193,15 +190,15 @@ impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
         const QUEUE_SIZE: usize,
-        const MAX_CLIENTS: usize,
+        const MAX_SESSIONS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     > Default
-    for ClientRegistry<
+    for SessionRegistry<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
@@ -217,125 +214,115 @@ impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
         const QUEUE_SIZE: usize,
-        const MAX_CLIENTS: usize,
+        const MAX_SESSIONS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     >
-    ClientRegistry<
+    SessionRegistry<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
 {
-    /// Get all client IDs
-    pub fn get_all_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
-        let mut client_ids = [const { None }; MAX_CLIENTS];
+    /// Get all session IDs
+    pub fn get_all_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
+        let mut session_ids = [const { None }; MAX_SESSIONS];
         let mut count = 0usize;
 
         for sess in (&self.sessions).into_iter().flatten() {
-            if count < client_ids.len() {
-                client_ids[count] = Some(sess.client_id.clone());
+            if count < session_ids.len() {
+                session_ids[count] = Some(sess.session_id.clone());
                 count += 1;
             }
         }
 
-        client_ids
+        session_ids
     }
 
-    /// Get expired client IDs based on current time
-    pub fn get_expired_clients(&self, current_time: u64) -> [Option<ClientId>; MAX_CLIENTS] {
-        let mut client_ids = [const { None }; MAX_CLIENTS];
-        let mut client_ids_count = 0usize;
+    /// Get expired session IDs based on current time
+    pub fn get_expired_sessions(&self, current_time: u128) -> [Option<u128>; MAX_SESSIONS] {
+        let mut session_ids = [const { None }; MAX_SESSIONS];
+        let mut count = 0usize;
 
         for session in (&self.sessions).into_iter().flatten() {
-            if session.is_expired(current_time) && client_ids_count < client_ids.len() {
-                client_ids[client_ids_count] = Some(session.client_id.clone());
-                client_ids_count += 1;
+            if session.is_expired(current_time) && count < session_ids.len() {
+                session_ids[count] = Some(session.session_id.clone());
+                count += 1;
             }
         }
 
-        client_ids
+        session_ids
     }
 
-    /// Get disconnected client IDs
-    pub fn get_disconnected_clients(&self) -> [Option<ClientId>; MAX_CLIENTS] {
-        let mut client_ids = [const { None }; MAX_CLIENTS];
-        let mut client_ids_count = 0usize;
+    /// Get disconnected session IDs
+    pub fn get_disconnected_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
+        let mut session_ids = [const { None }; MAX_SESSIONS];
+        let mut count = 0usize;
 
         for session in (&self.sessions).into_iter().flatten() {
-            if session.state == ClientState::Disconnected && client_ids_count < client_ids.len() {
-                client_ids[client_ids_count] = Some(session.client_id.clone());
-                client_ids_count += 1;
+            if session.state == ClientState::Disconnected && count < session_ids.len() {
+                session_ids[count] = Some(session.session_id.clone());
+                count += 1;
             }
         }
 
-        client_ids
+        session_ids
     }
 
-    /// Check if a client with the given ID exists
-    pub fn has_client(&self, client_id: &ClientId) -> bool {
-        self.sessions.iter().any(|s_opt| {
-            s_opt
-                .as_ref()
-                .map(|s| &s.client_id == client_id)
-                .unwrap_or(false)
-        })
-    }
-
-    /// Mark a client as connected
-    pub fn mark_connected(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+    /// Mark a session as connected
+    pub fn mark_connected(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session(session_id) {
             session.state = ClientState::Connected;
             Ok(())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
-    /// Mark a client as disconnected
-    pub fn mark_disconnected(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+    /// Mark a session as disconnected
+    pub fn mark_disconnected(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        if let Some(session) = self.find_session(session_id) {
             session.state = ClientState::Disconnected;
             Ok(())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
-    /// Register a new client session
-    pub fn register_new_client(
+    /// Register a new session
+    pub fn register_new_session(
         &mut self,
-        client_id: ClientId,
+        session_id: u128,
         keep_alive_secs: u16,
-        current_time: u64,
+        current_time: u128,
     ) -> Result<(), BrokerError> {
-        if self.sessions.len() >= MAX_CLIENTS {
-            return Err(BrokerError::MaxClientsReached {
-                max_clients: MAX_CLIENTS,
+        if self.sessions.len() >= MAX_SESSIONS {
+            return Err(BrokerError::MaxSessionsReached {
+                max_sessions: MAX_SESSIONS,
             });
         }
 
-        if self.find_session_by_client_id(&client_id).is_some() {
-            return Err(BrokerError::ClientAlreadyConnected);
+        if self.find_session(session_id).is_some() {
+            return Err(BrokerError::SessionAlreadyExists);
         }
 
-        let session = ClientSession::new(client_id, keep_alive_secs, current_time);
+        let session = Session::new(session_id, keep_alive_secs, current_time);
         self.sessions
             .push(Some(session))
-            .map_err(|_| BrokerError::MaxClientsReached {
-                max_clients: MAX_CLIENTS,
+            .map_err(|_| BrokerError::MaxSessionsReached {
+                max_sessions: MAX_SESSIONS,
             })?;
         Ok(())
     }
 
-    /// Remove a client by client ID
-    pub fn remove_client(&mut self, client_id: &ClientId) -> bool {
+    /// Remove a session by ID
+    pub fn remove_session(&mut self, session_id: u128) -> bool {
         let session_idx = self.sessions.iter().position(|s| {
             s.as_ref()
-                .map(|session| &session.client_id == client_id)
+                .map(|session| session.session_id == session_id)
                 .unwrap_or(false)
         });
 
@@ -343,113 +330,113 @@ impl<
             self.sessions.remove(idx);
             true
         } else {
-            error!("Session {} not found for removal", client_id);
+            error!("Session {} not found for removal", session_id);
             false
         }
     }
 
-    /// Update the last activity timestamp for a client
-    pub fn update_client_activity(
+    /// Update the last activity timestamp for a session
+    pub fn update_session_activity(
         &mut self,
-        client_id: &ClientId,
-        current_time: u64,
+        session_id: u128,
+        current_time: u128,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+        if let Some(session) = self.find_session(session_id) {
             session.update_activity(current_time);
             Ok(())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
     /// Update the client ID for an existing session
     pub fn update_client_id(
         &mut self,
-        old_client_id: &ClientId,
-        new_client_id: ClientId,
+        session_id: u128,
+        client_id: ClientId,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(old_client_id) {
-            session.client_id = new_client_id;
+        if let Some(session) = self.find_session(session_id) {
+            session.client_id = Some(client_id);
             Ok(())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
-    /// Update the keep-alive interval for a client
-    pub fn update_client_keep_alive(
+    /// Update the keep-alive interval for a session
+    pub fn update_keep_alive(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         keep_alive_secs: u16,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+        if let Some(session) = self.find_session(session_id) {
             session.keep_alive_secs = keep_alive_secs;
             Ok(())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
     /// Queue a packet received from the client
     pub fn queue_rx_packet(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+        if let Some(session) = self.find_session(session_id) {
             session.queue_rx_packet(packet)
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
     /// Queue a packet to send to the client
     pub fn queue_tx_packet(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+        if let Some(session) = self.find_session(session_id) {
             session.queue_tx_packet(packet)
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
     /// Dequeue a packet received from the client
     pub fn dequeue_rx_packet(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
     ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+        if let Some(session) = self.find_session(session_id) {
             Ok(session.dequeue_rx_packet())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
-    /// Dequeue a packet to send to the client
+    /// Dequeue a packet to send to the session
     pub fn dequeue_tx_packet(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
     ) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, BrokerError> {
-        if let Some(session) = self.find_session_by_client_id(client_id) {
+        if let Some(session) = self.find_session(session_id) {
             Ok(session.dequeue_tx_packet())
         } else {
-            Err(BrokerError::ClientNotFound)
+            Err(BrokerError::SessionNotFound)
         }
     }
 
-    fn find_session_by_client_id(
+    fn find_session(
         &mut self,
-        client_id: &ClientId,
-    ) -> Option<&mut ClientSession<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
+        session_id: u128,
+    ) -> Option<&mut Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>> {
         self.sessions
             .iter_mut()
             .find(|s_opt| {
                 s_opt
                     .as_ref()
-                    .map(|s| &s.client_id == client_id)
+                    .map(|s| s.session_id == session_id)
                     .unwrap_or(false)
             })
             .and_then(|s_opt| s_opt.as_mut())

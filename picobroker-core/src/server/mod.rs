@@ -5,7 +5,6 @@
 
 use crate::broker::PicoBroker;
 use crate::broker_error::BrokerError;
-use crate::client::ClientId;
 use crate::protocol::packets::{Packet, PacketEncoder};
 use crate::protocol::packet_error::PacketEncodingError;
 use crate::traits::{Delay, NetworkError, TcpListener, TcpStream, TimeSource};
@@ -16,7 +15,7 @@ pub mod buffer_manager;
 pub mod connection_manager;
 
 // Re-export public types
-pub use buffer_manager::{BufferManager, ClientReadBuffer};
+pub use buffer_manager::{BufferManager, SessionReadBuffer};
 pub use connection_manager::ConnectionManager;
 
 /// MQTT Broker Server
@@ -32,8 +31,8 @@ pub use connection_manager::ConnectionManager;
 /// - `D`: Delay implementation
 /// - `MAX_TOPIC_NAME_LENGTH`: Maximum length of topic names
 /// - `MAX_PAYLOAD_SIZE`: Maximum payload size for packets
-/// - `QUEUE_SIZE`: Queue size for client -> broker messages and broker -> client messages
-/// - `MAX_CLIENTS`: Maximum number of concurrent clients
+/// - `QUEUE_SIZE`: Queue size for session -> broker messages and broker -> session messages
+/// - `MAX_SESSIONS`: Maximum number of concurrent sessions
 /// - `MAX_TOPICS`: Maximum number of distinct topics
 /// - `MAX_SUBSCRIBERS_PER_TOPIC`: Maximum subscribers per topic
 pub struct PicoBrokerServer<
@@ -43,7 +42,7 @@ pub struct PicoBrokerServer<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
-    const MAX_CLIENTS: usize,
+    const MAX_SESSIONS: usize,
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
@@ -54,12 +53,12 @@ pub struct PicoBrokerServer<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >,
-    connection_manager: ConnectionManager<TL, MAX_CLIENTS>,
-    buffer_manager: BufferManager<MAX_PAYLOAD_SIZE, MAX_CLIENTS>,
+    connection_manager: ConnectionManager<TL, MAX_SESSIONS>,
+    buffer_manager: BufferManager<MAX_PAYLOAD_SIZE, MAX_SESSIONS>,
 }
 
 impl<
@@ -69,7 +68,7 @@ impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
         const QUEUE_SIZE: usize,
-        const MAX_CLIENTS: usize,
+        const MAX_SESSIONS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     >
@@ -80,7 +79,7 @@ impl<
         MAX_TOPIC_NAME_LENGTH,
         MAX_PAYLOAD_SIZE,
         QUEUE_SIZE,
-        MAX_CLIENTS,
+        MAX_SESSIONS,
         MAX_TOPICS,
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
@@ -99,7 +98,7 @@ impl<
 
     /// Run the server main loop
     ///
-    /// The server loop runs indefinitely, handling all client connections and message routing.
+    /// The server loop runs indefinitely, handling all session connections and message routing.
     pub async fn run(&mut self) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
@@ -109,46 +108,47 @@ impl<
             // Phase 1: Accept new connections
             self.accept_new_connection().await;
 
-            // Phase 2: Read from all clients
-            self.read_client_messages().await;
+            // Phase 2: Read from all sessions
+            self.read_session_messages().await;
 
             // Phase 3: Process packets through broker
-            self.process_client_messages().await;
+            self.process_session_messages().await;
 
-            // Phase 4: Write to all clients
-            self.write_client_messages().await;
+            // Phase 4: Write to all sessions
+            self.write_session_messages().await;
 
             // Phase 5: Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
         }
     }
 
-    /// Cleanup all disconnected and expired clients
+    /// Cleanup all disconnected and expired sessions
     pub fn cleanup_disconnected(&mut self) {
-        // Remove disconnected clients
-        for client_id in self.broker.get_disconnected_clients().iter().flatten() {
-            self.remove_client(client_id);
+        // Remove disconnected sessions
+        for session_id in self.broker.get_disconnected_sessions().into_iter().flatten() {
+            self.remove_session(session_id);
         }
 
-        // Remove expired clients
-        let current_time = self.time_source.now_secs();
-        for client_id in self.broker.get_expired_clients(current_time).iter().flatten() {
-            self.remove_client(client_id);
+        // Remove expired sessions
+        let current_time = self.time_source.now_nano_secs();
+        for session_id in self.broker.get_expired_sessions(current_time).into_iter().flatten() {
+            self.remove_session(session_id);
         }
     }
 
-    pub fn remove_client(&mut self, client_id: &ClientId) {
-        match self.broker.remove_client(client_id) {
-            true => info!("Removed client {}", client_id),
-            false => error!("No client found to remove with id {}", client_id),
+    /// Remove a session and associated resources
+    pub fn remove_session(&mut self, session_id: u128) {
+        match self.broker.remove_session(session_id) {
+            true => info!("Removed session {}", session_id),
+            false => error!("No session found to remove with id {}", session_id),
         }
-        match self.connection_manager.remove_client(client_id) {
-            true => info!("Removed connection for client {}", client_id),
-            false => error!("No connection found to remove for client {}", client_id),
+        match self.connection_manager.remove_session(session_id) {
+            true => info!("Removed connection for session {}", session_id),
+            false => error!("No connection found to remove for session {}", session_id),
         }
-        match self.buffer_manager.remove_client(client_id) {
-            true => info!("Removed buffer for client {}", client_id),
-            false => error!("No buffer found to remove for client {}", client_id),
+        match self.buffer_manager.remove_session(session_id) {
+            true => info!("Removed buffer for session {}", session_id),
+            false => error!("No buffer found to remove for session {}", session_id),
         }
     }
 
@@ -161,21 +161,20 @@ impl<
         if let Ok((mut stream, socket_addr)) = self.listener.try_accept().await {
             info!("Received new connection from {}", socket_addr);
 
-            let time = self.time_source.now_secs();
-            let client_id = ClientId::generate(time);
+            let current_time = self.time_source.now_nano_secs();
+            let session_id = current_time; // Use current timestamp in nanoseconds as session id
             const KEEP_ALIVE_SECS: u16 = 60; // Default keep-alive
-            let current_time = self.time_source.now_secs();
 
             match self
                 .broker
-                .register_client(client_id.clone(), KEEP_ALIVE_SECS, current_time)
+                .register_new_session(session_id, KEEP_ALIVE_SECS, current_time)
             {
                 Ok(_) => {
-                    info!("Registered new client with client id {}", client_id);
-                    self.connection_manager.set_stream(client_id, stream);
+                    info!("Registered new session with id {}", session_id);
+                    self.connection_manager.set_stream(session_id, stream);
                 }
                 Err(e) => {
-                    error!("Failed to register new client: {}", e);
+                    error!("Failed to register new session: {}", e);
                     error!("Closing connection");
                     let _ = stream.close().await;
                 }
@@ -183,49 +182,49 @@ impl<
         }
     }
 
-    /// Read messages from all connected clients
-    async fn read_client_messages(&mut self)
+    /// Read messages from all connected sessions
+    async fn read_session_messages(&mut self)
     where
         TL::Stream: Send + 'static,
     {
         self.cleanup_disconnected();
-        for client_id in self.broker.get_all_clients().iter().flatten() {
-            if let Err(e) = self.read_single_client(client_id).await {
+        for session_id in self.broker.get_all_sessions().into_iter().flatten() {
+            if let Err(e) = self.read_single_session(session_id).await {
                 match e {
                     ReadError::StreamNotFound => {
-                        error!("Stream not found for client {}", client_id);
+                        error!("Stream not found for session {}", session_id);
                     }
                     ReadError::ConnectionClosed => {
-                        info!("Client {} disconnected", client_id);
+                        info!("Session {} disconnected", session_id);
                     }
                     ReadError::Fatal(e) => {
-                        info!("Client {} forcefully disconnected due to network fatal error: {:?}", client_id, e);
+                        info!("Session {} forcefully disconnected due to network fatal error: {:?}", session_id, e);
                     }
                 }
             }
         }
     }
 
-    /// Read messages from a single client
-    async fn read_single_client(&mut self, client_id: &ClientId) -> Result<(), ReadError>
+    /// Read messages from a single session
+    async fn read_single_session(&mut self, session_id: u128) -> Result<(), ReadError>
     where
         TL::Stream: Send + 'static,
     {
-        self.ensure_buffer_space(client_id)
+        self.ensure_buffer_space(session_id)
             .map_err(|_| ReadError::StreamNotFound)?;
 
-        let remaining_space = self.buffer_manager.get_remaining_space(client_id);
+        let remaining_space = self.buffer_manager.get_remaining_space(session_id);
         let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
 
         // Get stream, read data, and release stream borrow before processing
         let bytes_read = {
             let stream = match self
                 .connection_manager
-                .get_stream_mut(client_id) {
+                .get_stream_mut(session_id) {
                 Some(s) => s,
                 None => {
-                    error!("No stream found for client {}", client_id);
-                    let _ = self.broker.mark_client_disconnected(client_id);
+                    error!("No stream found for session {}", session_id);
+                    let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(ReadError::StreamNotFound);
                 }
             };
@@ -233,16 +232,16 @@ impl<
             match stream.try_read(&mut read_buf[..remaining_space]).await {
                 Ok(0) => {
                     info!("Connection closed by peer (0 bytes read)");
-                    let _ = self.broker.mark_client_disconnected(client_id);
+                    let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(ReadError::ConnectionClosed);
                 }
                 Ok(n) => {
-                    info!("Read {} bytes from client {}", n, client_id);
+                    info!("Read {} bytes from session {}", n, session_id);
                     n
                 }
                 Err(e) if matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError) => {
-                    error!("Fatal error reading from client {}: {}", client_id, e);
-                    let _ = self.broker.mark_client_disconnected(client_id);
+                    error!("Fatal error reading from session {}: {}", session_id, e);
+                    let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(ReadError::Fatal(e));
                 }
                 Err(_) => 0,
@@ -250,41 +249,41 @@ impl<
         };
 
         if bytes_read > 0 {
-            let buffer = self.buffer_manager.get_buffer_mut(client_id);
+            let buffer = self.buffer_manager.get_buffer_mut(session_id);
             buffer.append(&read_buf[..bytes_read]);
-            self.process_received_data(client_id)
+            self.process_received_data(session_id)
                 .map_err(|_| ReadError::StreamNotFound)?;
         }
 
         Ok(())
     }
 
-    /// Ensure the client's buffer has space for new data
-    fn ensure_buffer_space(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        let remaining = self.buffer_manager.get_remaining_space(client_id);
+    /// Ensure the session's buffer has space for new data
+    fn ensure_buffer_space(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        let remaining = self.buffer_manager.get_remaining_space(session_id);
         if remaining == 0 {
             warn!(
-                "RX buffer overflow for client {}, clearing buffer",
-                client_id
+                "RX buffer overflow for session {}, clearing buffer",
+                session_id
             );
-            let buffer = self.buffer_manager.get_buffer_mut(client_id);
+            let buffer = self.buffer_manager.get_buffer_mut(session_id);
             buffer.clear();
         }
         Ok(())
     }
 
     /// Process received data and try to decode packets
-    fn process_received_data(&mut self, client_id: &ClientId) -> Result<(), BrokerError> {
-        let current_time = self.time_source.now_secs();
+    fn process_received_data(&mut self, session_id: u128) -> Result<(), BrokerError> {
+        let current_time = self.time_source.now_nano_secs();
 
         match self
             .buffer_manager
-            .try_decode_packet::<MAX_TOPIC_NAME_LENGTH>(client_id)
+            .try_decode_packet::<MAX_TOPIC_NAME_LENGTH>(session_id)
         {
             Ok(Some(packet)) => {
-                info!("Received packet from client {}: {:?}", client_id, packet);
+                info!("Received packet from session {}: {:?}", session_id, packet);
                 self.broker.queue_packet_received_from_client(
-                    client_id,
+                    session_id,
                     packet,
                     current_time,
                 )?;
@@ -293,67 +292,67 @@ impl<
                 // No complete packet yet, that's ok
             }
             Err(e) => {
-                error!("Error decoding packet from client {}: {}", client_id, e);
+                error!("Error decoding packet from session {}: {}", session_id, e);
             }
         }
 
         Ok(())
     }
 
-    /// Process all client messages through the broker
-    async fn process_client_messages(&mut self)
+    /// Process all session messages through the broker
+    async fn process_session_messages(&mut self)
     where
         TL::Stream: Send + 'static,
     {
         self.cleanup_disconnected();
-        match self.broker.process_all_client_packets() {
+        match self.broker.process_all_session_packets() {
             Ok(_) => {}
             Err(e) => {
-                warn!("Error processing client messages: {:?}", e);
+                warn!("Error processing session messages: {:?}", e);
             }
         }
     }
 
-    /// Write messages to all connected clients
-    async fn write_client_messages(&mut self)
+    /// Write messages to all connected sessions
+    async fn write_session_messages(&mut self)
     where
         TL::Stream: Send + 'static,
     {
         self.cleanup_disconnected();
-        for client_id in self.broker.get_all_clients().iter().flatten() {
-            if let Err(e) = self.write_client_queue(client_id).await {
-                warn!("Error writing to client {}: {:?}", client_id, e);
+        for session_id in self.broker.get_all_sessions().into_iter().flatten() {
+            if let Err(e) = self.write_session_queue(session_id).await {
+                warn!("Error writing to session {}: {:?}", session_id, e);
             }
         }
     }
 
-    /// Write all queued messages to a single client
-    async fn write_client_queue(&mut self, client_id: &ClientId) -> Result<(), BrokerError>
+    /// Write all queued messages to a single session
+    async fn write_session_queue(&mut self, session_id: u128) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
     {
         while let Some(packet) = self
             .broker
-            .dequeue_packet_to_send_to_client(client_id)?
+            .dequeue_packet_to_send_to_client(session_id)?
         {
-            if let Err(e) = self.write_single_packet(client_id, packet).await {
-                warn!("Error writing packet to client {}: {:?}", client_id, e);
+            if let Err(e) = self.write_single_packet(session_id, packet).await {
+                warn!("Error writing packet to session {}: {:?}", session_id, e);
                 break;
             }
         }
         Ok(())
     }
 
-    /// Write a single packet to a client
+    /// Write a single packet to a session
     async fn write_single_packet(
         &mut self,
-        client_id: &ClientId,
+        session_id: u128,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     ) -> Result<(), WriteError>
     where
         TL::Stream: Send + 'static,
     {
-        info!("Sending packet to client {}: {:?}", client_id, packet);
+        info!("Sending packet to session {}: {:?}", session_id, packet);
 
         // Encode packet
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
@@ -370,17 +369,17 @@ impl<
         while total_written < packet_size {
             let stream = self
                 .connection_manager
-                .get_stream_mut(client_id)
+                .get_stream_mut(session_id)
                 .ok_or_else(|| {
-                    error!("No stream found for client {}", client_id);
-                    let _ = self.broker.mark_client_disconnected(client_id);
+                    error!("No stream found for session {}", session_id);
+                    let _ = self.broker.mark_session_disconnected(session_id);
                     WriteError::StreamNotFound
                 })?;
 
             match stream.write(&encoded_packet[total_written..]).await {
                 Ok(0) => {
                     error!("Write returned 0 bytes, connection closed");
-                    let _ = self.broker.mark_client_disconnected(client_id);
+                    let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(WriteError::ConnectionClosed);
                 }
                 Ok(bytes_written) => {
@@ -391,20 +390,20 @@ impl<
                         // Flush after writing all bytes
                         let stream = self
                             .connection_manager
-                            .get_stream_mut(client_id)
+                            .get_stream_mut(session_id)
                             .ok_or(WriteError::StreamNotFound)?;
 
                         stream.flush().await.map_err(|e| {
                             error!("Error flushing stream: {}", e);
-                            let _ = self.broker.mark_client_disconnected(client_id);
+                            let _ = self.broker.mark_session_disconnected(session_id);
                             WriteError::FlushError(e)
                         })?;
                         break;
                     }
                 }
                 Err(e) if matches!(e, NetworkError::ConnectionClosed | NetworkError::IoError) => {
-                    error!("Fatal error writing to client {}: {}", client_id, e);
-                    let _ = self.broker.mark_client_disconnected(client_id);
+                    error!("Fatal error writing to session {}: {}", session_id, e);
+                    let _ = self.broker.mark_session_disconnected(session_id);
                     return Err(WriteError::Fatal(e));
                 }
                 Err(_) => {
