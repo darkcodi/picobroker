@@ -1,56 +1,27 @@
-//! Error types for PicoBroker
-//!
-//! no_std compatible error handling
-
 use crate::protocol::heapless::PushError;
 use crate::protocol::ProtocolError;
 use crate::traits::NetworkError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrokerError {
-    // === Session Management ===
-    /// Session with the given ID already exists
-    SessionAlreadyExists {
-        session_id: u128,
-    },
-    /// Session with the given ID was not found
-    SessionNotFound {
-        session_id: u128,
-    },
-    /// Session's message queue is full
-    SessionQueueFull {
-        session_id: u128,
-        queue_size: usize,
-    },
-    /// Session disconnected
-    SessionDisconnected {
-        session_id: u128,
-    },
+    SessionAlreadyExists { session_id: u128 },
 
-    // === Resource Limits ===
-    /// Maximum number of sessions reached
-    MaxSessionsReached {
-        current: usize,
-        max: usize,
-    },
-    /// Maximum number of subscribers per topic reached
-    MaxSubscribersPerTopicReached {
-        current: usize,
-        max: usize,
-    },
-    /// Maximum number of topics reached
-    MaxTopicsReached {
-        current: usize,
-        max: usize,
-    },
+    SessionNotFound { session_id: u128 },
 
-    // === Network Errors (wrapped) ===
+    SessionQueueFull { session_id: u128, queue_size: usize },
+
+    SessionDisconnected { session_id: u128 },
+
+    MaxSessionsReached { current: usize, max: usize },
+
+    MaxSubscribersPerTopicReached { current: usize, max: usize },
+
+    MaxTopicsReached { current: usize, max: usize },
+
     Network(NetworkError),
 
-    // === Protocol Errors (wrapped) ===
     Protocol(ProtocolError),
 
-    // === Buffer/Storage Errors ===
     BufferFull,
 }
 

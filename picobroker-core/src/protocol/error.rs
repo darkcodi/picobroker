@@ -1,51 +1,72 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProtocolError {
-    /// Buffer too small for packet
-    BufferTooSmall { buffer_size: usize },
-    /// Client identifier is empty in CONNECT, which is not allowed in persistent session
+    BufferTooSmall {
+        buffer_size: usize,
+    },
+
     ClientIdEmpty,
-    /// Client identifier length exceeded maximum allowed length
+
     ClientIdLengthExceeded {
         max_length: usize,
         actual_length: usize,
     },
-    /// Incomplete packet (not enough data)
-    IncompletePacket { available: usize },
-    /// Invalid connect flags in CONNECT
-    InvalidConnectFlags { flags: u8 },
-    /// Invalid connect return code in CONNACK
-    InvalidConnectReturnCode { return_code: u8 },
-    /// Packet length does not match expected length
-    InvalidPacketLength { expected: usize, actual: usize },
-    /// Invalid packet type
-    InvalidPacketType { packet_type: u8 },
-    /// Invalid protocol name in CONNECT
+
+    IncompletePacket {
+        available: usize,
+    },
+
+    InvalidConnectFlags {
+        flags: u8,
+    },
+
+    InvalidConnectReturnCode {
+        return_code: u8,
+    },
+
+    InvalidPacketLength {
+        expected: usize,
+        actual: usize,
+    },
+
+    InvalidPacketType {
+        packet_type: u8,
+    },
+
     InvalidProtocolName,
-    /// Invalid session present flag in CONNACK
-    InvalidSessionPresentFlag { flag: u8 },
-    /// Invalid UTF-8 string
+
+    InvalidSessionPresentFlag {
+        flag: u8,
+    },
+
     InvalidUtf8String,
-    /// Missing Packet Identifier where one is required
+
     MissingPacketId,
-    /// Password length exceeded maximum allowed length
+
     PasswordLengthExceeded {
         max_length: usize,
         actual_length: usize,
     },
-    /// Payload size exceeded maximum allowed size
-    PayloadTooLarge { max_size: usize, actual_size: usize },
-    /// Invalid QoS level
-    InvalidQosLevel { level: u8 },
-    /// Topic name is empty
+
+    PayloadTooLarge {
+        max_size: usize,
+        actual_size: usize,
+    },
+
+    InvalidQosLevel {
+        level: u8,
+    },
+
     TopicEmpty,
-    /// Topic name length exceeded maximum allowed length
+
     TopicNameLengthExceeded {
         max_length: usize,
         actual_length: usize,
     },
-    /// Unsupported protocol level in CONNECT
-    UnsupportedProtocolLevel { level: u8 },
-    /// Username length exceeded maximum allowed length
+
+    UnsupportedProtocolLevel {
+        level: u8,
+    },
+
     UsernameLengthExceeded {
         max_length: usize,
         actual_length: usize,

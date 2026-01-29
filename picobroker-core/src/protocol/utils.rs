@@ -15,7 +15,6 @@ pub const fn variable_length_length(value: usize) -> usize {
 }
 
 pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), ProtocolError> {
-    // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
     const MAX_VARIABLE_LENGTH: usize = 268_435_455;
 
     let mut multiplier = 1;
@@ -32,7 +31,6 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), ProtocolErro
         bytes_read += 1;
         value += (byte & 0x7F) * multiplier;
 
-        // Check if value exceeds MQTT spec maximum BEFORE processing continuation
         if value > MAX_VARIABLE_LENGTH {
             return Err(ProtocolError::InvalidPacketLength {
                 expected: MAX_VARIABLE_LENGTH,
@@ -42,7 +40,6 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), ProtocolErro
 
         multiplier *= 128;
 
-        // Check multiplier to prevent more than 4 bytes (spec limit)
         if multiplier > 128 * 128 * 128 * 128 {
             return Err(ProtocolError::InvalidPacketLength {
                 expected: MAX_VARIABLE_LENGTH,
@@ -59,7 +56,6 @@ pub fn read_variable_length(bytes: &[u8]) -> Result<(usize, usize), ProtocolErro
 }
 
 pub fn write_variable_length(value: usize, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
-    // MQTT spec limits variable length to 268,435,455 (0x0FFFFFFF)
     const MAX_VARIABLE_LENGTH: usize = 268_435_455;
 
     if value > MAX_VARIABLE_LENGTH {

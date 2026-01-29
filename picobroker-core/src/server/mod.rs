@@ -1,39 +1,15 @@
-//! MQTT broker server implementation
-//!
-//! This module provides the main server implementation with connection handling,
-//! message processing, and client lifecycle management.
-
 use crate::broker::PicoBroker;
 use crate::error::BrokerError;
 use crate::protocol::packets::{Packet, PacketEncoder};
 use crate::traits::{Delay, NetworkError, TcpListener, TcpStream, TimeSource};
 use log::{error, info, warn};
 
-// Submodules
 pub mod buffer_manager;
 pub mod connection_manager;
 
-// Re-export public types
 pub use buffer_manager::{BufferManager, SessionReadBuffer};
 pub use connection_manager::ConnectionManager;
 
-/// MQTT Broker Server
-///
-/// Full server implementation with accept loop, client task spawning,
-/// and message processing. This is the main server structure that
-/// runs the MQTT broker.
-///
-/// # Generic Parameters
-///
-/// - `TS`: Time source for tracking keep-alives
-/// - `TL`: TCP listener implementation
-/// - `D`: Delay implementation
-/// - `MAX_TOPIC_NAME_LENGTH`: Maximum length of topic names
-/// - `MAX_PAYLOAD_SIZE`: Maximum payload size for packets
-/// - `QUEUE_SIZE`: Queue size for session -> broker messages and broker -> session messages
-/// - `MAX_SESSIONS`: Maximum number of concurrent sessions
-/// - `MAX_TOPICS`: Maximum number of distinct topics
-/// - `MAX_SUBSCRIBERS_PER_TOPIC`: Maximum subscribers per topic
 pub struct PicoBrokerServer<
     TS: TimeSource,
     TL: TcpListener,
@@ -83,7 +59,6 @@ impl<
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
 {
-    /// Create a new MQTT broker server
     pub fn new(time_source: TS, listener: TL, delay: D) -> Self {
         Self {
             time_source,
@@ -95,35 +70,25 @@ impl<
         }
     }
 
-    /// Run the server main loop
-    ///
-    /// The server loop runs indefinitely, handling all session connections and message routing.
     pub async fn run(&mut self) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
     {
         info!("Starting server main loop");
         loop {
-            // Phase 1: Accept new connections
             self.accept_new_connection().await;
 
-            // Phase 2: Read from all sessions
             self.read_session_messages().await;
 
-            // Phase 3: Process packets through broker
             self.process_session_messages().await;
 
-            // Phase 4: Write to all sessions
             self.write_session_messages().await;
 
-            // Phase 5: Small yield to prevent busy-waiting
             self.delay.sleep_ms(10).await;
         }
     }
 
-    /// Cleanup all disconnected and expired sessions
     pub fn cleanup_disconnected(&mut self) {
-        // Remove disconnected sessions
         for session_id in self
             .broker
             .get_disconnected_sessions()
@@ -134,7 +99,6 @@ impl<
             self.remove_session(session_id);
         }
 
-        // Remove expired sessions
         let current_time = self.time_source.now_nano_secs();
         for session_id in self
             .broker
@@ -147,7 +111,6 @@ impl<
         }
     }
 
-    /// Remove a session and associated resources
     pub fn remove_session(&mut self, session_id: u128) {
         match self.broker.remove_session(session_id) {
             true => info!("Removed session {}", session_id),
@@ -163,7 +126,6 @@ impl<
         }
     }
 
-    /// Accept a new connection if one is pending
     async fn accept_new_connection(&mut self)
     where
         TL::Stream: Send + 'static,
@@ -173,8 +135,8 @@ impl<
             info!("Received new connection from {}", socket_addr);
 
             let current_time = self.time_source.now_nano_secs();
-            let session_id = current_time; // Use current timestamp in nanoseconds as session id
-            const KEEP_ALIVE_SECS: u16 = 60; // Default keep-alive
+            let session_id = current_time;
+            const KEEP_ALIVE_SECS: u16 = 60;
 
             match self
                 .broker
@@ -193,7 +155,6 @@ impl<
         }
     }
 
-    /// Read messages from all connected sessions
     async fn read_session_messages(&mut self)
     where
         TL::Stream: Send + 'static,
@@ -219,7 +180,6 @@ impl<
         }
     }
 
-    /// Read messages from a single session
     async fn read_single_session(&mut self, session_id: u128) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
@@ -229,7 +189,6 @@ impl<
         let remaining_space = self.buffer_manager.get_remaining_space(session_id);
         let mut read_buf = [0u8; MAX_PAYLOAD_SIZE];
 
-        // Get stream, read data, and release stream borrow before processing
         let bytes_read = {
             let stream = match self.connection_manager.get_stream_mut(session_id) {
                 Some(s) => s,
@@ -279,7 +238,6 @@ impl<
         Ok(())
     }
 
-    /// Ensure the session's buffer has space for new data
     fn ensure_buffer_space(&mut self, session_id: u128) -> Result<(), BrokerError> {
         let remaining = self.buffer_manager.get_remaining_space(session_id);
         if remaining == 0 {
@@ -293,7 +251,6 @@ impl<
         Ok(())
     }
 
-    /// Process received data and try to decode packets
     fn process_received_data(&mut self, session_id: u128) -> Result<(), BrokerError> {
         let current_time = self.time_source.now_nano_secs();
 
@@ -306,9 +263,7 @@ impl<
                 self.broker
                     .queue_packet_received_from_client(session_id, packet, current_time)?;
             }
-            Ok(None) => {
-                // No complete packet yet, that's ok
-            }
+            Ok(None) => {}
             Err(e) => {
                 error!("Error decoding packet from session {}: {}", session_id, e);
             }
@@ -317,7 +272,6 @@ impl<
         Ok(())
     }
 
-    /// Process all session messages through the broker
     async fn process_session_messages(&mut self)
     where
         TL::Stream: Send + 'static,
@@ -331,7 +285,6 @@ impl<
         }
     }
 
-    /// Write messages to all connected sessions
     async fn write_session_messages(&mut self)
     where
         TL::Stream: Send + 'static,
@@ -344,7 +297,6 @@ impl<
         }
     }
 
-    /// Write all queued messages to a single session
     async fn write_session_queue(&mut self, session_id: u128) -> Result<(), BrokerError>
     where
         TL::Stream: Send + 'static,
@@ -358,7 +310,6 @@ impl<
         Ok(())
     }
 
-    /// Write a single packet to a session
     async fn write_single_packet(
         &mut self,
         session_id: u128,
@@ -369,7 +320,6 @@ impl<
     {
         info!("Sending packet to session {}: {:?}", session_id, packet);
 
-        // Encode packet
         let mut buffer = [0u8; MAX_PAYLOAD_SIZE];
         let packet_size = packet.encode(&mut buffer).map_err(|e| {
             error!("Error encoding packet: {}", e);
@@ -378,7 +328,6 @@ impl<
         let encoded_packet = &buffer[..packet_size];
         info!("Encoded packet: {} bytes", packet_size);
 
-        // Get stream and write all bytes (handle partial writes)
         let mut total_written = 0;
 
         while total_written < packet_size {
@@ -402,7 +351,6 @@ impl<
                     info!("Wrote {} bytes (total: {})", bytes_written, total_written);
 
                     if total_written >= packet_size {
-                        // Flush after writing all bytes
                         let stream = self
                             .connection_manager
                             .get_stream_mut(session_id)
@@ -425,7 +373,6 @@ impl<
                     return Err(BrokerError::SessionDisconnected { session_id });
                 }
                 Err(_) => {
-                    // Retry for non-fatal errors
                     continue;
                 }
             }

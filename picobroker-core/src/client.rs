@@ -3,9 +3,6 @@ use crate::protocol::ProtocolError;
 
 pub const MAX_CLIENT_ID_LENGTH: usize = 23;
 
-/// Client identifier
-/// The Server MUST allow ClientIds which are between 1 and 23 UTF-8 encoded bytes in length, and that contain only the characters
-/// "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ClientId(HeaplessString<MAX_CLIENT_ID_LENGTH>);
 

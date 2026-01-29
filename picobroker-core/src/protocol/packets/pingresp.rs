@@ -24,7 +24,7 @@ impl PacketEncoder for PingRespPacket {
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         Self::validate_buffer_size(buffer.len())?;
         buffer[0] = self.header_first_byte();
-        buffer[1] = 0u8; // Remaining Length is 0
+        buffer[1] = 0u8;
         Ok(2)
     }
 

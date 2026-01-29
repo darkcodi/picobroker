@@ -4,7 +4,6 @@ use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::Packet;
 use log::error;
 
-/// Session state machine
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 pub enum SessionState {
@@ -14,34 +13,24 @@ pub enum SessionState {
     Disconnected,
 }
 
-/// Session with dual queues
-///
-/// Manages the state and communication queues for a connected session
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session<
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
     const QUEUE_SIZE: usize,
 > {
-    /// Unique session identifier
     pub session_id: u128,
 
-    /// Client identifier
     pub client_id: Option<ClientId>,
 
-    /// Current session state
     pub state: SessionState,
 
-    /// Keep-alive interval in seconds
     pub keep_alive_secs: u16,
 
-    /// Timestamp of last activity (nanoseconds since epoch)
     pub last_activity: u128,
 
-    /// Receive queue (client -> broker)
     pub rx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 
-    /// Transmit queue (broker -> session)
     pub tx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 }
 
@@ -51,7 +40,6 @@ impl<
         const QUEUE_SIZE: usize,
     > Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>
 {
-    /// Create a new session
     pub fn new(session_id: u128, keep_alive_secs: u16, current_time: u128) -> Self {
         Self {
             session_id,
@@ -64,9 +52,6 @@ impl<
         }
     }
 
-    /// Check if session's keep-alive has expired
-    ///
-    /// Returns true if the time since last activity exceeds 1.5x the keep-alive value
     pub fn is_expired(&self, current_time: u128) -> bool {
         let timeout_secs = (self.keep_alive_secs as u128) * 3 / 2;
         let timeout_nanos = timeout_secs * 1_000_000_000;
@@ -74,12 +59,10 @@ impl<
         elapsed > timeout_nanos
     }
 
-    /// Update the last activity timestamp
     pub fn update_activity(&mut self, current_time: u128) {
         self.last_activity = current_time;
     }
 
-    /// Queue a packet for transmission to the session
     pub fn queue_tx_packet(
         &mut self,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
@@ -89,12 +72,10 @@ impl<
             .map_err(|_| BrokerError::BufferFull)
     }
 
-    /// Dequeue a packet to send to the session
     pub fn dequeue_tx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
         self.tx_queue.dequeue_front().flatten()
     }
 
-    /// Queue a received packet from the session
     pub fn queue_rx_packet(
         &mut self,
         packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
@@ -104,15 +85,11 @@ impl<
             .map_err(|_| BrokerError::BufferFull)
     }
 
-    /// Dequeue a received packet from the session
     pub fn dequeue_rx_packet(&mut self) -> Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>> {
         self.rx_queue.dequeue_front().flatten()
     }
 }
 
-/// Session registry
-///
-/// Manages all sessions
 #[derive(Debug, PartialEq, Eq)]
 pub struct SessionRegistry<
     const MAX_TOPIC_NAME_LENGTH: usize,
@@ -122,7 +99,6 @@ pub struct SessionRegistry<
     const MAX_TOPICS: usize,
     const MAX_SUBSCRIBERS_PER_TOPIC: usize,
 > {
-    /// Vector of sessions
     sessions: HeaplessVec<
         Option<Session<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE>>,
         MAX_SESSIONS,
@@ -170,7 +146,6 @@ impl<
         MAX_SUBSCRIBERS_PER_TOPIC,
     >
 {
-    /// Get all session IDs
     pub fn get_all_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
         let mut session_ids = [const { None }; MAX_SESSIONS];
         let mut count = 0usize;
@@ -185,7 +160,6 @@ impl<
         session_ids
     }
 
-    /// Get expired session IDs based on current time
     pub fn get_expired_sessions(&self, current_time: u128) -> [Option<u128>; MAX_SESSIONS] {
         let mut session_ids = [const { None }; MAX_SESSIONS];
         let mut count = 0usize;
@@ -200,7 +174,6 @@ impl<
         session_ids
     }
 
-    /// Get disconnected session IDs
     pub fn get_disconnected_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
         let mut session_ids = [const { None }; MAX_SESSIONS];
         let mut count = 0usize;
@@ -215,7 +188,6 @@ impl<
         session_ids
     }
 
-    /// Mark a session as connected
     pub fn mark_connected(&mut self, session_id: u128) -> Result<(), BrokerError> {
         if let Some(session) = self.find_session(session_id) {
             session.state = SessionState::Connected;
@@ -225,7 +197,6 @@ impl<
         }
     }
 
-    /// Mark a session as disconnected
     pub fn mark_disconnected(&mut self, session_id: u128) -> Result<(), BrokerError> {
         if let Some(session) = self.find_session(session_id) {
             session.state = SessionState::Disconnected;
@@ -235,7 +206,6 @@ impl<
         }
     }
 
-    /// Register a new session
     pub fn register_new_session(
         &mut self,
         session_id: u128,
@@ -261,7 +231,6 @@ impl<
         Ok(())
     }
 
-    /// Remove a session by ID
     pub fn remove_session(&mut self, session_id: u128) -> bool {
         let session_idx = self.sessions.iter().position(|s| {
             s.as_ref()
@@ -278,7 +247,6 @@ impl<
         }
     }
 
-    /// Update the last activity timestamp for a session
     pub fn update_session_activity(
         &mut self,
         session_id: u128,
@@ -292,7 +260,6 @@ impl<
         }
     }
 
-    /// Update the client ID for an existing session
     pub fn update_client_id(
         &mut self,
         session_id: u128,
@@ -306,7 +273,6 @@ impl<
         }
     }
 
-    /// Update the keep-alive interval for a session
     pub fn update_keep_alive(
         &mut self,
         session_id: u128,
@@ -320,7 +286,6 @@ impl<
         }
     }
 
-    /// Queue a packet received from the client
     pub fn queue_rx_packet(
         &mut self,
         session_id: u128,
@@ -338,7 +303,6 @@ impl<
         }
     }
 
-    /// Queue a packet to send to the client
     pub fn queue_tx_packet(
         &mut self,
         session_id: u128,
@@ -356,7 +320,6 @@ impl<
         }
     }
 
-    /// Dequeue a packet received from the client
     pub fn dequeue_rx_packet(
         &mut self,
         session_id: u128,
@@ -368,7 +331,6 @@ impl<
         }
     }
 
-    /// Dequeue a packet to send to the session
     pub fn dequeue_tx_packet(
         &mut self,
         session_id: u128,

@@ -114,7 +114,6 @@ impl<const N: usize> HeaplessString<N> {
 
 impl<const N: usize> core::fmt::Write for HeaplessString<N> {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        // Try to push, but truncate silently if full
         let bytes = s.as_bytes();
         let remaining = N.saturating_sub(self.length as usize);
         let to_copy = bytes.len().min(remaining);
@@ -123,12 +122,10 @@ impl<const N: usize> core::fmt::Write for HeaplessString<N> {
             .copy_from_slice(&bytes[..to_copy]);
         self.length += to_copy as u8;
 
-        // Always return Ok to signal silent truncation
         Ok(())
     }
 
     fn write_char(&mut self, c: char) -> core::fmt::Result {
-        // Encode char as UTF-8
         let mut buf = [0u8; 4];
         let encoded = c.encode_utf8(&mut buf);
         self.write_str(encoded)
@@ -184,7 +181,7 @@ impl<T, const N: usize> HeaplessVec<T, N> {
             return None;
         }
         self.length -= 1;
-        // Use core::mem::take to swap out the element with Default::default()
+
         Some(core::mem::take(&mut self.data[self.length as usize]))
     }
 
@@ -204,17 +201,14 @@ impl<T, const N: usize> HeaplessVec<T, N> {
     where
         T: Clone,
     {
-        // Check if adding slice would exceed capacity
         if (self.length as usize) + slice.len() > N {
             return Err(PushError);
         }
 
-        // Clone each element from slice into self.data
         for (i, item) in slice.iter().enumerate() {
             self.data[self.length as usize + i] = item.clone();
         }
 
-        // Update length
         self.length += slice.len() as u16;
         Ok(())
     }
@@ -229,13 +223,11 @@ impl<T, const N: usize> HeaplessVec<T, N> {
 
         for read_idx in 0..len {
             if f(&self.data[read_idx]) {
-                // Keep this element
                 if write_idx != read_idx {
                     self.data[write_idx] = self.data[read_idx].clone();
                 }
                 write_idx += 1;
             }
-            // Else: skip element (don't increment write_idx)
         }
 
         self.length = write_idx as u16;
@@ -249,18 +241,13 @@ impl<T, const N: usize> HeaplessVec<T, N> {
             panic!("remove index out of bounds");
         }
 
-        // Shift elements after index left by one position
         for i in index..self.length as usize - 1 {
             self.data[i] = self.data[i + 1].clone();
         }
 
-        // Decrease length
         self.length -= 1;
     }
 
-    /// Dequeue from front (FIFO) - removes first element and shifts remaining
-    ///
-    /// This provides FIFO queue semantics. Returns None if the vector is empty.
     pub fn dequeue_front(&mut self) -> Option<T>
     where
         T: Clone,
@@ -269,10 +256,8 @@ impl<T, const N: usize> HeaplessVec<T, N> {
             return None;
         }
 
-        // Remove the first element
         let item = self.data[0].clone();
 
-        // Shift all elements left by one position
         for i in 0..self.length as usize - 1 {
             self.data[i] = self.data[i + 1].clone();
         }
@@ -281,9 +266,6 @@ impl<T, const N: usize> HeaplessVec<T, N> {
         Some(item)
     }
 
-    /// Peek at front element without removing it
-    ///
-    /// Returns None if the vector is empty.
     pub fn front(&self) -> Option<&T> {
         if self.length == 0 {
             None
@@ -379,11 +361,9 @@ impl<T: Default, const N: usize> Iterator for HeaplessVecIntoIterator<T, N> {
             return None;
         }
 
-        // Use core::mem::take to swap out the element with Default::default()
         let item = core::mem::take(&mut self.vec.data[self.index as usize]);
         self.index += 1;
 
-        // If we've consumed all elements, update the length
         if self.index == self.vec.length {
             self.vec.length = 0;
         }
@@ -400,8 +380,6 @@ mod tests {
 
     #[test]
     fn test_optimized_string_size() {
-        // Check sizes of HeaplessString for lengths 0 to 32
-        // Each should be N + 1 bytes (1 byte for length + N bytes for data)
         assert_eq!(size_of::<HeaplessString<0>>(), 1);
         assert_eq!(size_of::<HeaplessString<1>>(), 2);
         assert_eq!(size_of::<HeaplessString<2>>(), 3);
@@ -443,16 +421,13 @@ mod tests {
         let _ = vec.push(1);
         let _ = vec.push(2);
 
-        // Extend with empty slice
         assert!(vec.extend_from_slice(&[]).is_ok());
         assert_eq!(vec.len(), 2);
 
-        // Extend with elements
         assert!(vec.extend_from_slice(&[3, 4]).is_ok());
         assert_eq!(vec.len(), 4);
         assert_eq!(vec.as_slice(), &[1, 2, 3, 4]);
 
-        // Exceed capacity
         assert!(vec.extend_from_slice(&[5, 6]).is_err());
         assert_eq!(vec.len(), 4);
     }
@@ -465,19 +440,15 @@ mod tests {
         let _ = vec.push(3);
         let _ = vec.push(4);
 
-        // Remove from middle
         vec.remove(1);
         assert_eq!(vec.as_slice(), &[1, 3, 4]);
 
-        // Remove from front
         vec.remove(0);
         assert_eq!(vec.as_slice(), &[3, 4]);
 
-        // Remove from back
         vec.remove(1);
         assert_eq!(vec.as_slice(), &[3]);
 
-        // Remove last element
         vec.remove(0);
         assert!(vec.is_empty());
     }
@@ -487,7 +458,7 @@ mod tests {
     fn test_remove_out_of_bounds() {
         let mut vec: HeaplessVec<u8, 5> = HeaplessVec::new();
         vec.push(1).unwrap();
-        vec.remove(5); // Should panic
+        vec.remove(5);
     }
 
     #[test]
@@ -497,15 +468,12 @@ mod tests {
             let _ = vec.push(i);
         }
 
-        // Keep only even numbers
         vec.retain(|x| x % 2 == 0);
         assert_eq!(vec.as_slice(), &[2, 4]);
 
-        // Keep all
         vec.retain(|_| true);
         assert_eq!(vec.as_slice(), &[2, 4]);
 
-        // Keep none
         vec.retain(|_| false);
         assert!(vec.is_empty());
     }
@@ -517,14 +485,12 @@ mod tests {
         let _ = vec.push(2);
         let _ = vec.push(3);
 
-        // Test iter() from Deref
         let mut iter = vec.iter();
         assert_eq!(iter.next(), Some(&1));
         assert_eq!(iter.next(), Some(&2));
         assert_eq!(iter.next(), Some(&3));
         assert_eq!(iter.next(), None);
 
-        // Test for loop
         let mut sum = 0;
         for item in &vec {
             sum += item;
@@ -532,7 +498,6 @@ mod tests {
         assert_eq!(sum, 6);
     }
 
-    // Tests for fmt::Write implementation
     #[test]
     fn test_fmt_write_basic() {
         let mut s = HeaplessString::<10>::new();
@@ -552,7 +517,7 @@ mod tests {
     fn test_fmt_write_truncates_on_overflow() {
         let mut s = HeaplessString::<5>::new();
         write!(s, "hello world").unwrap();
-        // Should truncate to fit capacity
+
         assert_eq!(s.as_str(), "hello");
         assert_eq!(s.len(), 5);
     }

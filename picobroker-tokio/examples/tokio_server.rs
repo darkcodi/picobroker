@@ -1,8 +1,3 @@
-//! Simple std tokio MQTT broker server example
-//!
-//! This example demonstrates how to run a basic MQTT broker using tokio.
-//! You can test it with any MQTT client (e.g., mosquitto_pub/sub).
-
 use picobroker_tokio::{DefaultTokioPicoBrokerServer, StdTimeSource, TokioDelay, TokioTcpListener};
 
 #[tokio::main]

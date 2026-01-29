@@ -68,16 +68,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     fn encode(&self, buffer: &mut [u8]) -> Result<usize, ProtocolError> {
         let mut offset = 0;
 
-        // 1. Calculate remaining length
-        //    = 2 (topic length) + topic.len() + payload.len()
-        //    + 2 (packet ID) if QoS > 0
         let mut remaining_length = 2 + self.topic_name.len();
         if self.qos != QoS::AtMostOnce {
-            remaining_length += 2; // packet ID
+            remaining_length += 2;
         }
         remaining_length += self.payload.len();
 
-        // 2. Write header byte (type + flags)
         if offset >= buffer.len() {
             return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
@@ -91,15 +87,12 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
         .publish_header_byte();
         offset += 1;
 
-        // 3. Write variable length encoding
         let var_len_bytes =
             crate::protocol::utils::write_variable_length(remaining_length, &mut buffer[offset..])?;
         offset += var_len_bytes;
 
-        // 4. Write topic name
         crate::protocol::utils::write_string(self.topic_name.as_str(), buffer, &mut offset)?;
 
-        // 5. Write packet ID if QoS > 0
         if self.qos != QoS::AtMostOnce {
             if offset + 2 > buffer.len() {
                 return Err(ProtocolError::BufferTooSmall {
@@ -113,7 +106,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             offset += 2;
         }
 
-        // 6. Write payload
         if offset + self.payload.len() > buffer.len() {
             return Err(ProtocolError::BufferTooSmall {
                 buffer_size: buffer.len(),
@@ -128,7 +120,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
     fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         let mut offset = 0;
 
-        // 1. Validate packet type
         if offset >= bytes.len() {
             return Err(ProtocolError::IncompletePacket {
                 available: bytes.len(),
@@ -141,19 +132,15 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             return Err(ProtocolError::InvalidPacketType { packet_type });
         }
 
-        // 2. Parse flags from header byte
         let flags_nibble = header_byte & 0x0F;
         let publish_flags = PublishFlags::from_nibble(flags_nibble)?;
 
-        // 3. Read remaining length
         let (remaining_length, var_len_bytes) =
             crate::protocol::utils::read_variable_length(&bytes[offset..])?;
         offset += var_len_bytes;
 
-        // Track remaining bytes for validation
         let start_offset = offset;
 
-        // 4. Read topic name
         let topic_str = crate::protocol::utils::read_string(bytes, &mut offset)?;
         if topic_str.is_empty() {
             return Err(ProtocolError::TopicEmpty);
@@ -165,7 +152,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                 actual_length: topic_str.len(),
             })?;
 
-        // 5. Read packet ID if QoS > 0
         let packet_id = if publish_flags.qos != QoS::AtMostOnce {
             if offset + 2 > bytes.len() {
                 return Err(ProtocolError::IncompletePacket {
@@ -182,7 +168,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
             None
         };
 
-        // 6. Read payload
         let payload_end = start_offset + remaining_length;
         if payload_end > bytes.len() {
             return Err(ProtocolError::IncompletePacket {
@@ -198,7 +183,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize> PacketEn
                 actual_size: payload_bytes.len(),
             })?;
 
-        // 7. Validate remaining length matched actual data
         let actual_consumed = offset - start_offset + payload_bytes.len();
         if actual_consumed != remaining_length {
             return Err(ProtocolError::InvalidPacketLength {
@@ -242,8 +226,6 @@ mod tests {
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
     const MAX_PAYLOAD_SIZE: usize = 100;
 
-    // ===== HELPER FUNCTIONS =====
-
     fn roundtrip_test(bytes: &[u8]) -> PublishPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE> {
         let result = PublishPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes);
         assert!(
@@ -265,11 +247,8 @@ mod tests {
         packet
     }
 
-    // ===== BASIC QoS TESTS =====
-
     #[test]
     fn test_qos0_minimal_packet() {
-        // QoS 0, topic="a", no payload
         let bytes = [0x30, 0x03, 0x00, 0x01, 0x61];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_name.as_str(), "a");
@@ -282,16 +261,9 @@ mod tests {
 
     #[test]
     fn test_qos0_with_payload() {
-        // QoS 0, topic="sensor/temp" (11 bytes), payload="hello" (5 bytes)
-        // remaining length = 2 (topic len) + 11 (topic) + 5 (payload) = 18
         let bytes: &[u8] = &[
-            0x30, // QoS 0
-            0x12, // remaining length = 18
-            0x00, 0x0B, // topic length = 11
-            // topic "sensor/temp"
-            0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x2F, 0x74, 0x65, 0x6D, 0x70,
-            // payload "hello"
-            0x68, 0x65, 0x6C, 0x6C, 0x6F,
+            0x30, 0x12, 0x00, 0x0B, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x2F, 0x74, 0x65, 0x6D,
+            0x70, 0x68, 0x65, 0x6C, 0x6C, 0x6F,
         ];
 
         let packet = roundtrip_test(bytes);
@@ -302,7 +274,6 @@ mod tests {
 
     #[test]
     fn test_qos1_with_packet_id() {
-        // QoS 1, topic="a", packet_id=1, no payload
         let bytes = [0x32, 0x05, 0x00, 0x01, 0x61, 0x00, 0x01];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_name.as_str(), "a");
@@ -313,7 +284,6 @@ mod tests {
 
     #[test]
     fn test_qos2_with_packet_id() {
-        // QoS 2, topic="a", packet_id=65535, no payload
         let bytes = [0x34, 0x05, 0x00, 0x01, 0x61, 0xFF, 0xFF];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_name.as_str(), "a");
@@ -321,11 +291,8 @@ mod tests {
         assert_eq!(packet.packet_id, Some(65535));
     }
 
-    // ===== HEADER FLAGS TESTS =====
-
     #[test]
     fn test_dup_flag() {
-        // DUP=1, QoS=0
         let bytes = [0x38, 0x03, 0x00, 0x01, 0x61];
         let packet = roundtrip_test(&bytes);
         assert!(packet.dup);
@@ -333,7 +300,6 @@ mod tests {
 
     #[test]
     fn test_retain_flag() {
-        // RETAIN=1, QoS=0
         let bytes = [0x31, 0x03, 0x00, 0x01, 0x61];
         let packet = roundtrip_test(&bytes);
         assert!(packet.retain);
@@ -341,7 +307,6 @@ mod tests {
 
     #[test]
     fn test_dup_and_retain_flags() {
-        // DUP=1, RETAIN=1, QoS=1
         let bytes = [0x3B, 0x05, 0x00, 0x01, 0x61, 0x00, 0x01];
         let packet = roundtrip_test(&bytes);
         assert!(packet.dup);
@@ -349,11 +314,8 @@ mod tests {
         assert_eq!(packet.qos, QoS::AtLeastOnce);
     }
 
-    // ===== TOPIC NAME TESTS =====
-
     #[test]
     fn test_topic_simple() {
-        // topic "sensors/temp" (12 bytes), remaining length = 2 + 12 = 14
         let bytes = [
             0x30, 0x0E, 0x00, 0x0C, 0x73, 0x65, 0x6E, 0x73, 0x6F, 0x72, 0x73, 0x2F, 0x74, 0x65,
             0x6D, 0x70,
@@ -364,13 +326,9 @@ mod tests {
 
     #[test]
     fn test_topic_multi_level() {
-        // topic "home/livingroom/light" (21 bytes), remaining length = 2 + 21 = 23
         let bytes: &[u8] = &[
-            0x30, 0x17, // header: type + remaining length = 23
-            0x00, 0x15, // topic length = 21
-            // "home/livingroom/light"
-            0x68, 0x6F, 0x6D, 0x65, 0x2F, 0x6C, 0x69, 0x76, 0x69, 0x6E, 0x67, 0x72, 0x6F, 0x6F,
-            0x6D, 0x2F, 0x6C, 0x69, 0x67, 0x68, 0x74,
+            0x30, 0x17, 0x00, 0x15, 0x68, 0x6F, 0x6D, 0x65, 0x2F, 0x6C, 0x69, 0x76, 0x69, 0x6E,
+            0x67, 0x72, 0x6F, 0x6F, 0x6D, 0x2F, 0x6C, 0x69, 0x67, 0x68, 0x74,
         ];
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.topic_name.as_str(), "home/livingroom/light");
@@ -378,17 +336,10 @@ mod tests {
 
     #[test]
     fn test_topic_unicode() {
-        // UTF-8: ñ = 0xC3 0xB1, á = 0xC3 0xA1, é = 0xC3 0xA9
-        let bytes = [
-            0x30, 0x08, // header
-            0x00, 0x06, // topic length = 6
-            0xC3, 0xB1, 0xC3, 0xA1, 0xC3, 0xA9, // "ñáé"
-        ];
+        let bytes = [0x30, 0x08, 0x00, 0x06, 0xC3, 0xB1, 0xC3, 0xA1, 0xC3, 0xA9];
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.topic_name.as_str(), "ñáé");
     }
-
-    // ===== PACKET ID TESTS =====
 
     #[test]
     fn test_packet_id_one() {
@@ -404,8 +355,6 @@ mod tests {
         assert_eq!(packet.packet_id, Some(65535));
     }
 
-    // ===== PAYLOAD TESTS =====
-
     #[test]
     fn test_payload_empty() {
         let bytes = [0x30, 0x03, 0x00, 0x01, 0x61];
@@ -416,12 +365,12 @@ mod tests {
     #[test]
     fn test_payload_small() {
         let mut bytes = [0u8; 256];
-        bytes[0] = 0x30; // QoS 0
-        bytes[1] = 0x08; // remaining length
-        bytes[2] = 0x00; // topic length MSB
-        bytes[3] = 0x01; // topic length LSB
-        bytes[4] = 0x61; // "a"
-                         // payload "hello"
+        bytes[0] = 0x30;
+        bytes[1] = 0x08;
+        bytes[2] = 0x00;
+        bytes[3] = 0x01;
+        bytes[4] = 0x61;
+
         bytes[5] = b'h';
         bytes[6] = b'e';
         bytes[7] = b'l';
@@ -435,29 +384,15 @@ mod tests {
 
     #[test]
     fn test_payload_binary() {
-        // topic "a" (1 byte), payload 5 bytes, remaining length = 2 + 1 + 5 = 8
-        let bytes: &[u8] = &[
-            0x30, // QoS 0
-            0x08, // remaining length = 8
-            0x00, 0x01, // topic length = 1
-            0x61, // topic "a"
-            // binary payload: 0x00, 0x01, 0x02, 0xFF, 0xFE
-            0x00, 0x01, 0x02, 0xFF, 0xFE,
-        ];
+        let bytes: &[u8] = &[0x30, 0x08, 0x00, 0x01, 0x61, 0x00, 0x01, 0x02, 0xFF, 0xFE];
 
         let packet = roundtrip_test(bytes);
         assert_eq!(packet.payload.as_slice(), &[0x00, 0x01, 0x02, 0xFF, 0xFE]);
     }
 
-    // ===== ROUNDTRIP TESTS =====
-
     #[test]
     fn test_example_a() {
-        let bytes: &[u8] = &[
-            0x30, 0x08, //Fixed header: PUBLISH QoS0, RL=8
-            0x00, 0x04, 0x74, 0x65, 0x73, 0x74, // Topic Name ("test")
-            0x68, 0x69, // Payload ("hi")
-        ];
+        let bytes: &[u8] = &[0x30, 0x08, 0x00, 0x04, 0x74, 0x65, 0x73, 0x74, 0x68, 0x69];
         let packet = roundtrip_test(bytes);
         assert!(!packet.dup);
         assert_eq!(packet.qos, QoS::AtMostOnce);

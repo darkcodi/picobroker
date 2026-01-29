@@ -26,7 +26,7 @@ impl PacketEncoder for SubAckPacket {
             });
         }
         buffer[0] = self.header_first_byte();
-        buffer[1] = 3u8; // Remaining length: packet_id (2 bytes) + granted_qos (1 byte)
+        buffer[1] = 3u8;
         let pid_bytes = self.packet_id.to_be_bytes();
         buffer[2] = pid_bytes[0];
         buffer[3] = pid_bytes[1];
@@ -75,8 +75,6 @@ mod tests {
 
     const MAX_PAYLOAD_SIZE: usize = 128;
 
-    // ===== HELPER FUNCTIONS =====
-
     fn roundtrip_test(bytes: &[u8]) -> SubAckPacket {
         let result = SubAckPacket::decode(bytes);
         assert!(
@@ -103,15 +101,10 @@ mod tests {
         SubAckPacket::decode(bytes)
     }
 
-    // ===== STRUCT SIZE TEST =====
-
     #[test]
     fn test_suback_packet_struct_size() {
-        // Should be 4 bytes: 2 for packet_id + 2 for alignment padding
         assert_eq!(core::mem::size_of::<SubAckPacket>(), 4);
     }
-
-    // ===== PACKET ID FIELD TESTS =====
 
     #[test]
     fn test_packet_id_zero() {
@@ -134,8 +127,6 @@ mod tests {
         assert_eq!(packet.packet_id, 65535);
     }
 
-    // ===== GRANTED QoS FIELD TESTS =====
-
     #[test]
     fn test_granted_qos_0() {
         let bytes = [0x90, 0x03, 0x00, 0x01, 0x00];
@@ -156,8 +147,6 @@ mod tests {
         let packet = roundtrip_test(&bytes);
         assert_eq!(packet.granted_qos, QoS::ExactlyOnce);
     }
-
-    // ===== COMPLETE PACKET ROUNDTRIP TESTS =====
 
     #[test]
     fn test_roundtrip_qos0_packet_id_1() {
@@ -182,6 +171,4 @@ mod tests {
         assert_eq!(packet.packet_id, 65535);
         assert_eq!(packet.granted_qos, QoS::ExactlyOnce);
     }
-
-    // ===== PROTOCOL COMPLIANCE TESTS =====
 }
