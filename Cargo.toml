@@ -3,6 +3,7 @@ members = [
     "picobroker-core",
     "picobroker-tokio",
     "picobroker-embassy",
+    "examples/tokio_server",
 ]
 resolver = "2"
 
