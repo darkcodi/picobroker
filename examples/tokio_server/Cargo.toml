@@ -5,6 +5,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-picobroker-tokio = { path = "../../picobroker-tokio" }
+picobroker-tokio = { path = "../../libs/picobroker-tokio" }
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.11"

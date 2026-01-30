@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "picobroker-core",
-    "picobroker-tokio",
-    "picobroker-embassy",
+    "libs/picobroker-core",
+    "libs/picobroker-tokio",
+    "libs/picobroker-embassy",
     "examples/tokio_server",
 ]
 resolver = "2"
