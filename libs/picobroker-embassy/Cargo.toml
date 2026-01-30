@@ -7,3 +7,5 @@ edition.workspace = true
 picobroker-core = { path = "../picobroker-core" }
 embassy-net = { version = "0.8", features = ["proto-ipv4", "tcp", "udp", "medium-ethernet"] }
 embassy-time = { version = "0.5" }
+embassy-futures = { version = "0.1" }
+log = { version = "0.4", default-features = false }
