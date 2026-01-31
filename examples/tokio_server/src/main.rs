@@ -1,5 +1,4 @@
-use bytes::{Buf, Bytes, BytesMut};
-use dashmap::DashMap;
+use bytes::{Buf, BytesMut};
 use log::{debug, error, info, trace, warn};
 use picobroker_core::broker::PicoBroker;
 use picobroker_core::protocol::packets::{Packet, PacketEncoder};
@@ -11,7 +10,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration, Instant};
 
 // =============================================================================
@@ -21,16 +19,11 @@ use tokio::time::{sleep, Duration, Instant};
 const MAX_TOPIC_NAME_LENGTH: usize = 64;
 const MAX_PAYLOAD_SIZE: usize = 256;
 const QUEUE_SIZE: usize = 8;
-const MAX_SESSIONS: usize = 16;
+const MAX_SESSIONS: usize = 4;
 const MAX_TOPICS: usize = 32;
 const MAX_SUBSCRIBERS_PER_TOPIC: usize = 8;
 
-// Number of broker shards for parallelization
-const NUM_SHARDS: usize = 4;
-const SESSIONS_PER_SHARD: usize = MAX_SESSIONS / NUM_SHARDS;
-
 // Channel capacities
-const SHARD_CHANNEL_CAPACITY: usize = 256;
 const FRAME_CHANNEL_CAPACITY: usize = 32;
 
 // Default keep-alive (seconds)
@@ -40,113 +33,34 @@ const DEFAULT_KEEP_ALIVE: u16 = 60;
 // Type Aliases
 // =============================================================================
 
-type ShardBroker = PicoBroker<
+type SharedBroker = Arc<tokio::sync::Mutex<PicoBroker<
     MAX_TOPIC_NAME_LENGTH,
     MAX_PAYLOAD_SIZE,
     QUEUE_SIZE,
-    SESSIONS_PER_SHARD,
+    MAX_SESSIONS,
     MAX_TOPICS,
     MAX_SUBSCRIBERS_PER_TOPIC,
->;
-
-// =============================================================================
-// Shard Work Types
-// =============================================================================
-
-#[derive(Debug)]
-enum ShardWork {
-    QueuePacket {
-        session_id: u128,
-        packet: Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-        response_tx: oneshot::Sender<ProcessResult>,
-    },
-    RegisterSession {
-        session_id: u128,
-        keep_alive_secs: u16,
-        current_time: u128,
-        response_tx: oneshot::Sender<Result<(), BrokerWorkError>>,
-    },
-    RemoveSession {
-        session_id: u128,
-        response_tx: oneshot::Sender<bool>,
-    },
-    GetExpiredSessions {
-        current_time: u128,
-        response_tx: oneshot::Sender<Vec<u128>>,
-    },
-    GetDisconnectedSessions {
-        response_tx: oneshot::Sender<Vec<u128>>,
-    },
-}
-
-#[derive(Debug)]
-enum BrokerWorkError {
-    SessionLimitReached,
-}
-
-#[derive(Debug)]
-struct ProcessResult {
-    tx_packets: Vec<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>,
-    disconnected: bool,
-}
-
-// =============================================================================
-// Broker Shard
-// =============================================================================
-
-struct BrokerShard {
-    work_tx: mpsc::Sender<ShardWork>,
-}
-
-impl BrokerShard {
-    fn new() -> (Self, mpsc::Receiver<ShardWork>) {
-        let (work_tx, work_rx) = mpsc::channel(SHARD_CHANNEL_CAPACITY);
-        (Self { work_tx }, work_rx)
-    }
-
-    async fn send_work(&self, work: ShardWork) -> Result<(), ShardError> {
-        self.work_tx
-            .send(work)
-            .await
-            .map_err(|_| ShardError::ChannelClosed)
-    }
-}
-
-#[derive(Debug)]
-enum ShardError {
-    ChannelClosed,
-}
-
-impl std::fmt::Display for ShardError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ShardError::ChannelClosed => write!(f, "Shard channel closed"),
-        }
-    }
-}
-
-impl std::error::Error for ShardError {}
+>>>;
 
 // =============================================================================
 // Server State
 // =============================================================================
 
 struct ServerState {
-    connections: DashMap<u128, ConnectionHandle>,
+    connections: dashmap::DashMap<u128, ConnectionHandle>,
     session_id_gen: AtomicU64,
 }
 
 #[allow(dead_code)]
 struct ConnectionHandle {
     session_id: u128,
-    shard_index: usize,
     peer_addr: String,
 }
 
 impl ServerState {
     fn new() -> Self {
         Self {
-            connections: DashMap::new(),
+            connections: dashmap::DashMap::new(),
             session_id_gen: AtomicU64::new(0),
         }
     }
@@ -166,10 +80,6 @@ fn current_time_nanos() -> u128 {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos()
-}
-
-fn get_shard_index(session_id: u128) -> usize {
-    (session_id as usize) % NUM_SHARDS
 }
 
 // =============================================================================
@@ -249,7 +159,7 @@ async fn read_packet(
 /// Encode a packet into Bytes for zero-copy transmission
 fn encode_frame(
     packet: &Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
-) -> Result<Bytes, std::io::Error> {
+) -> Result<bytes::Bytes, std::io::Error> {
     // Allocate a buffer large enough for any packet
     let mut buffer = [0u8; MAX_PAYLOAD_SIZE + 32];
 
@@ -259,135 +169,7 @@ fn encode_frame(
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to encode packet"))?;
 
     // Convert to Bytes for zero-copy sharing
-    Ok(BytesMut::from(&buffer[..size]).freeze())
-}
-
-// =============================================================================
-// Broker Shard Worker
-// =============================================================================
-
-async fn shard_worker(mut rx: mpsc::Receiver<ShardWork>, mut broker: ShardBroker) {
-    loop {
-        match rx.recv().await {
-            Some(work) => match work {
-                ShardWork::QueuePacket {
-                    session_id,
-                    packet,
-                    response_tx,
-                } => {
-                    let current_time = current_time_nanos();
-
-                    // Queue and process the packet
-                    debug!("[Shard] Queueing packet for session {}", session_id);
-                    let result = broker
-                        .queue_packet_received_from_client(session_id, packet, current_time)
-                        .and_then(|_| broker.process_all_session_packets());
-
-                    // Collect outbound packets
-                    let (tx_packets, disconnected) = match result {
-                        Ok(()) => {
-                            let mut packets = Vec::new();
-                            while let Ok(Some(pkt)) =
-                                broker.dequeue_packet_to_send_to_client(session_id)
-                            {
-                                let pkt_type = match &pkt {
-                                    Packet::ConnAck(_) => "CONNACK",
-                                    Packet::Publish(_) => "PUBLISH",
-                                    Packet::PubAck(_) => "PUBACK",
-                                    Packet::PubRec(_) => "PUBREC",
-                                    Packet::PubRel(_) => "PUBREL",
-                                    Packet::PubComp(_) => "PUBCOMP",
-                                    Packet::SubAck(_) => "SUBACK",
-                                    Packet::UnsubAck(_) => "UNSUBACK",
-                                    Packet::PingResp(_) => "PINGRESP",
-                                    _ => "OTHER",
-                                };
-                                debug!("[Shard] Dequeuing {} for session {}", pkt_type, session_id);
-                                packets.push(pkt);
-                            }
-                            if !packets.is_empty() {
-                                debug!("[Shard] Sending {} packets to session {}", packets.len(), session_id);
-                            }
-                            (packets, false)
-                        }
-                        Err(e) => {
-                            warn!("[Shard] Error processing packet for session {}: {:?}", session_id, e);
-                            let _ = broker.mark_session_disconnected(session_id);
-                            (vec![], true)
-                        }
-                    };
-
-                    let _ = response_tx.send(ProcessResult {
-                        tx_packets,
-                        disconnected,
-                    });
-                }
-
-                ShardWork::RegisterSession {
-                    session_id,
-                    keep_alive_secs,
-                    current_time,
-                    response_tx,
-                } => {
-                    debug!("[Shard] Registering session {} with keep-alive={}s", session_id, keep_alive_secs);
-                    let result = broker
-                        .register_new_session(session_id, keep_alive_secs, current_time)
-                        .map_err(|_| BrokerWorkError::SessionLimitReached);
-                    match &result {
-                        Ok(()) => debug!("[Shard] Session {} registered successfully", session_id),
-                        Err(_) => warn!("[Shard] Failed to register session {}: limit reached", session_id),
-                    }
-                    let _ = response_tx.send(result);
-                }
-
-                ShardWork::RemoveSession {
-                    session_id,
-                    response_tx,
-                } => {
-                    debug!("[Shard] Removing session {}", session_id);
-                    let removed = broker.remove_session(session_id);
-                    if removed {
-                        debug!("[Shard] Session {} removed successfully", session_id);
-                    } else {
-                        warn!("[Shard] Session {} not found for removal", session_id);
-                    }
-                    let _ = response_tx.send(removed);
-                }
-
-                ShardWork::GetExpiredSessions {
-                    current_time,
-                    response_tx,
-                } => {
-                    let expired: Vec<u128> = broker
-                        .get_expired_sessions(current_time)
-                        .into_iter()
-                        .flatten()
-                        .collect();
-                    if !expired.is_empty() {
-                        debug!("[Shard] Found {} expired sessions", expired.len());
-                    }
-                    let _ = response_tx.send(expired);
-                }
-
-                ShardWork::GetDisconnectedSessions { response_tx } => {
-                    let disconnected: Vec<u128> = broker
-                        .get_disconnected_sessions()
-                        .into_iter()
-                        .flatten()
-                        .collect();
-                    if !disconnected.is_empty() {
-                        debug!("[Shard] Found {} disconnected sessions", disconnected.len());
-                    }
-                    let _ = response_tx.send(disconnected);
-                }
-            },
-            None => {
-                // Channel closed - worker should exit
-                info!("Shard worker channel closed, exiting");
-                break;
-            }
-        }
-    }
+    Ok(bytes::BytesMut::from(&buffer[..size]).freeze())
 }
 
 // =============================================================================
@@ -398,45 +180,31 @@ async fn handle_connection(
     mut socket: TcpStream,
     peer_addr: String,
     state: Arc<ServerState>,
-    shards: &[Arc<BrokerShard>],
+    broker: SharedBroker,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Generate session ID and register
+    // Generate session ID
     let session_id = state.generate_session_id();
-    let shard_index = get_shard_index(session_id);
-    let shard = &shards[shard_index];
 
-    info!("New session {} assigned to shard {}", session_id, shard_index);
+    info!("New session {}", session_id);
 
     // Register session with broker
-    let (response_tx, response_rx) = oneshot::channel();
-    shard
-        .send_work(ShardWork::RegisterSession {
-            session_id,
-            keep_alive_secs: DEFAULT_KEEP_ALIVE,
-            current_time: current_time_nanos(),
-            response_tx,
-        })
-        .await?;
-
-    match response_rx.await {
-        Ok(Ok(())) => {
-            info!(
-                "Registered session {} for {} on shard {}",
-                session_id, peer_addr, shard_index
-            );
-        }
-        Ok(Err(_)) | Err(_) => {
+    {
+        let mut broker_guard = broker.lock().await;
+        debug!("Registering session {} with keep-alive={}s", session_id, DEFAULT_KEEP_ALIVE);
+        if let Err(_) = broker_guard.register_new_session(session_id, DEFAULT_KEEP_ALIVE, current_time_nanos()) {
             error!("Failed to register session for {}", peer_addr);
             return Err("Session registration failed".into());
         }
+        debug!("Session {} registered successfully", session_id);
     }
+
+    info!("Registered session {} for {}", session_id, peer_addr);
 
     // Store connection handle
     state.connections.insert(
         session_id,
         ConnectionHandle {
             session_id,
-            shard_index,
             peer_addr: peer_addr.clone(),
         },
     );
@@ -497,59 +265,75 @@ async fn handle_connection(
                             debug!("Session {}: Received {} ({})", session_id, packet_type, details);
                         }
 
-                        // Send to shard for processing
-                        let (response_tx, response_rx) = oneshot::channel();
-                        match shard.send_work(ShardWork::QueuePacket {
-                            session_id,
-                            packet,
-                            response_tx,
-                        }).await {
+                        // Process packet with broker
+                        let mut broker_guard = broker.lock().await;
+                        let current_time = current_time_nanos();
+
+                        let result = broker_guard
+                            .queue_packet_received_from_client(session_id, packet, current_time)
+                            .and_then(|_| broker_guard.process_all_session_packets());
+
+                        let tx_packets = match result {
                             Ok(()) => {
-                                // Wait for processing result
-                                match response_rx.await {
-                                    Ok(ProcessResult { tx_packets, disconnected }) => {
-                                        for pkt in tx_packets {
-                                            let pkt_type = match &pkt {
-                                                Packet::ConnAck(c) => Some(format!("CONNACK (rc={})", c.return_code as u8)),
-                                                Packet::Publish(p) => Some(format!("PUBLISH (topic={})", p.topic_name)),
-                                                Packet::PubAck(p) => Some(format!("PUBACK (id={})", p.packet_id)),
-                                                Packet::PubRec(p) => Some(format!("PUBREC (id={})", p.packet_id)),
-                                                Packet::PubRel(p) => Some(format!("PUBREL (id={})", p.packet_id)),
-                                                Packet::PubComp(p) => Some(format!("PUBCOMP (id={})", p.packet_id)),
-                                                Packet::SubAck(_) => Some("SUBACK".to_string()),
-                                                Packet::UnsubAck(_) => Some("UNSUBACK".to_string()),
-                                                Packet::PingResp(_) => Some("PINGRESP".to_string()),
-                                                _ => None,
-                                            };
-                                            match encode_frame(&pkt) {
-                                                Ok(frame) => {
-                                                    if let Some(pt) = pkt_type {
-                                                        debug!("Session {}: Sending {}", session_id, pt);
-                                                    }
-                                                    if frame_tx.send(frame).await.is_err() {
-                                                        warn!("Frame channel closed for session {}", session_id);
-                                                        break;
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!("Failed to encode packet: {}", e);
-                                                }
-                                            }
-                                        }
-                                        if disconnected {
-                                            info!("Session {} marked as disconnected", session_id);
-                                            break;
-                                        }
+                                let mut packets = Vec::new();
+                                while let Ok(Some(pkt)) =
+                                    broker_guard.dequeue_packet_to_send_to_client(session_id)
+                                {
+                                    let pkt_type = match &pkt {
+                                        Packet::ConnAck(_) => "CONNACK",
+                                        Packet::Publish(_) => "PUBLISH",
+                                        Packet::PubAck(_) => "PUBACK",
+                                        Packet::PubRec(_) => "PUBREC",
+                                        Packet::PubRel(_) => "PUBREL",
+                                        Packet::PubComp(_) => "PUBCOMP",
+                                        Packet::SubAck(_) => "SUBACK",
+                                        Packet::UnsubAck(_) => "UNSUBACK",
+                                        Packet::PingResp(_) => "PINGRESP",
+                                        _ => "OTHER",
+                                    };
+                                    debug!("Dequeuing {} for session {}", pkt_type, session_id);
+                                    packets.push(pkt);
+                                }
+                                if !packets.is_empty() {
+                                    debug!("Sending {} packets to session {}", packets.len(), session_id);
+                                }
+                                packets
+                            }
+                            Err(e) => {
+                                warn!("Error processing packet for session {}: {:?}", session_id, e);
+                                let _ = broker_guard.mark_session_disconnected(session_id);
+                                Vec::new()
+                            }
+                        };
+                        drop(broker_guard);
+
+                        // Send packets to client
+                        for pkt in tx_packets {
+                            let pkt_type = match &pkt {
+                                Packet::ConnAck(c) => Some(format!("CONNACK (rc={})", c.return_code as u8)),
+                                Packet::Publish(p) => Some(format!("PUBLISH (topic={})", p.topic_name)),
+                                Packet::PubAck(p) => Some(format!("PUBACK (id={})", p.packet_id)),
+                                Packet::PubRec(p) => Some(format!("PUBREC (id={})", p.packet_id)),
+                                Packet::PubRel(p) => Some(format!("PUBREL (id={}", p.packet_id)),
+                                Packet::PubComp(p) => Some(format!("PUBCOMP (id={})", p.packet_id)),
+                                Packet::SubAck(_) => Some("SUBACK".to_string()),
+                                Packet::UnsubAck(_) => Some("UNSUBACK".to_string()),
+                                Packet::PingResp(_) => Some("PINGRESP".to_string()),
+                                _ => None,
+                            };
+                            match encode_frame(&pkt) {
+                                Ok(frame) => {
+                                    if let Some(pt) = pkt_type {
+                                        debug!("Session {}: Sending {}", session_id, pt);
                                     }
-                                    Err(_) => {
-                                        error!("Shard response channel closed for session {}", session_id);
+                                    if frame_tx.send(frame).await.is_err() {
+                                        warn!("Frame channel closed for session {}", session_id);
                                         break;
                                     }
                                 }
-                            }
-                            Err(_) => {
-                                error!("Shard channel closed for session {}", session_id);
-                                break;
+                                Err(e) => {
+                                    error!("Failed to encode packet: {}", e);
+                                }
                             }
                         }
                     }
@@ -595,13 +379,11 @@ async fn handle_connection(
         debug!("Session {} removed from server state", session_id);
     }
 
-    let (response_tx, _) = oneshot::channel();
-    let _ = shard
-        .send_work(ShardWork::RemoveSession {
-            session_id,
-            response_tx,
-        })
-        .await;
+    {
+        let mut broker_guard = broker.lock().await;
+        debug!("Removing session {}", session_id);
+        broker_guard.remove_session(session_id);
+    }
 
     Ok(())
 }
@@ -610,7 +392,7 @@ async fn handle_connection(
 // Cleanup Task
 // =============================================================================
 
-async fn cleanup_task(state: Arc<ServerState>, shards: Vec<Arc<BrokerShard>>) {
+async fn cleanup_task(state: Arc<ServerState>, broker: SharedBroker) {
     info!("Cleanup task started");
     let mut interval = sleep(Duration::from_secs(5));
     loop {
@@ -620,60 +402,30 @@ async fn cleanup_task(state: Arc<ServerState>, shards: Vec<Arc<BrokerShard>>) {
         let current_time = current_time_nanos();
         trace!("Cleanup scan running at time {}", current_time);
 
-        // Check each shard for expired/disconnected sessions
-        for (shard_idx, shard) in shards.iter().enumerate() {
-            // Check expired sessions
-            let (tx, rx) = oneshot::channel();
-            if shard
-                .send_work(ShardWork::GetExpiredSessions {
-                    current_time,
-                    response_tx: tx,
-                })
-                .await
-                .is_ok()
-            {
-                if let Ok(expired) = rx.await {
-                    for session_id in expired {
-                        info!(
-                            "Cleaning up expired session {} on shard {}",
-                            session_id, shard_idx
-                        );
-                        state.connections.remove(&session_id);
-                        let (remove_tx, _) = oneshot::channel();
-                        let _ = shard
-                            .send_work(ShardWork::RemoveSession {
-                                session_id,
-                                response_tx: remove_tx,
-                            })
-                            .await;
-                    }
-                }
-            }
+        let mut broker_guard = broker.lock().await;
 
-            // Check disconnected sessions
-            let (tx, rx) = oneshot::channel();
-            if shard
-                .send_work(ShardWork::GetDisconnectedSessions { response_tx: tx })
-                .await
-                .is_ok()
-            {
-                if let Ok(disconnected) = rx.await {
-                    for session_id in disconnected {
-                        info!(
-                            "Cleaning up disconnected session {} on shard {}",
-                            session_id, shard_idx
-                        );
-                        state.connections.remove(&session_id);
-                        let (remove_tx, _) = oneshot::channel();
-                        let _ = shard
-                            .send_work(ShardWork::RemoveSession {
-                                session_id,
-                                response_tx: remove_tx,
-                            })
-                            .await;
-                    }
-                }
-            }
+        // Check expired sessions
+        let expired: Vec<u128> = broker_guard
+            .get_expired_sessions(current_time)
+            .into_iter()
+            .flatten()
+            .collect();
+        for session_id in expired {
+            info!("Cleaning up expired session {}", session_id);
+            state.connections.remove(&session_id);
+            broker_guard.remove_session(session_id);
+        }
+
+        // Check disconnected sessions
+        let disconnected: Vec<u128> = broker_guard
+            .get_disconnected_sessions()
+            .into_iter()
+            .flatten()
+            .collect();
+        for session_id in disconnected {
+            info!("Cleaning up disconnected session {}", session_id);
+            state.connections.remove(&session_id);
+            broker_guard.remove_session(session_id);
         }
     }
 }
@@ -689,7 +441,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind_addr = "0.0.0.0:1883";
     info!("Starting picobroker tokio server on {}", bind_addr);
-    info!("Configuration: {} shards, {} max sessions per shard", NUM_SHARDS, SESSIONS_PER_SHARD);
+    info!("Configuration: {} max sessions", MAX_SESSIONS);
 
     let listener = TcpListener::bind(bind_addr).await?;
     info!("Server listening on {}", bind_addr);
@@ -697,27 +449,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create server state
     let state = Arc::new(ServerState::new());
 
-    // Create broker shards
-    let mut shards = Vec::with_capacity(NUM_SHARDS);
-    for shard_idx in 0..NUM_SHARDS {
-        let broker = ShardBroker::new();
-        let (shard, work_rx) = BrokerShard::new();
-        let shard = Arc::new(shard);
-        shards.push(shard.clone());
-
-        // Spawn shard worker
-        tokio::spawn(async move {
-            info!("Shard {} worker starting", shard_idx);
-            shard_worker(work_rx, broker).await;
-            info!("Shard {} worker exited", shard_idx);
-        });
-    }
+    // Create shared broker
+    let broker: SharedBroker = Arc::new(tokio::sync::Mutex::new(PicoBroker::new()));
 
     // Spawn cleanup task
     let cleanup_state = state.clone();
-    let cleanup_shards = shards.clone();
+    let cleanup_broker = broker.clone();
     tokio::spawn(async move {
-        cleanup_task(cleanup_state, cleanup_shards).await;
+        cleanup_task(cleanup_state, cleanup_broker).await;
     });
     info!("Cleanup task spawned");
 
@@ -731,11 +470,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 debug!("Active connections: {}", state.connections.len());
 
                 let handler_state = state.clone();
-                let handler_shards = shards.clone();
+                let handler_broker = broker.clone();
 
                 tokio::spawn(async move {
                     debug!("Handler task spawned for {}", peer_addr);
-                    if let Err(e) = handle_connection(socket, peer_addr, handler_state, &handler_shards).await {
+                    if let Err(e) = handle_connection(socket, peer_addr, handler_state, handler_broker).await {
                         error!("Client handler error: {}", e);
                     }
                 });
