@@ -340,6 +340,20 @@ impl<
         }
     }
 
+    pub fn has_pending_tx_packets(&self, session_id: u128) -> bool {
+        self.sessions
+            .iter()
+            .find(|s_opt| {
+                s_opt
+                    .as_ref()
+                    .map(|s| s.session_id == session_id)
+                    .unwrap_or(false)
+            })
+            .and_then(|s_opt| s_opt.as_ref())
+            .map(|s| !s.tx_queue.is_empty())
+            .unwrap_or(false)
+    }
+
     fn find_session(
         &mut self,
         session_id: u128,

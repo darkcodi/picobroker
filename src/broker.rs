@@ -1,4 +1,5 @@
 use crate::error::BrokerError;
+use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::{
     ConnAckPacket, ConnectPacket, Packet, PingRespPacket, PubAckPacket, PublishPacket,
     SubAckPacket, SubscribePacket,
@@ -230,5 +231,19 @@ impl<
 
     fn handle_disconnect(&mut self, session_id: u128) -> Result<(), BrokerError> {
         self.mark_session_disconnected(session_id)
+    }
+
+    pub fn get_sessions_with_pending_packets(&self) -> HeaplessVec<u128, MAX_SESSIONS> {
+        let mut pending = HeaplessVec::new();
+        let session_ids = self.get_all_sessions();
+
+        for session_id in session_ids.into_iter().flatten() {
+            // Check if session has pending outbound packets
+            if self.sessions.has_pending_tx_packets(session_id) {
+                let _ = pending.push(session_id);
+            }
+        }
+
+        pending
     }
 }

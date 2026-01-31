@@ -49,6 +49,7 @@ type SharedBroker = Arc<tokio::sync::Mutex<PicoBroker<
 struct ServerState {
     connections: dashmap::DashMap<u128, ConnectionHandle>,
     session_id_gen: AtomicU64,
+    notification_senders: dashmap::DashMap<u128, tokio::sync::mpsc::Sender<()>>,
 }
 
 #[allow(dead_code)]
@@ -62,6 +63,21 @@ impl ServerState {
         Self {
             connections: dashmap::DashMap::new(),
             session_id_gen: AtomicU64::new(0),
+            notification_senders: dashmap::DashMap::new(),
+        }
+    }
+
+    fn register_notification(&self, session_id: u128, sender: tokio::sync::mpsc::Sender<()>) {
+        self.notification_senders.insert(session_id, sender);
+    }
+
+    fn remove_notification(&self, session_id: u128) {
+        self.notification_senders.remove(&session_id);
+    }
+
+    async fn notify_session(&self, session_id: u128) {
+        if let Some(sender) = self.notification_senders.get(&session_id) {
+            let _ = sender.send(()).await;
         }
     }
 
@@ -187,6 +203,12 @@ async fn handle_connection(
 
     info!("New session {}", session_id);
 
+    // NEW: Create notification channel for this session
+    let (notify_tx, mut notify_rx) = mpsc::channel(8);
+
+    // Register notification sender with ServerState
+    state.register_notification(session_id, notify_tx);
+
     // Register session with broker
     {
         let mut broker_guard = broker.lock().await;
@@ -273,6 +295,13 @@ async fn handle_connection(
                             .queue_packet_received_from_client(session_id, packet, current_time)
                             .and_then(|_| broker_guard.process_all_session_packets());
 
+                        // NEW: Get sessions with pending packets BEFORE dropping lock
+                        let sessions_to_notify: Vec<u128> = if result.is_ok() {
+                            broker_guard.get_sessions_with_pending_packets().to_vec()
+                        } else {
+                            Vec::new()
+                        };
+
                         let tx_packets = match result {
                             Ok(()) => {
                                 let mut packets = Vec::new();
@@ -306,6 +335,11 @@ async fn handle_connection(
                             }
                         };
                         drop(broker_guard);
+
+                        // NEW: Send notifications to sessions with pending packets
+                        for sid in sessions_to_notify {
+                            state.notify_session(sid).await;
+                        }
 
                         // Send packets to client
                         for pkt in tx_packets {
@@ -349,6 +383,66 @@ async fn handle_connection(
                 }
             }
 
+            // NEW: Notification from broker that outbound packets are ready
+            Some(()) = notify_rx.recv() => {
+                trace!("Session {}: Received outbound notification", session_id);
+
+                // Dequeue and send packets
+                let mut broker_guard = broker.lock().await;
+                let mut packets = Vec::new();
+                while let Ok(Some(pkt)) = broker_guard.dequeue_packet_to_send_to_client(session_id) {
+                    let pkt_type = match &pkt {
+                        Packet::ConnAck(_) => "CONNACK",
+                        Packet::Publish(_) => "PUBLISH",
+                        Packet::PubAck(_) => "PUBACK",
+                        Packet::PubRec(_) => "PUBREC",
+                        Packet::PubRel(_) => "PUBREL",
+                        Packet::PubComp(_) => "PUBCOMP",
+                        Packet::SubAck(_) => "SUBACK",
+                        Packet::UnsubAck(_) => "UNSUBACK",
+                        Packet::PingResp(_) => "PINGRESP",
+                        _ => "OTHER",
+                    };
+                    debug!("Dequeuing {} for session {}", pkt_type, session_id);
+                    packets.push(pkt);
+                }
+                drop(broker_guard);
+
+                if !packets.is_empty() {
+                    debug!("Sending {} packets to session {}", packets.len(), session_id);
+                }
+
+                // Send packets to client
+                for pkt in packets {
+                    let pkt_type = match &pkt {
+                        Packet::ConnAck(c) => Some(format!("CONNACK (rc={})", c.return_code as u8)),
+                        Packet::Publish(p) => Some(format!("PUBLISH (topic={})", p.topic_name)),
+                        Packet::PubAck(p) => Some(format!("PUBACK (id={})", p.packet_id)),
+                        Packet::PubRec(p) => Some(format!("PUBREC (id={})", p.packet_id)),
+                        Packet::PubRel(p) => Some(format!("PUBREL (id={})", p.packet_id)),
+                        Packet::PubComp(p) => Some(format!("PUBCOMP (id={})", p.packet_id)),
+                        Packet::SubAck(_) => Some("SUBACK".to_string()),
+                        Packet::UnsubAck(_) => Some("UNSUBACK".to_string()),
+                        Packet::PingResp(_) => Some("PINGRESP".to_string()),
+                        _ => None,
+                    };
+                    match encode_frame(&pkt) {
+                        Ok(frame) => {
+                            if let Some(pt) = pkt_type {
+                                debug!("Session {}: Sending {}", session_id, pt);
+                            }
+                            if frame_tx.send(frame).await.is_err() {
+                                warn!("Frame channel closed for session {}", session_id);
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to encode packet: {}", e);
+                        }
+                    }
+                }
+            }
+
             // Write to socket
             Some(frame) = frame_rx.recv() => {
                 trace!("Session {}: Writing {} bytes to socket", session_id, frame.len());
@@ -378,6 +472,9 @@ async fn handle_connection(
     if was_present {
         debug!("Session {} removed from server state", session_id);
     }
+
+    // NEW: Remove notification sender
+    state.remove_notification(session_id);
 
     {
         let mut broker_guard = broker.lock().await;
