@@ -1,13 +1,6 @@
-[workspace]
-members = [
-    "libs/picobroker-core",
-    "libs/picobroker-tokio",
-    "libs/picobroker-embassy",
-    "examples/tokio_server",
-]
-resolver = "2"
-
-[workspace.package]
+[package]
+name = "picobroker-core"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+
+[dependencies]

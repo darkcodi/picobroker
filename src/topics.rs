@@ -225,10 +225,8 @@ fn topic_matches(published: &str, filter: &str) -> bool {
         let sub_level = sub_levels.next();
 
         if let Some(level) = sub_level {
-            if level == "#" {
-                if sub_levels.next().is_none() {
-                    return true;
-                }
+            if level == "#" && sub_levels.next().is_none() {
+                return true;
             }
         } else {
             return pub_level.is_none();

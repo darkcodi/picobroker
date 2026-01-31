@@ -1,8 +1,0 @@
-[package]
-name = "picobroker-tokio"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-picobroker-core = { path = "../picobroker-core" }
-tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util"] }

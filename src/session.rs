@@ -2,7 +2,6 @@ use crate::client::ClientId;
 use crate::error::BrokerError;
 use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::Packet;
-use log::error;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -242,7 +241,6 @@ impl<
             self.sessions.remove(idx);
             true
         } else {
-            error!("Session {} not found for removal", session_id);
             false
         }
     }

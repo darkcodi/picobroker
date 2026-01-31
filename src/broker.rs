@@ -6,7 +6,6 @@ use crate::protocol::packets::{
 use crate::protocol::qos::QoS;
 use crate::session::SessionRegistry;
 use crate::topics::TopicRegistry;
-use log::info;
 
 #[derive(Debug)]
 pub struct PicoBroker<
@@ -85,7 +84,6 @@ impl<
     }
 
     pub fn mark_session_disconnected(&mut self, session_id: u128) -> Result<(), BrokerError> {
-        info!("Marking session {} as disconnected", session_id);
         self.sessions.mark_disconnected(session_id)
     }
 
@@ -127,17 +125,13 @@ impl<
     pub fn process_all_session_packets(&mut self) -> Result<(), BrokerError> {
         let session_ids = self.get_all_sessions();
 
-        let mut total_processed = 0usize;
-
         for session_id in session_ids.into_iter().flatten() {
             while let Some(packet) = self.sessions.dequeue_rx_packet(session_id)? {
                 match packet {
                     Packet::Connect(connect) => {
                         self.handle_connect(session_id, &connect)?;
                     }
-                    Packet::ConnAck(_) => {
-                        info!("Unexpected CONNACK from session {}", session_id);
-                    }
+                    Packet::ConnAck(_) => {}
                     Packet::Publish(publish) => {
                         self.handle_publish(session_id, &publish)?;
                     }
@@ -148,28 +142,18 @@ impl<
                     Packet::Subscribe(subscribe) => {
                         self.handle_subscribe(session_id, &subscribe)?;
                     }
-                    Packet::SubAck(_) => {
-                        info!("Unexpected SUBACK from session {}", session_id);
-                    }
+                    Packet::SubAck(_) => {}
                     Packet::Unsubscribe(_) => {}
                     Packet::UnsubAck(_) => {}
                     Packet::PingReq(_) => {
                         self.handle_pingreq(session_id)?;
                     }
-                    Packet::PingResp(_) => {
-                        info!("Received PINGRESP from session {}", session_id);
-                    }
+                    Packet::PingResp(_) => {}
                     Packet::Disconnect(_) => {
                         self.handle_disconnect(session_id)?;
                     }
                 }
-
-                total_processed += 1;
             }
-        }
-
-        if total_processed > 0 {
-            info!("Processed {} packets from sessions", total_processed);
         }
 
         Ok(())
