@@ -413,7 +413,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio_server"
+name = "tokio_mqtt_server"
 version = "0.1.0"
 dependencies = [
  "bytes",

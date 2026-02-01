@@ -227,7 +227,7 @@ impl WifiManager {
         let state = STATE.init(cyw43::State::new());
         let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, CYW43_FW).await;
 
-        spawner.spawn(cyw43_runner_task(runner).expect("failed to spawn cyw43_runner_task"));
+        let _ = spawner.spawn(cyw43_runner_task(runner));
 
         control.init(CYW43_CLM).await;
         control.set_power_management(power_mode).await;
@@ -682,7 +682,7 @@ async fn main(spawner: Spawner) {
     let stack: &'static Stack<'static> = STACK_CELL.init(stack);
 
     // Spawn the network runner task
-    spawner.spawn(net_runner_task(runner).expect("failed to spawn net_runner_task"));
+    let _ = spawner.spawn(net_runner_task(runner));
 
     // Create WifiManager with the static stack reference
     let mut wifi_manager = WifiManager::new(control, stack, pio_keepalive);
@@ -704,13 +704,12 @@ async fn main(spawner: Spawner) {
     info!("MQTT broker initialized");
 
     // Spawn cleanup task with broker reference
-    spawner.spawn(cleanup_task(broker).expect("failed to spawn cleanup task"));
+    let _ = spawner.spawn(cleanup_task(broker));
     info!("Cleanup task spawned");
 
     // Spawn accept tasks for fixed socket pool with all references
     for idx in 0..MAX_SESSIONS {
-        spawner.spawn(accept_task(stack, broker, session_id_gen, notification_registry, idx)
-            .expect("failed to spawn accept task"));
+        let _ = spawner.spawn(accept_task(stack, broker, session_id_gen, notification_registry, idx));
     }
     info!("MQTT server listening on port 1883");
     info!("Supporting up to {} concurrent sessions", MAX_SESSIONS);

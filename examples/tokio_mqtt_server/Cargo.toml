@@ -1,11 +1,11 @@
 [package]
-name = "tokio_server"
+name = "tokio_mqtt_server"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-picobroker-core = { path = "../.." }
+picobroker-core = { path = "../../libs/picobroker-core" }
 tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util", "sync"] }
 log = "0.4"
 env_logger = "0.11"
