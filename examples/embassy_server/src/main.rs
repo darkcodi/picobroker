@@ -345,7 +345,7 @@ async fn cleanup_task(broker: &'static BrokerMutex) {
 // Accept Task
 // =============================================================================
 
-#[embassy_executor::task]
+#[embassy_executor::task(pool_size = MAX_SESSIONS)]
 async fn accept_task(
     stack: &'static Stack<'static>,
     broker: &'static BrokerMutex,
