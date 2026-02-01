@@ -234,7 +234,7 @@ async fn accept_task(
 
         defmt::debug!("Socket {} waiting for connection on port {}", socket_idx, MQTT_PORT);
 
-        if let Err(_) = socket.accept(MQTT_PORT).await {
+        if socket.accept(MQTT_PORT).await.is_err() {
             defmt::error!("Socket {} accept error", socket_idx);
             embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
             continue;
@@ -246,11 +246,10 @@ async fn accept_task(
         // Register session with broker
         {
             let mut broker_lock = broker.lock().await;
-            if let Err(_) = broker_lock.register_new_session(
-                session_id,
-                DEFAULT_KEEP_ALIVE,
-                current_time_nanos(),
-            ) {
+            if broker_lock
+                .register_new_session(session_id, DEFAULT_KEEP_ALIVE, current_time_nanos())
+                .is_err()
+            {
                 defmt::error!("Failed to register session {}", session_id);
                 continue;
             }
@@ -336,8 +335,7 @@ async fn main(spawner: Spawner) {
         SESSION_ID_GEN_CELL.init(Mutex::new(SessionIdGen::new()));
 
     // Build notification registry
-    const INIT_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
-    let channels = [INIT_CHANNEL; MAX_SESSIONS];
+    let channels = core::array::from_fn(|_| Channel::<CriticalSectionRawMutex, (), 1>::new());
     let notification_registry: &'static NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex> =
         NOTIFICATION_REGISTRY.init(NotificationRegistry::new(channels));
 

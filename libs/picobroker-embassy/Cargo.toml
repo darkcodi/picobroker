@@ -11,5 +11,6 @@ embassy-time = { version = "0.5", features = ["defmt"] }
 embassy-executor = { version = "0.9", features = ["defmt"] }
 embassy-futures = "0.1"
 static_cell = "2.1"
+portable-atomic = { version = "1.5", features = ["critical-section"] }
 heapless = "0.9"
 defmt = "1.0"
