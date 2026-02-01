@@ -4,6 +4,13 @@ name = "embassy_server"
 version = "0.1.0"
 license = "MIT"
 
+[[bin]]
+name = "embassy_server"
+path = "src/main.rs"
+test = false
+doctest = false
+bench = false
+
 [dependencies]
 cortex-m-rt = "0.7"
 cyw43 = { version = "0.6.0", features = ["defmt", "firmware-logs"] }
