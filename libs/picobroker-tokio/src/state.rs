@@ -31,6 +31,7 @@ impl Default for SessionIdGenerator {
 
 /// Lightweight session metadata
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ConnectionHandle {
     pub session_id: u128,
     pub peer_addr: String,

@@ -4,3 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+picobroker-core = { path = "../picobroker-core" }
+embassy-net = { version = "0.8", features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "proto-ipv4"] }
+embassy-sync = { version = "0.7", features = ["defmt"] }
+embassy-time = { version = "0.5", features = ["defmt"] }
+embassy-executor = { version = "0.9", features = ["defmt"] }
+embassy-futures = "0.1"
+static_cell = "2.1"
+heapless = "0.9"
+defmt = "1.0"
