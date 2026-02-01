@@ -540,7 +540,7 @@ async fn main(spawner: Spawner) {
     let mut rng = embassy_rp::clocks::RoscRng;
     let seed = rng.next_u64();
 
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<6>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
         net_device,
         stack_config,
