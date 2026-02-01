@@ -6,9 +6,13 @@ use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StaticConfigV4, Stack, StackResources};
+use embassy_net::tcp::TcpSocket;
 use embassy_rp::gpio::Output;
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::{InterruptHandler, Pio};
+use picobroker_core::broker::PicoBroker;
+use picobroker_core::protocol::packets::{Packet, PacketEncoder};
+use picobroker_core::protocol::ProtocolError;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -26,6 +30,75 @@ const _: () = assert!(
     AP_PASSWORD.len() >= 8,
     "AP_PASSWORD must be at least 8 characters"
 );
+
+// MQTT Broker Configuration
+const MAX_TOPIC_NAME_LENGTH: usize = 64;
+const MAX_PAYLOAD_SIZE: usize = 256;
+const QUEUE_SIZE: usize = 8;
+const MAX_SESSIONS: usize = 4;        // 4 concurrent sessions
+const MAX_TOPICS: usize = 32;
+const MAX_SUBSCRIBERS_PER_TOPIC: usize = 8;
+const DEFAULT_KEEP_ALIVE: u16 = 60;
+
+// Network Configuration
+const MQTT_PORT: u16 = 1883;
+const RX_BUFFER_SIZE: usize = 1536;   // Max MQTT packet
+const TX_BUFFER_SIZE: usize = 1536;
+
+// =============================================================================
+// MQTT Broker Type Aliases and Static State
+// =============================================================================
+
+// Type aliases for broker (QoS 0,1 only - no QoS 2 handling needed)
+type MqttBroker = PicoBroker<
+    MAX_TOPIC_NAME_LENGTH,
+    MAX_PAYLOAD_SIZE,
+    QUEUE_SIZE,
+    MAX_SESSIONS,
+    MAX_TOPICS,
+    MAX_SUBSCRIBERS_PER_TOPIC,
+>;
+
+// Static storage for broker (no Arc in no-std)
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
+type BrokerMutex = Mutex<ThreadModeRawMutex, MqttBroker>;
+
+static BROKER: StaticCell<BrokerMutex> = StaticCell::new();
+
+// Session ID generator
+struct SessionIdGen(u64);
+
+impl SessionIdGen {
+    fn new() -> Self {
+        Self(0)
+    }
+
+    fn generate(&mut self) -> u128 {
+        let timestamp = embassy_time::Instant::now().as_ticks() as u128;
+        let counter = self.0;
+        self.0 = self.0.wrapping_add(1);
+        (timestamp << 32) | (counter as u128)
+    }
+}
+
+static SESSION_ID_GEN: StaticCell<Mutex<ThreadModeRawMutex, SessionIdGen>> = StaticCell::new();
+
+// Helper to get current time in nanoseconds
+fn current_time_nanos() -> u128 {
+    embassy_time::Instant::now().as_ticks() as u128
+}
+
+// Helper to get broker reference (must be initialized first)
+fn broker() -> &'static BrokerMutex {
+    unsafe { &*((&BROKER) as *const _ as *const BrokerMutex) }
+}
+
+// Helper to get session ID generator reference (must be initialized first)
+fn session_id_gen() -> &'static Mutex<ThreadModeRawMutex, SessionIdGen> {
+    unsafe { &*((&SESSION_ID_GEN) as *const _ as *const Mutex<ThreadModeRawMutex, SessionIdGen>) }
+}
+
 
 pub struct WifiPins {
     pub pwr: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_23>,
@@ -54,7 +127,7 @@ pub struct WifiConfig {
 
 pub struct WifiManager {
     pub control: cyw43::Control<'static>,
-    pub stack: Stack<'static>,
+    pub stack: Stack<'static>,  // Made public for MQTT server access
     _pio_keepalive: PioKeepalive<'static>,
 }
 
@@ -145,6 +218,304 @@ async fn net_runner_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriv
     runner.run().await
 }
 
+// =============================================================================
+// Packet I/O Functions
+// =============================================================================
+
+/// Parse variable length integer from buffer
+fn parse_remaining_length(buffer: &[u8]) -> Result<(usize, usize), ProtocolError> {
+    let mut idx = 1;
+    let mut multiplier = 1usize;
+    let mut value = 0usize;
+
+    loop {
+        if idx >= buffer.len() {
+            return Err(ProtocolError::IncompletePacket {
+                available: buffer.len(),
+            });
+        }
+        let byte = buffer[idx] as usize;
+        idx += 1;
+        value += (byte & 0x7F) * multiplier;
+
+        if (byte & 0x80) == 0 {
+            break;
+        }
+
+        multiplier *= 128;
+        if multiplier > 128 * 128 * 128 {
+            return Err(ProtocolError::InvalidPacketLength {
+                expected: 4,
+                actual: 5,
+            });
+        }
+    }
+
+    Ok((value, idx - 1))
+}
+
+/// Read complete MQTT packet from socket
+async fn read_packet<'a>(
+    socket: &mut TcpSocket<'a>,
+    buffer: &mut [u8],
+    buffer_len: &mut usize,
+) -> Result<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, ProtocolError> {
+    // Ensure at least 2 bytes
+    while *buffer_len < 2 {
+        match socket.read(&mut buffer[*buffer_len..]).await {
+            Ok(0) => return Ok(None), // EOF
+            Ok(n) => *buffer_len += n,
+            Err(_) => return Err(ProtocolError::IncompletePacket { available: *buffer_len }),
+        }
+    }
+
+    // Parse remaining length
+    let (remaining_len, var_len_bytes) = parse_remaining_length(&buffer[..*buffer_len])?;
+    let total_len = 1 + var_len_bytes + remaining_len;
+
+    // Ensure full packet is available
+    while *buffer_len < total_len {
+        match socket.read(&mut buffer[*buffer_len..]).await {
+            Ok(0) => return Err(ProtocolError::IncompletePacket { available: *buffer_len }),
+            Ok(n) => *buffer_len += n,
+            Err(_) => return Err(ProtocolError::IncompletePacket { available: *buffer_len }),
+        }
+    }
+
+    // Decode packet
+    let packet = Packet::decode(&buffer[..total_len])?;
+
+    // Shift remaining data (manual buffer management, no BytesMut)
+    let remaining = *buffer_len - total_len;
+    buffer.copy_within(total_len.., 0);
+    *buffer_len = remaining;
+
+    Ok(Some(packet))
+}
+
+/// Write packet to socket
+async fn write_packet<'a>(
+    socket: &mut TcpSocket<'a>,
+    packet: &Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
+    buffer: &mut [u8],
+) -> Result<(), ProtocolError> {
+    let size = packet.encode(buffer)
+        .map_err(|_| ProtocolError::BufferTooSmall { buffer_size: 0 })?;
+
+    // Embassy TcpSocket doesn't have write_all, so write in a loop
+    let mut written = 0;
+    while written < size {
+        match socket.write(&buffer[written..size]).await {
+            Ok(0) => return Err(ProtocolError::IncompletePacket { available: written }),
+            Ok(n) => written += n,
+            Err(_) => return Err(ProtocolError::BufferTooSmall { buffer_size: 0 }),
+        }
+    }
+
+    Ok(())
+}
+
+// =============================================================================
+// Cleanup Task
+// =============================================================================
+
+#[embassy_executor::task]
+async fn cleanup_task() {
+    defmt::info!("Cleanup task started");
+
+    loop {
+        embassy_time::Timer::after(embassy_time::Duration::from_secs(5)).await;
+
+        let current_time = current_time_nanos();
+        let mut broker = broker().lock().await;
+
+        // Clean expired sessions
+        let expired: heapless::Vec<u128, 4> = broker
+            .get_expired_sessions(current_time)
+            .into_iter()
+            .flatten()
+            .collect();
+
+        for session_id in expired {
+            defmt::info!("Cleaning up expired session {}", session_id);
+            broker.remove_session(session_id);
+        }
+
+        // Clean disconnected sessions
+        let disconnected: heapless::Vec<u128, 4> = broker
+            .get_disconnected_sessions()
+            .into_iter()
+            .flatten()
+            .collect();
+
+        for session_id in disconnected {
+            defmt::info!("Cleaning up disconnected session {}", session_id);
+            broker.remove_session(session_id);
+        }
+    }
+}
+
+// =============================================================================
+// Accept Task
+// =============================================================================
+
+#[embassy_executor::task]
+async fn accept_task(stack: &'static Stack<'static>, socket_idx: usize) {
+    loop {
+        // Create new socket (fixed pool pattern)
+        let mut rx_buf = [0u8; RX_BUFFER_SIZE];
+        let mut tx_buf = [0u8; TX_BUFFER_SIZE];
+        let mut socket = TcpSocket::new(*stack, &mut rx_buf, &mut tx_buf);
+
+        defmt::debug!("Socket {} waiting for connection on port {}", socket_idx, MQTT_PORT);
+
+        if let Err(_) = socket.accept(MQTT_PORT).await {
+            defmt::error!("Socket {} accept error", socket_idx);
+            embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        let session_id = session_id_gen().lock().await.generate();
+        defmt::info!("Socket {} accepted session {}", socket_idx, session_id);
+
+        // Register session with broker
+        {
+            let mut broker = broker().lock().await;
+            if let Err(_) = broker.register_new_session(session_id, DEFAULT_KEEP_ALIVE, current_time_nanos()) {
+                defmt::error!("Failed to register session {}", session_id);
+                continue;
+            }
+        }
+
+        // Static buffers for packet processing (local to this connection)
+        let mut rx_buffer = [0u8; RX_BUFFER_SIZE];
+        let mut tx_buffer = [0u8; TX_BUFFER_SIZE];
+        let mut buffer_len = 0usize;
+        let mut last_activity = embassy_time::Instant::now();
+        let keep_alive_timeout = embassy_time::Duration::from_secs((DEFAULT_KEEP_ALIVE as u64 * 3 / 2) as u64);
+
+        defmt::info!("Session {} entering main loop", session_id);
+
+        // Handle connection inline (this blocks the accept task until disconnect)
+        loop {
+            // Calculate timeout duration
+            let elapsed = last_activity.elapsed();
+            let time_until_timeout = if elapsed > keep_alive_timeout {
+                embassy_time::Duration::from_secs(0)
+            } else {
+                keep_alive_timeout - elapsed
+            };
+
+            // Check if timeout occurred before trying to read
+            if elapsed >= keep_alive_timeout {
+                defmt::info!("Session {} keep-alive timeout", session_id);
+                break;
+            }
+
+            // Try to read with timeout using select
+            let read_result = embassy_futures::select::select(
+                socket.read(&mut rx_buffer[buffer_len..]),
+                embassy_time::Timer::after(time_until_timeout),
+            ).await;
+
+            match read_result {
+                embassy_futures::select::Either::First(result) => {
+                    // Data received from socket
+                    match result {
+                        Ok(0) => {
+                            // EOF - client closed connection
+                            defmt::info!("Session {} client closed connection", session_id);
+                            break;
+                        }
+                        Ok(n) => {
+                            buffer_len += n;
+
+                            // Try to read a complete packet
+                            match read_packet(&mut socket, &mut rx_buffer, &mut buffer_len).await {
+                                Ok(Some(packet)) => {
+                                    last_activity = embassy_time::Instant::now();
+
+                                    defmt::debug!("Session {} received packet type={}",
+                                        session_id,
+                                        match &packet {
+                                            Packet::Connect(_) => "CONNECT",
+                                            Packet::Publish(_) => "PUBLISH",
+                                            Packet::Subscribe(_) => "SUBSCRIBE",
+                                            Packet::PingReq(_) => "PINGREQ",
+                                            Packet::Disconnect(_) => "DISCONNECT",
+                                            _ => "OTHER",
+                                        }
+                                    );
+
+                                    // Process with broker
+                                    let mut broker = broker().lock().await;
+                                    let current_time = current_time_nanos();
+
+                                    let result = broker
+                                        .queue_packet_received_from_client(session_id, packet, current_time)
+                                        .and_then(|_| broker.process_all_session_packets());
+
+                                    let tx_packets = match result {
+                                        Ok(()) => {
+                                            let mut packets = heapless::Vec::<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, 8>::new();
+                                            while let Ok(Some(pkt)) = broker.dequeue_packet_to_send_to_client(session_id) {
+                                                let _ = packets.push(pkt);
+                                            }
+                                            packets
+                                        }
+                                        Err(_) => {
+                                            defmt::warn!("Error processing packet for session {}", session_id);
+                                            let _ = broker.mark_session_disconnected(session_id);
+                                            break;
+                                        }
+                                    };
+                                    drop(broker);
+
+                                    // Send packets to client
+                                    for pkt in tx_packets {
+                                        if let Err(_) = write_packet(&mut socket, &pkt, &mut tx_buffer).await {
+                                            defmt::error!("Write error for session {}", session_id);
+                                            break;
+                                        }
+                                    }
+                                }
+                                Ok(None) => {
+                                    // Incomplete packet, continue reading
+                                    continue;
+                                }
+                                Err(_) => {
+                                    defmt::warn!("Protocol error for session {}", session_id);
+                                    break;
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            defmt::warn!("Socket read error for session {}", session_id);
+                            break;
+                        }
+                    }
+                }
+                embassy_futures::select::Either::Second(_) => {
+                    // Timer fired - should timeout
+                    defmt::info!("Session {} keep-alive timeout", session_id);
+                    break;
+                }
+            }
+        }
+
+        // Cleanup
+        defmt::info!("Session {} closing", session_id);
+        let mut broker = broker().lock().await;
+        broker.remove_session(session_id);
+
+        defmt::info!("Socket {} ready for new connection", socket_idx);
+    }
+}
+
+
+
+
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
@@ -178,6 +549,25 @@ async fn main(spawner: Spawner) {
     info!("AP SSID: {}", AP_SSID);
     info!("AP Password: {}", AP_PASSWORD);
     info!("AP Gateway IP: {}", ip);
+
+    // Initialize MQTT broker
+    BROKER.init(Mutex::new(MqttBroker::new()));
+    SESSION_ID_GEN.init(Mutex::new(SessionIdGen::new()));
+    info!("MQTT broker initialized");
+
+    // Extend stack lifetime to 'static (safe because main never returns)
+    let stack: &'static Stack<'static> = unsafe { core::mem::transmute(&wifi_manager.stack) };
+
+    // Spawn cleanup task
+    spawner.spawn(cleanup_task().expect("failed to spawn cleanup task"));
+    info!("Cleanup task spawned");
+
+    // Spawn accept tasks for fixed socket pool
+    for idx in 0..MAX_SESSIONS {
+        spawner.spawn(accept_task(stack, idx).expect("failed to spawn accept task"));
+    }
+    info!("MQTT server listening on port 1883");
+    info!("Supporting up to {} concurrent sessions", MAX_SESSIONS);
 
     // Keep executor alive
     loop {
