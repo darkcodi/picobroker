@@ -2,16 +2,17 @@
 members = [
     "libs/picobroker-core",
     "libs/picobroker-tokio",
+    "libs/picobroker-embassy",
     "examples/tokio_mqtt_server",
 ]
 # ARM-only members - build with: cargo build -p picobroker-embassy --target thumbv6m-none-eabi
 exclude = [
-    "libs/picobroker-embassy",
     "examples/rp2040_mqtt_server",
 ]
 default-members = [
     "libs/picobroker-core",
     "libs/picobroker-tokio",
+    "libs/picobroker-embassy",
 ]
 resolver = "2"
 
