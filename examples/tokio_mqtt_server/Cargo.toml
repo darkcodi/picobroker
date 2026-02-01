@@ -5,10 +5,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-picobroker-core = { path = "../../libs/picobroker-core" }
+picobroker-tokio = { path = "../../libs/picobroker-tokio" }
 tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util", "sync"] }
 log = "0.4"
 env_logger = "0.11"
-bytes = "1"
-dashmap = "6"
-tokio-util = { version = "0.7", features = ["io"] }
