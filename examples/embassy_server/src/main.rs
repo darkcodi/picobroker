@@ -11,6 +11,7 @@ use embassy_rp::gpio::Output;
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use picobroker_core::broker::PicoBroker;
+use picobroker_core::protocol::heapless::HeaplessVec;
 use picobroker_core::protocol::packets::{Packet, PacketEncoder};
 use picobroker_core::protocol::ProtocolError;
 use static_cell::StaticCell;
@@ -57,9 +58,80 @@ type MqttBroker = PicoBroker<
 // Static storage for broker (no Arc in no-std)
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::channel::Channel;
 type BrokerMutex = Mutex<ThreadModeRawMutex, MqttBroker>;
 
 static BROKER_CELL: StaticCell<BrokerMutex> = StaticCell::new();
+
+// =============================================================================
+// Notification System for Waking Idle Connections
+// =============================================================================
+//
+// CRITICAL: This notification system is essential for proper message routing.
+// Without it, idle clients (those not sending data) would never receive messages
+// published by other clients because socket.read() blocks indefinitely.
+//
+// Each connection handler has a notification channel. When the broker queues
+// packets for a session, we signal that session's channel to wake it up so it
+// can flush the pending packets.
+
+// Notification channel type (just sends a unit signal, no actual data)
+type NotifyChannel = Channel<ThreadModeRawMutex, (), 1>;
+
+// Static array of notification channels (one per potential connection)
+struct NotificationRegistry {
+    channels: [NotifyChannel; MAX_SESSIONS],
+    // Map from channel index to session_id (so we know which session to notify)
+    // Using simple array instead of HeaplessVec for const-initializability
+    session_ids: Mutex<ThreadModeRawMutex, [u128; MAX_SESSIONS]>,
+}
+
+impl NotificationRegistry {
+    const fn new() -> Self {
+        const INIT_CHANNEL: NotifyChannel = Channel::new();
+        Self {
+            channels: [INIT_CHANNEL; MAX_SESSIONS],
+            session_ids: Mutex::new([0u128; MAX_SESSIONS]),
+        }
+    }
+
+    /// Register a session's notification channel at the given index
+    async fn register_session(&self, channel_idx: usize, session_id: u128) {
+        let mut ids = self.session_ids.lock().await;
+        if channel_idx < MAX_SESSIONS {
+            ids[channel_idx] = session_id;
+        }
+    }
+
+    /// Unregister a session
+    async fn unregister_session(&self, channel_idx: usize) {
+        let mut ids = self.session_ids.lock().await;
+        if channel_idx < MAX_SESSIONS {
+            ids[channel_idx] = 0;
+        }
+    }
+
+    /// Notify a specific session by session_id
+    async fn notify_session(&self, session_id: u128) {
+        let ids = self.session_ids.lock().await;
+        // Find which channel index has this session_id
+        for (idx, &id) in ids.iter().enumerate() {
+            if id == session_id {
+                // Use try_send - if channel is full, we don't need to send another signal
+                // (the connection will wake up and check anyway)
+                let _ = self.channels[idx].sender().try_send(());
+                break;
+            }
+        }
+    }
+
+    /// Get the receiver for a specific channel index
+    fn receiver(&self, channel_idx: usize) -> &NotifyChannel {
+        &self.channels[channel_idx]
+    }
+}
+
+static NOTIFICATION_REGISTRY: StaticCell<NotificationRegistry> = StaticCell::new();
 
 // Session ID generator
 struct SessionIdGen(u64);
@@ -362,6 +434,7 @@ async fn accept_task(
     stack: &'static Stack<'static>,
     broker: &'static BrokerMutex,
     session_id_gen: &'static Mutex<ThreadModeRawMutex, SessionIdGen>,
+    notification_registry: &'static NotificationRegistry,
     socket_idx: usize,
 ) {
     loop {
@@ -383,12 +456,19 @@ async fn accept_task(
 
         // Register session with broker
         {
-            let mut broker = broker.lock().await;
-            if let Err(_) = broker.register_new_session(session_id, DEFAULT_KEEP_ALIVE, current_time_nanos()) {
+            let mut broker_lock = broker.lock().await;
+            if let Err(_) = broker_lock.register_new_session(session_id, DEFAULT_KEEP_ALIVE, current_time_nanos()) {
                 defmt::error!("Failed to register session {}", session_id);
                 continue;
             }
         }
+
+        // Register session with notification registry (so this session can be woken up
+        // when messages are published to topics it's subscribed to)
+        notification_registry.register_session(socket_idx, session_id).await;
+
+        // Get the notification receiver for this socket index
+        let notify_receiver = notification_registry.receiver(socket_idx);
 
         // Static buffers for packet processing (local to this connection)
         let mut rx_buffer = [0u8; RX_BUFFER_SIZE];
@@ -415,14 +495,21 @@ async fn accept_task(
                 break;
             }
 
-            // Try to read with timeout using select
-            let read_result = embassy_futures::select::select(
+            // CRITICAL FIX: Use select3 to wait for THREE possible events:
+            // 1. Incoming data from client (socket.read)
+            // 2. Notification from broker that outbound packets are ready (notify_receiver.receive())
+            // 3. Keep-alive timeout
+            //
+            // Without the notification channel, idle clients would never receive messages
+            // because socket.read() blocks indefinitely.
+            let select_result = embassy_futures::select::select3(
                 socket.read(&mut rx_buffer[buffer_len..]),
+                notify_receiver.receive(),
                 embassy_time::Timer::after(time_until_timeout),
             ).await;
 
-            match read_result {
-                embassy_futures::select::Either::First(result) => {
+            match select_result {
+                embassy_futures::select::Either3::First(result) => {
                     // Data received from socket
                     match result {
                         Ok(0) => {
@@ -451,28 +538,43 @@ async fn accept_task(
                                     );
 
                                     // Process with broker
-                                    let mut broker = broker.lock().await;
+                                    let mut broker_lock = broker.lock().await;
                                     let current_time = current_time_nanos();
 
-                                    let result = broker
+                                    let result = broker_lock
                                         .queue_packet_received_from_client(session_id, packet, current_time)
-                                        .and_then(|_| broker.process_all_session_packets());
+                                        .and_then(|_| broker_lock.process_all_session_packets());
+
+                                    // CRITICAL: Get sessions with pending packets BEFORE dropping lock
+                                    // This is how we notify OTHER sessions that they have messages waiting
+                                    let sessions_to_notify = if result.is_ok() {
+                                        broker_lock.get_sessions_with_pending_packets()
+                                    } else {
+                                        HeaplessVec::new()
+                                    };
 
                                     let tx_packets = match result {
                                         Ok(()) => {
                                             let mut packets = heapless::Vec::<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, 8>::new();
-                                            while let Ok(Some(pkt)) = broker.dequeue_packet_to_send_to_client(session_id) {
+                                            while let Ok(Some(pkt)) = broker_lock.dequeue_packet_to_send_to_client(session_id) {
                                                 let _ = packets.push(pkt);
                                             }
                                             packets
                                         }
                                         Err(_) => {
                                             defmt::warn!("Error processing packet for session {}", session_id);
-                                            let _ = broker.mark_session_disconnected(session_id);
+                                            let _ = broker_lock.mark_session_disconnected(session_id);
+                                            drop(broker_lock);
                                             break;
                                         }
                                     };
-                                    drop(broker);
+                                    drop(broker_lock);
+
+                                    // CRITICAL: Notify all sessions that have pending packets
+                                    // This wakes up idle clients so they can receive their messages
+                                    for session_id_to_notify in sessions_to_notify {
+                                        notification_registry.notify_session(session_id_to_notify).await;
+                                    }
 
                                     // Send packets to client
                                     for pkt in tx_packets {
@@ -498,8 +600,28 @@ async fn accept_task(
                         }
                     }
                 }
-                embassy_futures::select::Either::Second(_) => {
-                    // Timer fired - should timeout
+                embassy_futures::select::Either3::Second(_) => {
+                    // Notification received - broker has queued packets for this session
+                    defmt::debug!("Session {} received notification, flushing packets", session_id);
+
+                    // Dequeue and send all pending packets
+                    let mut broker_lock = broker.lock().await;
+                    let mut packets = heapless::Vec::<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, 8>::new();
+                    while let Ok(Some(pkt)) = broker_lock.dequeue_packet_to_send_to_client(session_id) {
+                        let _ = packets.push(pkt);
+                    }
+                    drop(broker_lock);
+
+                    for pkt in packets {
+                        if let Err(_) = write_packet(&mut socket, &pkt, &mut tx_buffer).await {
+                            defmt::error!("Write error for session {}", session_id);
+                            break;
+                        }
+                    }
+                    // Loop back to wait for more events
+                }
+                embassy_futures::select::Either3::Third(_) => {
+                    // Timer fired - keep-alive timeout
                     defmt::info!("Session {} keep-alive timeout", session_id);
                     break;
                 }
@@ -508,8 +630,9 @@ async fn accept_task(
 
         // Cleanup
         defmt::info!("Session {} closing", session_id);
-        let mut broker = broker.lock().await;
-        broker.remove_session(session_id);
+        notification_registry.unregister_session(socket_idx).await;
+        let mut broker_lock = broker.lock().await;
+        broker_lock.remove_session(session_id);
 
         defmt::info!("Socket {} ready for new connection", socket_idx);
     }
@@ -574,6 +697,10 @@ async fn main(spawner: Spawner) {
     let broker: &'static BrokerMutex = BROKER_CELL.init(Mutex::new(MqttBroker::new()));
     let session_id_gen: &'static Mutex<ThreadModeRawMutex, SessionIdGen> =
         SESSION_ID_GEN_CELL.init(Mutex::new(SessionIdGen::new()));
+
+    // Initialize notification registry for waking idle connections
+    let notification_registry: &'static NotificationRegistry =
+        NOTIFICATION_REGISTRY.init(NotificationRegistry::new());
     info!("MQTT broker initialized");
 
     // Spawn cleanup task with broker reference
@@ -582,7 +709,7 @@ async fn main(spawner: Spawner) {
 
     // Spawn accept tasks for fixed socket pool with all references
     for idx in 0..MAX_SESSIONS {
-        spawner.spawn(accept_task(stack, broker, session_id_gen, idx)
+        spawner.spawn(accept_task(stack, broker, session_id_gen, notification_registry, idx)
             .expect("failed to spawn accept task"));
     }
     info!("MQTT server listening on port 1883");
