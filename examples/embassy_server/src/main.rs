@@ -64,7 +64,7 @@ use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 type BrokerMutex = Mutex<ThreadModeRawMutex, MqttBroker>;
 
-static BROKER: StaticCell<BrokerMutex> = StaticCell::new();
+static BROKER_CELL: StaticCell<BrokerMutex> = StaticCell::new();
 
 // Session ID generator
 struct SessionIdGen(u64);
@@ -82,23 +82,14 @@ impl SessionIdGen {
     }
 }
 
-static SESSION_ID_GEN: StaticCell<Mutex<ThreadModeRawMutex, SessionIdGen>> = StaticCell::new();
+static SESSION_ID_GEN_CELL: StaticCell<Mutex<ThreadModeRawMutex, SessionIdGen>> = StaticCell::new();
+
+static STACK_CELL: StaticCell<Stack<'static>> = StaticCell::new();
 
 // Helper to get current time in nanoseconds
 fn current_time_nanos() -> u128 {
     embassy_time::Instant::now().as_ticks() as u128
 }
-
-// Helper to get broker reference (must be initialized first)
-fn broker() -> &'static BrokerMutex {
-    unsafe { &*((&BROKER) as *const _ as *const BrokerMutex) }
-}
-
-// Helper to get session ID generator reference (must be initialized first)
-fn session_id_gen() -> &'static Mutex<ThreadModeRawMutex, SessionIdGen> {
-    unsafe { &*((&SESSION_ID_GEN) as *const _ as *const Mutex<ThreadModeRawMutex, SessionIdGen>) }
-}
-
 
 pub struct WifiPins {
     pub pwr: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_23>,
@@ -120,27 +111,24 @@ pub struct PioKeepalive<'a> {
     _sm3: embassy_rp::pio::StateMachine<'a, embassy_rp::peripherals::PIO0, 3>,
 }
 
-pub struct WifiConfig {
-    pub power_mode: cyw43::PowerManagementMode,
-    pub stack_config: embassy_net::Config,
-}
-
 pub struct WifiManager {
     pub control: cyw43::Control<'static>,
-    pub stack: Stack<'static>,  // Made public for MQTT server access
+    pub stack: &'static Stack<'static>,  // Reference to static stack
     _pio_keepalive: PioKeepalive<'static>,
 }
 
 impl WifiManager {
-    pub async fn init_wifi(
+    /// Initialize the CYW43 WiFi chip and return the network device and control.
+    /// The caller must create the Stack from the net_device and then call `new()` to create WifiManager.
+    pub async fn init_cyw43(
         pins: WifiPins,
         irqs: impl Binding<
             embassy_rp::interrupt::typelevel::PIO0_IRQ_0,
             InterruptHandler<embassy_rp::peripherals::PIO0>,
         >,
-        config: WifiConfig,
+        power_mode: cyw43::PowerManagementMode,
         spawner: embassy_executor::Spawner,
-    ) -> WifiManager {
+    ) -> (cyw43::Control<'static>, cyw43::NetDriver<'static>, PioKeepalive<'static>) {
         // Create WiFi control pins from peripherals
         let pwr = Output::new(pins.pwr, embassy_rp::gpio::Level::Low);
         let cs = Output::new(pins.cs, embassy_rp::gpio::Level::High);
@@ -175,24 +163,22 @@ impl WifiManager {
         spawner.spawn(cyw43_runner_task(runner).expect("failed to spawn cyw43_runner_task"));
 
         control.init(CYW43_CLM).await;
-        control.set_power_management(config.power_mode).await;
+        control.set_power_management(power_mode).await;
 
-        // 2. Initialize network stack
-        let mut rng = embassy_rp::clocks::RoscRng;
-        let seed = rng.next_u64();
+        (control, net_device, pio_keepalive)
+    }
 
-        static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-        let (stack, runner) = embassy_net::new(
-            net_device,
-            config.stack_config,
-            RESOURCES.init(StackResources::new()),
-            seed,
-        );
-
-        // Spawn the network runner task
-        spawner.spawn(net_runner_task(runner).expect("failed to spawn net_runner_task"));
-
-        WifiManager { control, stack, _pio_keepalive: pio_keepalive }
+    /// Create a new WifiManager with the given control, stack reference, and pio_keepalive.
+    pub fn new(
+        control: cyw43::Control<'static>,
+        stack: &'static Stack<'static>,
+        pio_keepalive: PioKeepalive<'static>,
+    ) -> Self {
+        Self {
+            control,
+            stack,
+            _pio_keepalive: pio_keepalive,
+        }
     }
 
     pub async fn start_ap_wpa2(&mut self, ap_ssid: &str, ap_password: &str, channel: u8) {
@@ -320,14 +306,14 @@ async fn write_packet<'a>(
 // =============================================================================
 
 #[embassy_executor::task]
-async fn cleanup_task() {
+async fn cleanup_task(broker: &'static BrokerMutex) {
     defmt::info!("Cleanup task started");
 
     loop {
         embassy_time::Timer::after(embassy_time::Duration::from_secs(5)).await;
 
         let current_time = current_time_nanos();
-        let mut broker = broker().lock().await;
+        let mut broker = broker.lock().await;
 
         // Clean expired sessions
         let expired: heapless::Vec<u128, 4> = broker
@@ -360,7 +346,12 @@ async fn cleanup_task() {
 // =============================================================================
 
 #[embassy_executor::task]
-async fn accept_task(stack: &'static Stack<'static>, socket_idx: usize) {
+async fn accept_task(
+    stack: &'static Stack<'static>,
+    broker: &'static BrokerMutex,
+    session_id_gen: &'static Mutex<ThreadModeRawMutex, SessionIdGen>,
+    socket_idx: usize,
+) {
     loop {
         // Create new socket (fixed pool pattern)
         let mut rx_buf = [0u8; RX_BUFFER_SIZE];
@@ -375,12 +366,12 @@ async fn accept_task(stack: &'static Stack<'static>, socket_idx: usize) {
             continue;
         }
 
-        let session_id = session_id_gen().lock().await.generate();
+        let session_id = session_id_gen.lock().await.generate();
         defmt::info!("Socket {} accepted session {}", socket_idx, session_id);
 
         // Register session with broker
         {
-            let mut broker = broker().lock().await;
+            let mut broker = broker.lock().await;
             if let Err(_) = broker.register_new_session(session_id, DEFAULT_KEEP_ALIVE, current_time_nanos()) {
                 defmt::error!("Failed to register session {}", session_id);
                 continue;
@@ -448,7 +439,7 @@ async fn accept_task(stack: &'static Stack<'static>, socket_idx: usize) {
                                     );
 
                                     // Process with broker
-                                    let mut broker = broker().lock().await;
+                                    let mut broker = broker.lock().await;
                                     let current_time = current_time_nanos();
 
                                     let result = broker
@@ -505,7 +496,7 @@ async fn accept_task(stack: &'static Stack<'static>, socket_idx: usize) {
 
         // Cleanup
         defmt::info!("Session {} closing", session_id);
-        let mut broker = broker().lock().await;
+        let mut broker = broker.lock().await;
         broker.remove_session(session_id);
 
         defmt::info!("Socket {} ready for new connection", socket_idx);
@@ -531,16 +522,40 @@ async fn main(spawner: Spawner) {
 
     // CRITICAL: Use static IP for AP mode (no DHCP)
     let ip = Ipv4Address::new(169, 254, 1, 1);
-    let config = WifiConfig {
-        power_mode: cyw43::PowerManagementMode::None,
-        stack_config: Config::ipv4_static(StaticConfigV4 {
-            address: Ipv4Cidr::new(ip.clone(), 16),
-            gateway: None,
-            dns_servers: Default::default(),
-        }),
-    };
+    let stack_config = Config::ipv4_static(StaticConfigV4 {
+        address: Ipv4Cidr::new(ip.clone(), 16),
+        gateway: None,
+        dns_servers: Default::default(),
+    });
 
-    let mut wifi_manager = WifiManager::init_wifi(pins, Irqs, config, spawner).await;
+    // Initialize CYW43 WiFi chip and get control + net_device
+    let (control, net_device, pio_keepalive) = WifiManager::init_cyw43(
+        pins,
+        Irqs,
+        cyw43::PowerManagementMode::None,
+        spawner,
+    ).await;
+
+    // Create network stack and store in StaticCell
+    let mut rng = embassy_rp::clocks::RoscRng;
+    let seed = rng.next_u64();
+
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(
+        net_device,
+        stack_config,
+        RESOURCES.init(StackResources::new()),
+        seed,
+    );
+
+    // Store stack in StaticCell to get 'static reference
+    let stack: &'static Stack<'static> = STACK_CELL.init(stack);
+
+    // Spawn the network runner task
+    spawner.spawn(net_runner_task(runner).expect("failed to spawn net_runner_task"));
+
+    // Create WifiManager with the static stack reference
+    let mut wifi_manager = WifiManager::new(control, stack, pio_keepalive);
     wifi_manager
         .start_ap_wpa2(AP_SSID, AP_PASSWORD, AP_CHANNEL)
         .await;
@@ -550,21 +565,20 @@ async fn main(spawner: Spawner) {
     info!("AP Password: {}", AP_PASSWORD);
     info!("AP Gateway IP: {}", ip);
 
-    // Initialize MQTT broker
-    BROKER.init(Mutex::new(MqttBroker::new()));
-    SESSION_ID_GEN.init(Mutex::new(SessionIdGen::new()));
+    // Initialize MQTT broker and session ID generator, store references
+    let broker: &'static BrokerMutex = BROKER_CELL.init(Mutex::new(MqttBroker::new()));
+    let session_id_gen: &'static Mutex<ThreadModeRawMutex, SessionIdGen> =
+        SESSION_ID_GEN_CELL.init(Mutex::new(SessionIdGen::new()));
     info!("MQTT broker initialized");
 
-    // Extend stack lifetime to 'static (safe because main never returns)
-    let stack: &'static Stack<'static> = unsafe { core::mem::transmute(&wifi_manager.stack) };
-
-    // Spawn cleanup task
-    spawner.spawn(cleanup_task().expect("failed to spawn cleanup task"));
+    // Spawn cleanup task with broker reference
+    spawner.spawn(cleanup_task(broker).expect("failed to spawn cleanup task"));
     info!("Cleanup task spawned");
 
-    // Spawn accept tasks for fixed socket pool
+    // Spawn accept tasks for fixed socket pool with all references
     for idx in 0..MAX_SESSIONS {
-        spawner.spawn(accept_task(stack, idx).expect("failed to spawn accept task"));
+        spawner.spawn(accept_task(stack, broker, session_id_gen, idx)
+            .expect("failed to spawn accept task"));
     }
     info!("MQTT server listening on port 1883");
     info!("Supporting up to {} concurrent sessions", MAX_SESSIONS);
