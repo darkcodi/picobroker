@@ -37,7 +37,7 @@ pub fn parse_remaining_length(buffer: &[u8]) -> Result<(usize, usize), ProtocolE
 }
 
 /// Read complete MQTT packet from socket
-pub async fn read_packet<'a, 'socket, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>(
+pub async fn read_packet<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>(
     socket: &mut TcpSocket<'a>,
     buffer: &mut [u8],
     buffer_len: &mut usize,
@@ -76,7 +76,7 @@ pub async fn read_packet<'a, 'socket, const MAX_TOPIC_NAME_LENGTH: usize, const 
 }
 
 /// Write packet to socket
-pub async fn write_packet<'a, 'socket, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>(
+pub async fn write_packet<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: usize>(
     socket: &mut TcpSocket<'a>,
     packet: &Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
     buffer: &mut [u8],

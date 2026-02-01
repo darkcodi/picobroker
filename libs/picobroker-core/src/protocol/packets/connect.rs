@@ -11,7 +11,6 @@ use crate::topics::TopicName;
 
 pub const MQTT_PROTOCOL_NAME: &str = "MQTT";
 pub const MQTT_3_1_1_PROTOCOL_LEVEL: u8 = 4;
-pub const _MQTT_5_0_PROTOCOL_LEVEL: u8 = 5;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct ConnectFlags(u8);
@@ -312,30 +311,6 @@ mod tests {
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
         packet
-    }
-
-    #[allow(dead_code)]
-    fn decode_test(
-        bytes: &[u8],
-    ) -> Result<ConnectPacket<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, ProtocolError> {
-        ConnectPacket::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>::decode(bytes)
-    }
-
-    #[macro_export]
-    macro_rules! assert_teq {
-        ($a:expr, $b:expr, $c:expr $(,)?) => {{
-
-            let __a = &$a;
-            let __b = &$b;
-            let __c = &$c;
-
-            if !(*__a == *__b && *__b == *__c) {
-                panic!(
-                    "assert_teq! failed: values are not all equal\n  a = {:?}\n  b = {:?}\n  c = {:?}",
-                    __a, __b, __c
-                );
-            }
-        }};
     }
 
     #[macro_export]

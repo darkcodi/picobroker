@@ -1,5 +1,5 @@
 use crate::io::{encode_frame, read_packet};
-use crate::state::{ConnectionHandle, ServerState, current_time_nanos};
+use crate::state::{ServerState, current_time_nanos};
 use bytes::BytesMut;
 use log::{debug, error, info, trace, warn};
 use picobroker_core::broker::PicoBroker;
@@ -136,13 +136,7 @@ pub async fn handle_connection<
     info!("Registered session {} for {}", session_id, peer_addr);
 
     // Store connection handle
-    state.connections.insert(
-        session_id,
-        ConnectionHandle {
-            session_id,
-            peer_addr: peer_addr.clone(),
-        },
-    );
+    state.connections.insert(session_id, ());
     info!("Session {} connection handle stored for {}", session_id, peer_addr);
 
     // Channels for frame transmission

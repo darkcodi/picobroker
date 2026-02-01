@@ -8,11 +8,11 @@
 //! ## Example
 //!
 //! ```no_run
-//! use picobroker_tokio::MqttServer;
+//! use picobroker_tokio::DefaultMqttServer;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let server = MqttServer::new();
+//!     let server = DefaultMqttServer::new();
 //!     server.run("0.0.0.0:1883").await?;
 //!     Ok(())
 //! }

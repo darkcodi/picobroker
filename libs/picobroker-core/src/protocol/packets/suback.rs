@@ -71,7 +71,6 @@ impl core::fmt::Display for SubAckPacket {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::ProtocolError;
 
     const MAX_PAYLOAD_SIZE: usize = 128;
 
@@ -94,11 +93,6 @@ mod tests {
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
         packet
-    }
-
-    #[allow(dead_code)]
-    fn decode_test(bytes: &[u8]) -> Result<SubAckPacket, ProtocolError> {
-        SubAckPacket::decode(bytes)
     }
 
     #[test]

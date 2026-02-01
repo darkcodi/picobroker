@@ -19,7 +19,7 @@ impl SessionIdGenerator {
             .unwrap()
             .as_secs() as u128;
         let counter = self.0.fetch_add(1, Ordering::Relaxed) as u128;
-        (base << 32) | (counter as u128)
+        (base << 32) | counter
     }
 }
 
@@ -29,17 +29,9 @@ impl Default for SessionIdGenerator {
     }
 }
 
-/// Lightweight session metadata
-#[derive(Debug)]
-#[allow(dead_code)]
-pub struct ConnectionHandle {
-    pub session_id: u128,
-    pub peer_addr: String,
-}
-
 /// Server state tracking connections and notifications
 pub struct ServerState {
-    pub connections: DashMap<u128, ConnectionHandle>,
+    pub connections: DashMap<u128, ()>,
     session_id_gen: SessionIdGenerator,
     notification_senders: DashMap<u128, tokio::sync::mpsc::Sender<()>>,
 }

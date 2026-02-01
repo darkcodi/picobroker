@@ -133,7 +133,6 @@ impl<const MAX_TOPIC_NAME_LENGTH: usize> core::fmt::Display
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::ProtocolError;
 
     const MAX_TOPIC_NAME_LENGTH: usize = 30;
 
@@ -156,13 +155,6 @@ mod tests {
         assert_eq!(encoded_size, bytes.len(), "Encoded size mismatch");
         assert_eq!(&buffer[..encoded_size], bytes, "Encoded bytes mismatch");
         packet
-    }
-
-    #[allow(dead_code)]
-    fn decode_test(
-        bytes: &[u8],
-    ) -> Result<UnsubscribePacket<MAX_TOPIC_NAME_LENGTH>, ProtocolError> {
-        UnsubscribePacket::<MAX_TOPIC_NAME_LENGTH>::decode(bytes)
     }
 
     #[test]

@@ -38,7 +38,6 @@ impl Default for HandlerConfig {
 /// to topics they're subscribed to.
 pub async fn handle_connection<
     'a,
-    'socket,
     M: RawMutex,
     const MAX_TOPIC_NAME_LENGTH: usize,
     const MAX_PAYLOAD_SIZE: usize,
@@ -71,7 +70,7 @@ pub async fn handle_connection<
     let mut tx_buffer = [0u8; RX_BUFFER_SIZE];
     let mut buffer_len = 0usize;
     let mut last_activity = Instant::now();
-    let keep_alive_timeout = Duration::from_secs((config.default_keep_alive_secs as u64 * 3 / 2) as u64);
+    let keep_alive_timeout = Duration::from_secs(config.default_keep_alive_secs as u64 * 3 / 2);
 
     defmt::debug!("Session {} entering main loop", session_id);
 
@@ -178,10 +177,11 @@ pub async fn handle_connection<
 
                                 // Send packets to client
                                 for pkt in tx_packets {
-                                    if let Err(_) = write_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
+                                    if (write_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
                                         socket, &pkt, &mut tx_buffer,
                                     )
-                                    .await
+                                    .await)
+                                    .is_err()
                                     {
                                         defmt::error!("Write error for session {}", session_id);
                                         break;
@@ -217,10 +217,11 @@ pub async fn handle_connection<
                 drop(broker_lock);
 
                 for pkt in packets {
-                    if let Err(_) = write_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
+                    if (write_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
                         socket, &pkt, &mut tx_buffer,
                     )
-                    .await
+                    .await)
+                    .is_err()
                     {
                         defmt::error!("Write error for session {}", session_id);
                         break;

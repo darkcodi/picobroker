@@ -4,7 +4,6 @@ use crate::protocol::heapless::HeaplessVec;
 use crate::protocol::packets::Packet;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum SessionState {
     #[default]
     Connecting,

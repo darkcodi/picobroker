@@ -106,6 +106,12 @@ where
 /// Session ID generator using timestamp and counter
 pub struct SessionIdGen(u64);
 
+impl Default for SessionIdGen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionIdGen {
     pub const fn new() -> Self {
         Self(0)
