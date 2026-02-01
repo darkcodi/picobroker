@@ -9,7 +9,7 @@ use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::Output;
 use embassy_rp::interrupt::typelevel::Binding;
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use picobroker_embassy::{current_time_nanos, handle_connection, HandlerConfig, NotificationRegistry, SessionIdGen};
@@ -45,12 +45,12 @@ type MqttBroker = PicoBroker<
     MAX_TOPICS,
     MAX_SUBSCRIBERS_PER_TOPIC,
 >;
-type BrokerMutex = Mutex<ThreadModeRawMutex, MqttBroker>;
+type BrokerMutex = Mutex<CriticalSectionRawMutex, MqttBroker>;
 
 // Static storage (required by Embassy)
 static BROKER_CELL: StaticCell<BrokerMutex> = StaticCell::new();
-static NOTIFICATION_REGISTRY: StaticCell<NotificationRegistry<MAX_SESSIONS, ThreadModeRawMutex>> = StaticCell::new();
-static SESSION_ID_GEN_CELL: StaticCell<Mutex<ThreadModeRawMutex, SessionIdGen>> = StaticCell::new();
+static NOTIFICATION_REGISTRY: StaticCell<NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex>> = StaticCell::new();
+static SESSION_ID_GEN_CELL: StaticCell<Mutex<CriticalSectionRawMutex, SessionIdGen>> = StaticCell::new();
 
 pub struct WifiPins {
     pub pwr: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_23>,
@@ -219,8 +219,8 @@ async fn cleanup_task(broker: &'static BrokerMutex) {
 async fn accept_task(
     stack: &'static Stack<'static>,
     broker: &'static BrokerMutex,
-    notification_registry: &'static NotificationRegistry<MAX_SESSIONS, ThreadModeRawMutex>,
-    session_id_gen: &'static Mutex<ThreadModeRawMutex, SessionIdGen>,
+    notification_registry: &'static NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex>,
+    session_id_gen: &'static Mutex<CriticalSectionRawMutex, SessionIdGen>,
     socket_idx: usize,
 ) {
     const RX_BUFFER_SIZE: usize = 1536;
@@ -263,7 +263,7 @@ async fn accept_task(
             default_keep_alive_secs: DEFAULT_KEEP_ALIVE,
         };
 
-        let _result = handle_connection::<ThreadModeRawMutex, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC, RX_BUFFER_SIZE>(
+        let _result = handle_connection::<CriticalSectionRawMutex, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC, RX_BUFFER_SIZE>(
             &mut socket,
             session_id,
             socket_idx,
@@ -332,13 +332,13 @@ async fn main(spawner: Spawner) {
 
     // Initialize MQTT broker components using library types
     let broker: &'static BrokerMutex = BROKER_CELL.init(Mutex::new(MqttBroker::new()));
-    let session_id_gen: &'static Mutex<ThreadModeRawMutex, SessionIdGen> =
+    let session_id_gen: &'static Mutex<CriticalSectionRawMutex, SessionIdGen> =
         SESSION_ID_GEN_CELL.init(Mutex::new(SessionIdGen::new()));
 
     // Build notification registry
-    const INIT_CHANNEL: Channel<ThreadModeRawMutex, (), 1> = Channel::new();
+    const INIT_CHANNEL: Channel<CriticalSectionRawMutex, (), 1> = Channel::new();
     let channels = [INIT_CHANNEL; MAX_SESSIONS];
-    let notification_registry: &'static NotificationRegistry<MAX_SESSIONS, ThreadModeRawMutex> =
+    let notification_registry: &'static NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex> =
         NOTIFICATION_REGISTRY.init(NotificationRegistry::new(channels));
 
     info!("MQTT broker initialized");

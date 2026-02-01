@@ -9,7 +9,7 @@
 //!
 //! ```no_run
 //! use picobroker_embassy::{MqttServer, handle_connection, HandlerConfig};
-//! use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 //! use static_cell::StaticCell;
 //! use embassy_sync::mutex::Mutex;
 //!
@@ -18,11 +18,11 @@
 //!     // ... (WiFi and network stack setup) ...
 //!
 //!     // Static storage (required by Embassy)
-//!     static BROKER_CELL: StaticCell<Mutex<ThreadModeRawMutex, ...>> = StaticCell::new();
-//!     static NOTIF_CELL: StaticCell<NotificationRegistry<4, ThreadModeRawMutex>> = StaticCell::new();
-//!     static SESSION_ID_GEN_CELL: StaticCell<Mutex<ThreadModeRawMutex, ...>> = StaticCell::new();
+//!     static BROKER_CELL: StaticCell<Mutex<CriticalSectionRawMutex, ...>> = StaticCell::new();
+//!     static NOTIF_CELL: StaticCell<NotificationRegistry<4, CriticalSectionRawMutex>> = StaticCell::new();
+//!     static SESSION_ID_GEN_CELL: StaticCell<Mutex<CriticalSectionRawMutex, ...>> = StaticCell::new();
 //!
-//!     let server = picobroker_embassy::MqttServer::<ThreadModeRawMutex, 64, 256, 8, 4, 32, 8>::new(
+//!     let server = picobroker_embassy::MqttServer::<CriticalSectionRawMutex, 64, 256, 8, 4, 32, 8>::new(
 //!         &BROKER_CELL, &NOTIF_CELL, &SESSION_ID_GEN_CELL
 //!     );
 //!
@@ -65,18 +65,18 @@ pub use state::{BrokerMutex, NotificationRegistry, SessionIdGen, current_time_na
 //
 // Example:
 // ```
-// use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-// type MyMqttServer = DefaultMqttServer<ThreadModeRawMutex>;
+// use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+// type MyMqttServer = DefaultMqttServer<CriticalSectionRawMutex>;
 // ```
 
 /// Default MQTT server type with specified mutex.
-/// Usage: `DefaultMqttServer<ThreadModeRawMutex>`
+/// Usage: `DefaultMqttServer<CriticalSectionRawMutex>`
 pub type DefaultMqttServer<M> = MqttServer<M, 64, 256, 8, 4, 32, 8>;
 
 /// Small MQTT server for embedded/constrained environments with specified mutex.
-/// Usage: `SmallMqttServer<ThreadModeRawMutex>`
+/// Usage: `SmallMqttServer<CriticalSectionRawMutex>`
 pub type SmallMqttServer<M> = MqttServer<M, 32, 128, 4, 2, 16, 4>;
 
 /// Large MQTT server for higher capacity with specified mutex.
-/// Usage: `LargeMqttServer<ThreadModeRawMutex>`
+/// Usage: `LargeMqttServer<CriticalSectionRawMutex>`
 pub type LargeMqttServer<M> = MqttServer<M, 128, 1024, 16, 16, 128, 32>;
