@@ -5,7 +5,7 @@
 use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StaticConfigV4, Stack, StackResources};
+use embassy_net::{Config, Stack, StackResources};
 use embassy_net::tcp::TcpSocket;
 use embassy_rp::gpio::Output;
 use embassy_rp::interrupt::typelevel::Binding;
@@ -23,13 +23,8 @@ embassy_rp::bind_interrupts!(pub struct Irqs {
 const CYW43_FW: &[u8] = include_bytes!("./cyw43-firmware/43439A0.bin");
 const CYW43_CLM: &[u8] = include_bytes!("./cyw43-firmware/43439A0_clm.bin");
 
-const AP_CHANNEL: u8 = 1;
-const AP_SSID: &str = env!("AP_SSID");
-const AP_PASSWORD: &str = env!("AP_PASSWORD");
-const _: () = assert!(
-    AP_PASSWORD.len() >= 8,
-    "AP_PASSWORD must be at least 8 characters"
-);
+const WIFI_SSID: &str = env!("WIFI_SSID");
+const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 
 // MQTT Broker Configuration
 const MAX_TOPIC_NAME_LENGTH: usize = 64;
@@ -185,6 +180,23 @@ impl WifiManager {
         self.control
             .start_ap_wpa2(ap_ssid, ap_password, channel)
             .await;
+    }
+
+    pub async fn join_network(&mut self, wifi_ssid: &str, wifi_password: &str) {
+        loop {
+            match self
+                .control
+                .join(wifi_ssid, cyw43::JoinOptions::new(wifi_password.as_bytes()))
+                .await
+            {
+                Ok(()) => break,
+                Err(_) => {
+                    defmt::warn!("WiFi join failed, retrying...");
+                }
+            }
+        }
+        self.stack.wait_link_up().await;
+        self.stack.wait_config_up().await;
     }
 }
 
@@ -520,19 +532,14 @@ async fn main(spawner: Spawner) {
         pwr: p.PIN_23,
     };
 
-    // CRITICAL: Use static IP for AP mode (no DHCP)
-    let ip = Ipv4Address::new(169, 254, 1, 1);
-    let stack_config = Config::ipv4_static(StaticConfigV4 {
-        address: Ipv4Cidr::new(ip.clone(), 16),
-        gateway: None,
-        dns_servers: Default::default(),
-    });
+    // Use DHCP for STA mode
+    let stack_config = Config::dhcpv4(Default::default());
 
     // Initialize CYW43 WiFi chip and get control + net_device
     let (control, net_device, pio_keepalive) = WifiManager::init_cyw43(
         pins,
         Irqs,
-        cyw43::PowerManagementMode::None,
+        cyw43::PowerManagementMode::PowerSave,
         spawner,
     ).await;
 
@@ -556,14 +563,12 @@ async fn main(spawner: Spawner) {
 
     // Create WifiManager with the static stack reference
     let mut wifi_manager = WifiManager::new(control, stack, pio_keepalive);
-    wifi_manager
-        .start_ap_wpa2(AP_SSID, AP_PASSWORD, AP_CHANNEL)
-        .await;
+    wifi_manager.join_network(WIFI_SSID, WIFI_PASSWORD).await;
 
-    info!("WiFi AP started successfully");
-    info!("AP SSID: {}", AP_SSID);
-    info!("AP Password: {}", AP_PASSWORD);
-    info!("AP Gateway IP: {}", ip);
+    let ip_info = wifi_manager.stack.config_v4().unwrap();
+    info!("WiFi connected successfully");
+    info!("SSID: {}", WIFI_SSID);
+    info!("IP Address: {}", ip_info.address);
 
     // Initialize MQTT broker and session ID generator, store references
     let broker: &'static BrokerMutex = BROKER_CELL.init(Mutex::new(MqttBroker::new()));
