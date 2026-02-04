@@ -28,12 +28,12 @@ const WIFI_SSID: &str = env!("WIFI_SSID");
 const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 
 // MQTT Broker Configuration
-const MAX_TOPIC_NAME_LENGTH: usize = 64;
-const MAX_PAYLOAD_SIZE: usize = 256;
-const QUEUE_SIZE: usize = 8;
+const MAX_TOPIC_NAME_LENGTH: usize = 20;
+const MAX_PAYLOAD_SIZE: usize = 128;
+const QUEUE_SIZE: usize = 5;
 const MAX_SESSIONS: usize = 4;
-const MAX_TOPICS: usize = 32;
-const MAX_SUBSCRIBERS_PER_TOPIC: usize = 8;
+const MAX_TOPICS: usize = 8;
+const MAX_SUBSCRIBERS_PER_TOPIC: usize = 4;
 const MQTT_PORT: u16 = 1883;
 
 // Type aliases for broker
