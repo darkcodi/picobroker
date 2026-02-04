@@ -3,6 +3,13 @@ name = "picobroker-embassy"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "picobroker_embassy"
+path = "src/lib.rs"
+test = false
+doctest = false
+bench = false
+
 [dependencies]
 picobroker-core = { path = "../picobroker-core" }
 embassy-net = { version = "0.8", default-features = false, features = ["defmt", "tcp", "medium-ethernet", "proto-ipv4"] }

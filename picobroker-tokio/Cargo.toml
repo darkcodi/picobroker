@@ -3,6 +3,13 @@ name = "picobroker-tokio"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "picobroker_tokio"
+path = "src/lib.rs"
+test = false
+doctest = false
+bench = false
+
 [dependencies]
 picobroker-core = { path = "../picobroker-core" }
 tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util", "sync"] }
