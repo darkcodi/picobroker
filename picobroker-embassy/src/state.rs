@@ -130,6 +130,9 @@ impl SessionIdGen {
 // =============================================================================
 
 /// Get current time in nanoseconds
+///
+/// NOTE: embassy_time::Instant::as_ticks() returns microseconds on RP2040,
+/// so we multiply by 1000 to convert to nanoseconds.
 pub fn current_time_nanos() -> u128 {
-    embassy_time::Instant::now().as_ticks() as u128
+    embassy_time::Instant::now().as_ticks() as u128 * 1000
 }
