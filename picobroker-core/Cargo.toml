@@ -2,3 +2,9 @@
 name = "picobroker-core"
 version = "0.1.0"
 edition = "2021"
+description = "Pure no_std core library for PicoBroker MQTT 3.1.1 broker"
+license = "MIT"
+repository = "https://github.com/darkcodi/picobroker"
+keywords = ["mqtt", "broker", "embedded", "no_std", "mqtt_3_1_1"]
+categories = ["network-programming", "embedded", "parser-implementations"]
+readme = "../README.md"

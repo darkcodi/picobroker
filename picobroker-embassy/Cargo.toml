@@ -2,6 +2,12 @@
 name = "picobroker-embassy"
 version = "0.1.0"
 edition = "2021"
+description = "Embassy runtime support for PicoBroker MQTT 3.1.1 broker on embedded systems"
+license = "MIT"
+repository = "https://github.com/darkcodi/picobroker"
+keywords = ["mqtt", "broker", "embedded", "no_std", "mqtt_3_1_1"]
+categories = ["network-programming", "embedded", "no-std"]
+readme = "../README.md"
 
 [lib]
 name = "picobroker_embassy"
