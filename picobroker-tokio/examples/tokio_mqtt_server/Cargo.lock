@@ -230,6 +230,8 @@ dependencies = [
 [[package]]
 name = "picobroker-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fbdd50851d45c68558a0849bd2bcfb8baba9615e6ff0e86044299e03b55989b"
 
 [[package]]
 name = "picobroker-tokio"

@@ -1097,6 +1097,12 @@ name = "picobroker-core"
 version = "0.1.0"
 
 [[package]]
+name = "picobroker-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2fbdd50851d45c68558a0849bd2bcfb8baba9615e6ff0e86044299e03b55989b"
+
+[[package]]
 name = "picobroker-embassy"
 version = "0.1.0"
 dependencies = [
@@ -1106,7 +1112,7 @@ dependencies = [
  "embassy-sync",
  "embassy-time",
  "heapless 0.9.2",
- "picobroker-core",
+ "picobroker-core 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1315,7 +1321,7 @@ dependencies = [
  "embassy-time",
  "heapless 0.9.2",
  "panic-probe",
- "picobroker-core",
+ "picobroker-core 0.1.0",
  "picobroker-embassy",
  "portable-atomic",
  "static_cell",
