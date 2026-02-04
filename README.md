@@ -1,5 +1,9 @@
 # PicoBroker
 
+[![crates.io](https://img.shields.io/crates/v/picobroker-tokio.svg)](https://crates.io/crates/picobroker-tokio)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![GitHub](https://img.shields.io/badge/GitHub-darkcodi%2Fpicobroker-blue)](https://github.com/darkcodi/picobroker)
+
 A **minimal MQTT 3.1.1 broker** for embedded systems (no_std) and standard environments.
 
 ## Architecture
