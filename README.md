@@ -1,18 +1,10 @@
 # PicoBroker
 
-[![crates.io](https://img.shields.io/crates/v/picobroker-core.svg)](https://crates.io/crates/picobroker-core)
+[![crates.io](https://img.shields.io/crates/v/picobroker.svg)](https://crates.io/crates/picobroker)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![GitHub](https://img.shields.io/badge/GitHub-darkcodi%2Fpicobroker-blue)](https://github.com/darkcodi/picobroker)
 
 A **minimal MQTT 3.1.1 broker** for embedded systems (no_std) and standard environments.
-
-## Architecture
-
-PicoBroker is split into three separate crates:
-
-- **`picobroker-core`** - Pure `no_std` core library with zero dependencies
-- **`picobroker-tokio`** - Tokio runtime support for standard library environments
-- **`picobroker-embassy`** - Embassy runtime support for embedded systems (no_std)
 
 ## Features
 
@@ -24,88 +16,6 @@ PicoBroker is split into three separate crates:
 - ✅ **Heapless (Embassy)** - Zero heap usage on embedded with Embassy
 - ✅ **Platform-agnostic** - Works with Tokio (std) or Embassy (embedded)
 - ✅ **Configurable** - Compile-time configuration via const generics
-
-## Usage
-
-### Tokio (std)
-
-For standard library environments using Tokio:
-
-```toml
-[dependencies]
-picobroker-tokio = "0.1"
-```
-
-```rust
-use picobroker_tokio::DefaultMqttServer;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a new server with default configuration
-    let server = DefaultMqttServer::new();
-
-    // Run the broker
-    server.run("0.0.0.0:1883").await?;
-
-    Ok(())
-}
-```
-
-The `MqttServer` type takes const generics for configuration:
-```rust
-// MqttServer<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
-//           MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
-
-// Convenience type aliases are available:
-pub type DefaultMqttServer = MqttServer<64, 256, 8, 4, 32, 8>;
-pub type SmallMqttServer = MqttServer<32, 128, 4, 2, 16, 4>;
-pub type LargeMqttServer = MqttServer<128, 1024, 16, 16, 128, 32>;
-```
-
-### Embassy (embedded)
-
-For embedded systems using Embassy:
-
-```toml
-[dependencies]
-picobroker-embassy = "0.1"
-```
-
-```rust,ignore
-#![no_std]
-#![no_main]
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use picobroker_embassy::DefaultMqttServer;
-use static_cell::StaticCell;
-
-#[embassy_executor::main]
-async fn main(sp: embassy_executor::Spawner) {
-    // Static storage (required by Embassy no_std)
-    static BROKER_CELL: StaticCell<Mutex<...>> = StaticCell::new();
-    static NOTIF_CELL: StaticCell<NotificationRegistry<4, _>> = StaticCell::new();
-    static SESSION_ID_GEN_CELL: StaticCell<Mutex<...>> = StaticCell::new();
-
-    // Create server with default configuration
-    let server = DefaultMqttServer::<CriticalSectionRawMutex>::new(
-        &BROKER_CELL, &NOTIF_CELL, &SESSION_ID_GEN_CELL
-    );
-
-    // Spawn accept tasks and run...
-}
-```
-
-The `MqttServer` type takes a mutex type and const generics:
-```rust
-// MqttServer<Mutex, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE,
-//            MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
-
-// Convenience type aliases (mutex type parameter required):
-pub type DefaultMqttServer<M> = MqttServer<M, 64, 256, 8, 4, 32, 8>;
-pub type SmallMqttServer<M> = MqttServer<M, 32, 128, 4, 2, 16, 4>;
-pub type LargeMqttServer<M> = MqttServer<M, 128, 1024, 16, 16, 128, 32>;
-```
-
-See the `rp2040_mqtt_server` example for a complete working MQTT broker on Raspberry Pi Pico W.
 
 ## Limitations
 
@@ -151,14 +61,14 @@ See the `examples/` directory for complete examples:
 ### Running the Tokio Example
 
 ```bash
-cd picobroker-tokio/examples/tokio_mqtt_server
+cd examples/tokio_mqtt_server
 cargo run
 ```
 
 ### Running the RP2040 Example
 
 ```bash
-cd picobroker-embassy/examples/rp2040_mqtt_server
+cd examples/rp2040_mqtt_server
 # Set your WiFi credentials as environment variables
 export WIFI_SSID="YourNetwork"
 export WIFI_PASSWORD="YourPassword"
