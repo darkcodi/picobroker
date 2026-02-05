@@ -17,7 +17,7 @@ doctest = false
 bench = false
 
 [dependencies]
-picobroker-core = { version = "0.1" }
+picobroker-core = { version = "0.2" }
 embassy-net = { version = "0.8", default-features = false, features = ["defmt", "tcp", "medium-ethernet", "proto-ipv4"] }
 embassy-sync = { version = "0.7", default-features = false, features = ["defmt"] }
 embassy-time = { version = "0.5", default-features = false, features = ["defmt"] }

@@ -295,9 +295,9 @@ checksum = "8d5439c4ad607c3c23abf66de8c8bf57ba8adcd1f129e699851a6e43935d339d"
 
 [[package]]
 name = "picobroker-core"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fbdd50851d45c68558a0849bd2bcfb8baba9615e6ff0e86044299e03b55989b"
+checksum = "829d509c8b2549c35115bb9be1c8ce32d771c3e0f8cd5c9d8edb43db072f0af9"
 
 [[package]]
 name = "picobroker-embassy"
