@@ -15,6 +15,7 @@ mod unsubscribe;
 
 use crate::protocol::packet_type::PacketType;
 pub use crate::protocol::packets::connack::ConnAckPacket;
+pub use crate::protocol::packets::connect::ConnectFlags;
 pub use crate::protocol::packets::connack::ConnectReturnCode;
 pub use crate::protocol::packets::connect::ConnectPacket;
 pub use crate::protocol::packets::disconnect::DisconnectPacket;
