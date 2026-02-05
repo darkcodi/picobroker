@@ -12,10 +12,44 @@ use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use picobroker_embassy::{current_time_nanos, handle_connection, HandlerConfig, NotificationRegistry, SessionIdGen};
-use picobroker_core::broker::PicoBroker;
+use picobroker::broker::PicoBroker;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+// Modules (private)
+mod server;
+mod handler;
+mod io;
+mod state;
+
+// Public exports
+pub use server::{MqttServer, MqttServerConfig};
+pub use handler::{handle_connection, HandlerConfig};
+pub use state::{NotificationRegistry, SessionIdGen, current_time_nanos};
+
+// =============================================================================
+// Convenience Type Aliases
+// =============================================================================
+//
+// These aliases take a mutex type parameter (must implement `RawMutex`).
+//
+// Example:
+// ```
+// use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+// type MyMqttServer = DefaultMqttServer<CriticalSectionRawMutex>;
+// ```
+
+/// Default MQTT server type with specified mutex.
+/// Usage: `DefaultMqttServer<CriticalSectionRawMutex>`
+pub type DefaultMqttServer<M> = MqttServer<M, 64, 256, 8, 4, 32, 8>;
+
+/// Small MQTT server for embedded/constrained environments with specified mutex.
+/// Usage: `SmallMqttServer<CriticalSectionRawMutex>`
+pub type SmallMqttServer<M> = MqttServer<M, 32, 128, 4, 2, 16, 4>;
+
+/// Large MQTT server for higher capacity with specified mutex.
+/// Usage: `LargeMqttServer<CriticalSectionRawMutex>`
+pub type LargeMqttServer<M> = MqttServer<M, 128, 1024, 16, 16, 128, 32>;
 
 embassy_rp::bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<embassy_rp::peripherals::PIO0>;
@@ -190,6 +224,7 @@ async fn cleanup_task(broker: &'static BrokerMutex) {
             .get_expired_sessions(current_time)
             .into_iter()
             .flatten()
+            .map(|info| info.session_id)
             .collect();
 
         for session_id in expired {

@@ -8,9 +8,9 @@ use embassy_time::{Duration, Instant};
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
-use picobroker_core::protocol::heapless::HeaplessVec;
-use picobroker_core::protocol::packets::Packet;
-use picobroker_core::protocol::ProtocolError;
+use picobroker::protocol::heapless::HeaplessVec;
+use picobroker::protocol::packets::Packet;
+use picobroker::protocol::ProtocolError;
 
 /// Per-connection handler configuration
 pub struct HandlerConfig {
@@ -52,7 +52,7 @@ pub async fn handle_connection<
     _socket_idx: usize,
     broker: &Mutex<
         M,
-        picobroker_core::broker::PicoBroker<
+        picobroker::broker::PicoBroker<
             MAX_TOPIC_NAME_LENGTH,
             MAX_PAYLOAD_SIZE,
             QUEUE_SIZE,

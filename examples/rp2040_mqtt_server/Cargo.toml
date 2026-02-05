@@ -13,8 +13,8 @@ doctest = false
 bench = false
 
 [dependencies]
-picobroker-core = { path = "../../../picobroker-core" }
-picobroker-embassy = { path = "../../../picobroker-embassy" }
+picobroker = { path = "../../" }
+embassy-futures = "0.1"
 cortex-m-rt = "0.7"
 cyw43 = { version = "0.6.0", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { version = "0.9.0", features = ["defmt"] }

@@ -1,6 +1,6 @@
 use bytes::{Buf, Bytes, BytesMut};
-use picobroker_core::protocol::packets::{Packet, PacketEncoder};
-use picobroker_core::protocol::ProtocolError;
+use picobroker::protocol::packets::{Packet, PacketEncoder};
+use picobroker::protocol::ProtocolError;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 

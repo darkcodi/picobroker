@@ -1,7 +1,7 @@
 use crate::handler::{handle_connection, HandlerConfig};
 use crate::state::ServerState;
 use log::{error, info};
-use picobroker_core::broker::PicoBroker;
+use picobroker::broker::PicoBroker;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -219,6 +219,7 @@ async fn cleanup_task<
             .get_expired_sessions(current_time)
             .into_iter()
             .flatten()
+            .map(|info| info.session_id)
             .collect();
         for session_id in expired {
             info!("Cleaning up expired session {}", session_id);

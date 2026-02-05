@@ -7,7 +7,7 @@
 use crate::state::{NotificationRegistry, SessionIdGen};
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
-use picobroker_core::broker::PicoBroker;
+use picobroker::broker::PicoBroker;
 
 // =============================================================================
 // Configuration

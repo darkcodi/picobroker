@@ -1,8 +1,8 @@
 //! Packet I/O functions for Embassy-based MQTT broker.
 
 use embassy_net::tcp::TcpSocket;
-use picobroker_core::protocol::packets::{Packet, PacketEncoder};
-use picobroker_core::protocol::ProtocolError;
+use picobroker::protocol::packets::{Packet, PacketEncoder};
+use picobroker::protocol::ProtocolError;
 
 /// Parse variable length integer from buffer (MQTT remaining length format)
 pub fn parse_remaining_length(buffer: &[u8]) -> Result<(usize, usize), ProtocolError> {

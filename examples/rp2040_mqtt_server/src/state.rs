@@ -3,7 +3,7 @@
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
-use picobroker_core::broker::PicoBroker;
+use picobroker::broker::PicoBroker;
 
 // =============================================================================
 // Type Aliases

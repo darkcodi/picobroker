@@ -5,7 +5,9 @@ edition = "2021"
 publish = false
 
 [dependencies]
-picobroker-tokio = { path = "../../../picobroker-tokio" }
+picobroker = { path = "../../" }
 tokio = { version = "1", features = ["net", "time", "macros", "rt-multi-thread", "io-util", "sync"] }
 log = "0.4"
 env_logger = "0.11"
+bytes = "1"
+dashmap = "6"
