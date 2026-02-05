@@ -41,6 +41,11 @@ pub struct ExpirationInfo {
 
 impl ExpirationInfo {
     pub fn is_expired(&self) -> bool {
+        // Per MQTT 3.1.1 spec, keep_alive=0 means disable keep-alive mechanism.
+        // Session should only be cleaned up when TCP connection closes.
+        if self.keep_alive_secs == 0 {
+            return false;
+        }
         let timeout_secs = (self.keep_alive_secs as u128) * 3 / 2;
         let timeout_nanos = timeout_secs * 1_000_000_000;
         let elapsed = self.current_time.saturating_sub(self.last_activity);
