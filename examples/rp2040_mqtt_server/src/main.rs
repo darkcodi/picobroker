@@ -17,15 +17,15 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // Modules (private)
-mod server;
 mod handler;
 mod io;
+mod server;
 mod state;
 
 // Public exports
-pub use server::{MqttServer, MqttServerConfig};
 pub use handler::{handle_connection, HandlerConfig};
-pub use state::{NotificationRegistry, SessionIdGen, current_time_nanos};
+pub use server::{MqttServer, MqttServerConfig};
+pub use state::{current_time_nanos, NotificationRegistry, SessionIdGen};
 
 // =============================================================================
 // Convenience Type Aliases
@@ -83,8 +83,11 @@ type BrokerMutex = Mutex<CriticalSectionRawMutex, MqttBroker>;
 
 // Static storage (required by Embassy)
 static BROKER_CELL: StaticCell<BrokerMutex> = StaticCell::new();
-static NOTIFICATION_REGISTRY: StaticCell<NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex>> = StaticCell::new();
-static SESSION_ID_GEN_CELL: StaticCell<Mutex<CriticalSectionRawMutex, SessionIdGen>> = StaticCell::new();
+static NOTIFICATION_REGISTRY: StaticCell<
+    NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex>,
+> = StaticCell::new();
+static SESSION_ID_GEN_CELL: StaticCell<Mutex<CriticalSectionRawMutex, SessionIdGen>> =
+    StaticCell::new();
 
 pub struct WifiPins {
     pub pwr: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_23>,
@@ -121,7 +124,11 @@ impl WifiManager {
         >,
         power_mode: cyw43::PowerManagementMode,
         spawner: embassy_executor::Spawner,
-    ) -> (cyw43::Control<'static>, cyw43::NetDriver<'static>, PioKeepalive<'static>) {
+    ) -> (
+        cyw43::Control<'static>,
+        cyw43::NetDriver<'static>,
+        PioKeepalive<'static>,
+    ) {
         let pwr = Output::new(pins.pwr, embassy_rp::gpio::Level::Low);
         let cs = Output::new(pins.cs, embassy_rp::gpio::Level::High);
 
@@ -267,7 +274,11 @@ async fn accept_task(
         let mut tx_buf = [0u8; TX_BUFFER_SIZE];
         let mut socket = embassy_net::tcp::TcpSocket::new(*stack, &mut rx_buf, &mut tx_buf);
 
-        defmt::debug!("Socket {} waiting for connection on port {}", socket_idx, MQTT_PORT);
+        defmt::debug!(
+            "Socket {} waiting for connection on port {}",
+            socket_idx,
+            MQTT_PORT
+        );
 
         if socket.accept(MQTT_PORT).await.is_err() {
             defmt::error!("Socket {} accept error", socket_idx);
@@ -290,14 +301,25 @@ async fn accept_task(
             }
         }
 
-        notification_registry.register_session(socket_idx, session_id).await;
+        notification_registry
+            .register_session(socket_idx, session_id)
+            .await;
         let notify_receiver = notification_registry.receiver(socket_idx);
 
         let handler_config = HandlerConfig {
             default_keep_alive_secs: DEFAULT_KEEP_ALIVE,
         };
 
-        let _result = handle_connection::<CriticalSectionRawMutex, MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC, RX_BUFFER_SIZE>(
+        let _result = handle_connection::<
+            CriticalSectionRawMutex,
+            MAX_TOPIC_NAME_LENGTH,
+            MAX_PAYLOAD_SIZE,
+            QUEUE_SIZE,
+            MAX_SESSIONS,
+            MAX_TOPICS,
+            MAX_SUBSCRIBERS_PER_TOPIC,
+            RX_BUFFER_SIZE,
+        >(
             &mut socket,
             session_id,
             socket_idx,
@@ -332,13 +354,8 @@ async fn main(spawner: Spawner) {
 
     let stack_config = Config::dhcpv4(Default::default());
 
-    let (control, net_device, pio_keepalive) = WifiManager::init_cyw43(
-        pins,
-        Irqs,
-        cyw43::PowerManagementMode::PowerSave,
-        spawner,
-    )
-    .await;
+    let (control, net_device, pio_keepalive) =
+        WifiManager::init_cyw43(pins, Irqs, cyw43::PowerManagementMode::PowerSave, spawner).await;
 
     let mut rng = embassy_rp::clocks::RoscRng;
     let seed = rng.next_u64();
@@ -371,8 +388,10 @@ async fn main(spawner: Spawner) {
 
     // Build notification registry
     let channels = core::array::from_fn(|_| Channel::<CriticalSectionRawMutex, (), 1>::new());
-    let notification_registry: &'static NotificationRegistry<MAX_SESSIONS, CriticalSectionRawMutex> =
-        NOTIFICATION_REGISTRY.init(NotificationRegistry::new(channels));
+    let notification_registry: &'static NotificationRegistry<
+        MAX_SESSIONS,
+        CriticalSectionRawMutex,
+    > = NOTIFICATION_REGISTRY.init(NotificationRegistry::new(channels));
 
     info!("MQTT broker initialized");
 
@@ -381,7 +400,13 @@ async fn main(spawner: Spawner) {
     info!("Cleanup task spawned");
 
     for idx in 0..MAX_SESSIONS {
-        let _ = spawner.spawn(accept_task(stack, broker, notification_registry, session_id_gen, idx));
+        let _ = spawner.spawn(accept_task(
+            stack,
+            broker,
+            notification_registry,
+            session_id_gen,
+            idx,
+        ));
     }
     info!("MQTT server listening on port 1883");
     info!("Supporting up to {} concurrent sessions", MAX_SESSIONS);

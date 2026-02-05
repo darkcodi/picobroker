@@ -176,7 +176,10 @@ impl<
         session_ids
     }
 
-    pub fn get_expired_sessions(&self, current_time: u128) -> [Option<ExpirationInfo>; MAX_SESSIONS] {
+    pub fn get_expired_sessions(
+        &self,
+        current_time: u128,
+    ) -> [Option<ExpirationInfo>; MAX_SESSIONS] {
         let mut expired_sessions = [const { None }; MAX_SESSIONS];
         let mut count = 0usize;
 

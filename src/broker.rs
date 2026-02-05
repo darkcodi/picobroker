@@ -97,7 +97,10 @@ impl<
         self.sessions.get_all_sessions()
     }
 
-    pub fn get_expired_sessions(&mut self, current_time: u128) -> [Option<ExpirationInfo>; MAX_SESSIONS] {
+    pub fn get_expired_sessions(
+        &mut self,
+        current_time: u128,
+    ) -> [Option<ExpirationInfo>; MAX_SESSIONS] {
         self.sessions.get_expired_sessions(current_time)
     }
 

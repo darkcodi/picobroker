@@ -84,9 +84,9 @@ pub fn encode_frame<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: 
     let mut buffer = vec![0u8; buffer_size];
 
     // Encode the packet using the PacketEncoder trait
-    let size = packet
-        .encode(&mut buffer)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to encode packet"))?;
+    let size = packet.encode(&mut buffer).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to encode packet")
+    })?;
 
     // Convert to Bytes for zero-copy sharing
     Ok(BytesMut::from(&buffer[..size]).freeze())

@@ -4,10 +4,10 @@ use crate::io::{read_packet, write_packet};
 use crate::state::{current_time_nanos, NotificationRegistry};
 use embassy_futures::select::{select3, Either3};
 use embassy_net::tcp::TcpSocket;
-use embassy_time::{Duration, Instant};
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Instant};
 use picobroker::protocol::heapless::HeaplessVec;
 use picobroker::protocol::packets::Packet;
 use picobroker::protocol::ProtocolError;
@@ -118,7 +118,9 @@ pub async fn handle_connection<
 
                         // Try to read a complete packet
                         match read_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
-                            socket, &mut rx_buffer, &mut buffer_len,
+                            socket,
+                            &mut rx_buffer,
+                            &mut buffer_len,
                         )
                         .await
                         {
@@ -136,7 +138,11 @@ pub async fn handle_connection<
                                 let current_time = current_time_nanos();
 
                                 let result = broker_lock
-                                    .queue_packet_received_from_client(session_id, packet, current_time)
+                                    .queue_packet_received_from_client(
+                                        session_id,
+                                        packet,
+                                        current_time,
+                                    )
                                     .and_then(|_| broker_lock.process_all_session_packets());
 
                                 // CRITICAL: Get sessions with pending packets BEFORE dropping lock
@@ -152,7 +158,8 @@ pub async fn handle_connection<
                                         let mut packets = heapless::Vec::<
                                             Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>,
                                             8,
-                                        >::new();
+                                        >::new(
+                                        );
                                         while let Ok(Some(pkt)) =
                                             broker_lock.dequeue_packet_to_send_to_client(session_id)
                                         {
@@ -161,7 +168,10 @@ pub async fn handle_connection<
                                         packets
                                     }
                                     Err(_) => {
-                                        defmt::warn!("Error processing packet for session {}", session_id);
+                                        defmt::warn!(
+                                            "Error processing packet for session {}",
+                                            session_id
+                                        );
                                         let _ = broker_lock.mark_session_disconnected(session_id);
                                         drop(broker_lock);
                                         break;
@@ -172,16 +182,20 @@ pub async fn handle_connection<
                                 // CRITICAL: Notify all sessions that have pending packets
                                 // This wakes up idle clients so they can receive their messages
                                 for session_id_to_notify in sessions_to_notify {
-                                    notification_registry.notify_session(session_id_to_notify).await;
+                                    notification_registry
+                                        .notify_session(session_id_to_notify)
+                                        .await;
                                 }
 
                                 // Send packets to client
                                 for pkt in tx_packets {
                                     if (write_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
-                                        socket, &pkt, &mut tx_buffer,
+                                        socket,
+                                        &pkt,
+                                        &mut tx_buffer,
                                     )
                                     .await)
-                                    .is_err()
+                                        .is_err()
                                     {
                                         defmt::error!("Write error for session {}", session_id);
                                         break;
@@ -206,11 +220,15 @@ pub async fn handle_connection<
             }
             Either3::Second(_) => {
                 // Notification received - broker has queued packets for this session
-                defmt::debug!("Session {} received notification, flushing packets", session_id);
+                defmt::debug!(
+                    "Session {} received notification, flushing packets",
+                    session_id
+                );
 
                 // Dequeue and send all pending packets
                 let mut broker_lock = broker.lock().await;
-                let mut packets = heapless::Vec::<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, 8>::new();
+                let mut packets =
+                    heapless::Vec::<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>, 8>::new();
                 while let Ok(Some(pkt)) = broker_lock.dequeue_packet_to_send_to_client(session_id) {
                     let _ = packets.push(pkt);
                 }
@@ -218,10 +236,12 @@ pub async fn handle_connection<
 
                 for pkt in packets {
                     if (write_packet::<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>(
-                        socket, &pkt, &mut tx_buffer,
+                        socket,
+                        &pkt,
+                        &mut tx_buffer,
                     )
                     .await)
-                    .is_err()
+                        .is_err()
                     {
                         defmt::error!("Write error for session {}", session_id);
                         break;

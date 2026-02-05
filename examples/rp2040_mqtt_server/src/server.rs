@@ -5,8 +5,8 @@
 //! See the example for how to properly spawn tasks.
 
 use crate::state::{NotificationRegistry, SessionIdGen};
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::mutex::Mutex;
 use picobroker::broker::PicoBroker;
 
 // =============================================================================

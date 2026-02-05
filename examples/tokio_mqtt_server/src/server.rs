@@ -83,7 +83,15 @@ impl<
         const MAX_SESSIONS: usize,
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    > MqttServer<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+    >
+    MqttServer<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_SESSIONS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     /// Create a new server with default configuration
     pub fn new() -> Self {
@@ -148,9 +156,14 @@ impl<
                     };
 
                     tokio::spawn(async move {
-                        if let Err(e) =
-                            handle_connection(socket, peer_addr, handler_state, handler_broker, &handler_config)
-                                .await
+                        if let Err(e) = handle_connection(
+                            socket,
+                            peer_addr,
+                            handler_state,
+                            handler_broker,
+                            &handler_config,
+                        )
+                        .await
                         {
                             error!("Client handler error: {}", e);
                         }
@@ -172,7 +185,14 @@ impl<
         const MAX_TOPICS: usize,
         const MAX_SUBSCRIBERS_PER_TOPIC: usize,
     > Default
-    for MqttServer<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE, QUEUE_SIZE, MAX_SESSIONS, MAX_TOPICS, MAX_SUBSCRIBERS_PER_TOPIC>
+    for MqttServer<
+        MAX_TOPIC_NAME_LENGTH,
+        MAX_PAYLOAD_SIZE,
+        QUEUE_SIZE,
+        MAX_SESSIONS,
+        MAX_TOPICS,
+        MAX_SUBSCRIBERS_PER_TOPIC,
+    >
 {
     fn default() -> Self {
         Self::new()
@@ -199,9 +219,9 @@ async fn cleanup_task<
     >,
     interval_secs: u64,
 ) {
-    use tokio::time::{sleep, Duration};
     use crate::state::current_time_nanos;
     use log::trace;
+    use tokio::time::{sleep, Duration};
 
     info!("Cleanup task started");
     let mut interval = sleep(Duration::from_secs(interval_secs));

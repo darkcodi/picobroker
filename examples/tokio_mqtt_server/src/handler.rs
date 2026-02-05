@@ -1,5 +1,5 @@
 use crate::io::{encode_frame, read_packet};
-use crate::state::{ServerState, current_time_nanos};
+use crate::state::{current_time_nanos, ServerState};
 use bytes::BytesMut;
 use log::{debug, error, info, trace, warn};
 use picobroker::broker::PicoBroker;
@@ -66,17 +66,13 @@ fn packet_details<const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLOAD_SIZE: us
         Packet::PubRec(p) => format!("packet_id={}", p.packet_id),
         Packet::PubRel(p) => format!("packet_id={}", p.packet_id),
         Packet::PubComp(p) => format!("packet_id={}", p.packet_id),
-        Packet::Subscribe(s) => format!(
-            "packet_id={}, topics={}",
-            s.packet_id,
-            s.topic_filter.len()
-        ),
+        Packet::Subscribe(s) => {
+            format!("packet_id={}, topics={}", s.packet_id, s.topic_filter.len())
+        }
         Packet::SubAck(_) => String::new(),
-        Packet::Unsubscribe(u) => format!(
-            "packet_id={}, topics={}",
-            u.packet_id,
-            u.topic_filter.len()
-        ),
+        Packet::Unsubscribe(u) => {
+            format!("packet_id={}, topics={}", u.packet_id, u.topic_filter.len())
+        }
         Packet::UnsubAck(_) => String::new(),
         Packet::PingReq(_) => String::new(),
         Packet::PingResp(_) => String::new(),
@@ -96,14 +92,18 @@ pub async fn handle_connection<
     mut socket: TcpStream,
     peer_addr: String,
     state: Arc<ServerState>,
-    broker: Arc<tokio::sync::Mutex<PicoBroker<
-        MAX_TOPIC_NAME_LENGTH,
-        MAX_PAYLOAD_SIZE,
-        QUEUE_SIZE,
-        MAX_SESSIONS,
-        MAX_TOPICS,
-        MAX_SUBSCRIBERS_PER_TOPIC,
-    >>>,
+    broker: Arc<
+        tokio::sync::Mutex<
+            PicoBroker<
+                MAX_TOPIC_NAME_LENGTH,
+                MAX_PAYLOAD_SIZE,
+                QUEUE_SIZE,
+                MAX_SESSIONS,
+                MAX_TOPICS,
+                MAX_SUBSCRIBERS_PER_TOPIC,
+            >,
+        >,
+    >,
     config: &HandlerConfig,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate session ID
@@ -124,7 +124,11 @@ pub async fn handle_connection<
             session_id, config.default_keep_alive_secs
         );
         if broker_guard
-            .register_new_session(session_id, config.default_keep_alive_secs, current_time_nanos())
+            .register_new_session(
+                session_id,
+                config.default_keep_alive_secs,
+                current_time_nanos(),
+            )
             .is_err()
         {
             error!("Failed to register session for {}", peer_addr);
@@ -137,7 +141,10 @@ pub async fn handle_connection<
 
     // Store connection handle
     state.connections.insert(session_id, ());
-    info!("Session {} connection handle stored for {}", session_id, peer_addr);
+    info!(
+        "Session {} connection handle stored for {}",
+        session_id, peer_addr
+    );
 
     // Channels for frame transmission
     let (frame_tx, mut frame_rx) = mpsc::channel(config.frame_channel_capacity);
@@ -316,7 +323,10 @@ pub async fn handle_connection<
     }
 
     // Cleanup
-    info!("Session {} connection closing for {}", session_id, peer_addr);
+    info!(
+        "Session {} connection closing for {}",
+        session_id, peer_addr
+    );
     let was_present = state.connections.remove(&session_id).is_some();
     if was_present {
         debug!("Session {} removed from server state", session_id);

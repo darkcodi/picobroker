@@ -1,36 +1,8 @@
 //! Server state management for Embassy-based MQTT broker.
 
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::RawMutex;
-use picobroker::broker::PicoBroker;
-
-// =============================================================================
-// Type Aliases
-// =============================================================================
-
-/// Broker mutex type for Embassy (no-std, static allocation)
-/// The raw mutex type is generic for portability across platforms.
-pub type BrokerMutex<
-    'mtx,
-    const MAX_TOPIC_NAME_LENGTH: usize,
-    const MAX_PAYLOAD_SIZE: usize,
-    const QUEUE_SIZE: usize,
-    const MAX_SESSIONS: usize,
-    const MAX_TOPICS: usize,
-    const MAX_SUBSCRIBERS_PER_TOPIC: usize,
-    M,
-> = Mutex<
-    M,
-    PicoBroker<
-        MAX_TOPIC_NAME_LENGTH,
-        MAX_PAYLOAD_SIZE,
-        QUEUE_SIZE,
-        MAX_SESSIONS,
-        MAX_TOPICS,
-        MAX_SUBSCRIBERS_PER_TOPIC,
-    >,
->;
 
 // =============================================================================
 // Notification System for Waking Idle Connections

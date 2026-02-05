@@ -47,7 +47,11 @@ pub async fn read_packet<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLO
         match socket.read(&mut buffer[*buffer_len..]).await {
             Ok(0) => return Ok(None), // EOF - client closed connection
             Ok(n) => *buffer_len += n,
-            Err(_) => return Err(ProtocolError::IncompletePacket { available: *buffer_len }),
+            Err(_) => {
+                return Err(ProtocolError::IncompletePacket {
+                    available: *buffer_len,
+                })
+            }
         }
     }
 
@@ -58,9 +62,17 @@ pub async fn read_packet<'a, const MAX_TOPIC_NAME_LENGTH: usize, const MAX_PAYLO
     // Ensure full packet is available
     while *buffer_len < total_len {
         match socket.read(&mut buffer[*buffer_len..]).await {
-            Ok(0) => return Err(ProtocolError::IncompletePacket { available: *buffer_len }),
+            Ok(0) => {
+                return Err(ProtocolError::IncompletePacket {
+                    available: *buffer_len,
+                })
+            }
             Ok(n) => *buffer_len += n,
-            Err(_) => return Err(ProtocolError::IncompletePacket { available: *buffer_len }),
+            Err(_) => {
+                return Err(ProtocolError::IncompletePacket {
+                    available: *buffer_len,
+                })
+            }
         }
     }
 
