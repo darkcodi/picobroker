@@ -1,6 +1,6 @@
 [package]
 name = "picobroker"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 description = "Pure no_std core library for PicoBroker MQTT 3.1.1 broker"
 license = "MIT"
