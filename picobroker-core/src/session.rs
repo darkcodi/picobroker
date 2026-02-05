@@ -32,6 +32,22 @@ pub struct Session<
     pub tx_queue: HeaplessVec<Option<Packet<MAX_TOPIC_NAME_LENGTH, MAX_PAYLOAD_SIZE>>, QUEUE_SIZE>,
 }
 
+pub struct ExpirationInfo {
+    pub session_id: u128,
+    pub current_time: u128,
+    pub last_activity: u128,
+    pub keep_alive_secs: u16,
+}
+
+impl ExpirationInfo {
+    pub fn is_expired(&self) -> bool {
+        let timeout_secs = (self.keep_alive_secs as u128) * 3 / 2;
+        let timeout_nanos = timeout_secs * 1_000_000_000;
+        let elapsed = self.current_time.saturating_sub(self.last_activity);
+        elapsed > timeout_nanos
+    }
+}
+
 impl<
         const MAX_TOPIC_NAME_LENGTH: usize,
         const MAX_PAYLOAD_SIZE: usize,
@@ -50,11 +66,13 @@ impl<
         }
     }
 
-    pub fn is_expired(&self, current_time: u128) -> bool {
-        let timeout_secs = (self.keep_alive_secs as u128) * 3 / 2;
-        let timeout_nanos = timeout_secs * 1_000_000_000;
-        let elapsed = current_time.saturating_sub(self.last_activity);
-        elapsed > timeout_nanos
+    pub fn expiration_info(&self, current_time: u128) -> ExpirationInfo {
+        ExpirationInfo {
+            session_id: self.session_id,
+            current_time,
+            last_activity: self.last_activity,
+            keep_alive_secs: self.keep_alive_secs,
+        }
     }
 
     pub fn update_activity(&mut self, current_time: u128) {
@@ -158,18 +176,19 @@ impl<
         session_ids
     }
 
-    pub fn get_expired_sessions(&self, current_time: u128) -> [Option<u128>; MAX_SESSIONS] {
-        let mut session_ids = [const { None }; MAX_SESSIONS];
+    pub fn get_expired_sessions(&self, current_time: u128) -> [Option<ExpirationInfo>; MAX_SESSIONS] {
+        let mut expired_sessions = [const { None }; MAX_SESSIONS];
         let mut count = 0usize;
 
         for session in (&self.sessions).into_iter().flatten() {
-            if session.is_expired(current_time) && count < session_ids.len() {
-                session_ids[count] = Some(session.session_id);
+            let expiration_info = session.expiration_info(current_time);
+            if expiration_info.is_expired() && count < expired_sessions.len() {
+                expired_sessions[count] = Some(expiration_info);
                 count += 1;
             }
         }
 
-        session_ids
+        expired_sessions
     }
 
     pub fn get_disconnected_sessions(&self) -> [Option<u128>; MAX_SESSIONS] {
