@@ -108,19 +108,23 @@ pub async fn handle_connection<
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Generate session ID
     let session_id = state.generate_session_id();
-    info!("New session {}", session_id);
+    info!("New connection from {} -> assigned session {}", peer_addr, session_id);
+    debug!("Session {} configuration: keep_alive={}s, frame_channel_capacity={}",
+           session_id, config.default_keep_alive_secs, config.frame_channel_capacity);
 
     // Create notification channel for this session
     let (notify_tx, mut notify_rx) = mpsc::channel(8);
+    trace!("Session {} notification channel created", session_id);
 
     // Register notification sender with ServerState
     state.register_notification(session_id, notify_tx);
+    trace!("Session {} notification sender registered", session_id);
 
     // Register session with broker
     {
         let mut broker_guard = broker.lock().await;
         debug!(
-            "Registering session {} with keep-alive={}s",
+            "Registering session {} with broker (keep-alive={}s)",
             session_id, config.default_keep_alive_secs
         );
         if broker_guard
@@ -131,32 +135,34 @@ pub async fn handle_connection<
             )
             .is_err()
         {
-            error!("Failed to register session for {}", peer_addr);
+            error!("Failed to register session {} for {}", session_id, peer_addr);
             return Err("Session registration failed".into());
         }
-        debug!("Session {} registered successfully", session_id);
+        debug!("Session {} registered with broker successfully", session_id);
     }
-
-    info!("Registered session {} for {}", session_id, peer_addr);
 
     // Store connection handle
     state.connections.insert(session_id, ());
-    info!(
-        "Session {} connection handle stored for {}",
-        session_id, peer_addr
-    );
+    info!("Session {} for {} initialized successfully", session_id, peer_addr);
 
     // Channels for frame transmission
     let (frame_tx, mut frame_rx) = mpsc::channel(config.frame_channel_capacity);
+    trace!("Session {} frame transmission channel created", session_id);
 
     // Read buffer with initial capacity
     let mut read_buffer = BytesMut::with_capacity(4096);
+    trace!("Session {} read buffer initialized with capacity 4096", session_id);
 
     // Keep-alive tracking
     let mut last_activity = Instant::now();
     let keep_alive_timeout = Duration::from_secs(config.default_keep_alive_secs as u64 * 3 / 2);
+    debug!(
+        "Session {} keep-alive timeout set to {}s",
+        session_id,
+        keep_alive_timeout.as_secs()
+    );
 
-    info!("Session {} entering main connection loop", session_id);
+    info!("Session {} for {} entering main connection loop", session_id, peer_addr);
 
     // Main connection loop with tokio::select!
     loop {
@@ -248,11 +254,11 @@ pub async fn handle_connection<
                     }
                     Ok(None) => {
                         // Client closed connection
-                        info!("Session {} client closed connection", session_id);
+                        info!("Session {} for {} closed connection (EOF)", session_id, peer_addr);
                         break;
                     }
                     Err(e) => {
-                        warn!("Session {}: Protocol error: {}", session_id, e);
+                        warn!("Session {} for {}: Protocol error: {}", session_id, peer_addr, e);
                         break;
                     }
                 }
@@ -315,7 +321,12 @@ pub async fn handle_connection<
             // Keep-alive timeout
             _ = sleep(time_until_timeout) => {
                 if last_activity.elapsed() >= keep_alive_timeout {
-                    info!("Session {} keep-alive timeout", session_id);
+                    info!(
+                        "Session {} for {} keep-alive timeout (last activity: {:?})",
+                        session_id,
+                        peer_addr,
+                        last_activity.elapsed()
+                    );
                     break;
                 }
             }
@@ -324,22 +335,28 @@ pub async fn handle_connection<
 
     // Cleanup
     info!(
-        "Session {} connection closing for {}",
+        "Session {} for {} connection closing (cleaning up resources)",
         session_id, peer_addr
     );
+
     let was_present = state.connections.remove(&session_id).is_some();
     if was_present {
-        debug!("Session {} removed from server state", session_id);
+        trace!("Session {} removed from server connections map", session_id);
+    } else {
+        warn!("Session {} was not found in server connections map", session_id);
     }
 
     // Remove notification sender
     state.remove_notification(session_id);
+    trace!("Session {} notification sender removed", session_id);
 
     {
         let mut broker_guard = broker.lock().await;
-        debug!("Removing session {}", session_id);
+        debug!("Removing session {} from broker", session_id);
         broker_guard.remove_session(session_id);
+        trace!("Session {} removed from broker", session_id);
     }
 
+    info!("Session {} for {} cleanup complete", session_id, peer_addr);
     Ok(())
 }

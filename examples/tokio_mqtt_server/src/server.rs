@@ -1,6 +1,6 @@
 use crate::handler::{handle_connection, HandlerConfig};
 use crate::state::ServerState;
-use log::{error, info};
+use log::{debug, error, info};
 use picobroker::broker::PicoBroker;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -130,6 +130,8 @@ impl<
     pub async fn run(&self, bind_addr: &str) -> Result<(), Box<dyn std::error::Error>> {
         let listener = TcpListener::bind(bind_addr).await?;
         info!("Server listening on {}", bind_addr);
+        debug!("Server configuration: keep_alive={}s, cleanup_interval={}s",
+               self.config.default_keep_alive_secs, self.config.cleanup_interval_secs);
 
         // Spawn cleanup task
         let cleanup_state = self.state.clone();
@@ -138,10 +140,10 @@ impl<
         tokio::spawn(async move {
             cleanup_task(cleanup_state, cleanup_broker, cleanup_interval_secs).await;
         });
-        info!("Cleanup task spawned");
+        debug!("Cleanup task spawned (interval: {}s)", cleanup_interval_secs);
 
         // Accept connections loop
-        info!("Accepting incoming connections...");
+        info!("Accepting incoming connections on {}...", bind_addr);
         loop {
             match listener.accept().await {
                 Ok((socket, addr)) => {
@@ -223,14 +225,19 @@ async fn cleanup_task<
     use log::trace;
     use tokio::time::{sleep, Duration};
 
-    info!("Cleanup task started");
+    info!("Cleanup task started (interval: {}s)", interval_secs);
     let mut interval = sleep(Duration::from_secs(interval_secs));
     loop {
         interval.await;
         interval = sleep(Duration::from_secs(interval_secs));
 
         let current_time = current_time_nanos();
-        trace!("Cleanup scan running at time {}", current_time);
+        let active_connections = state.connection_count();
+        trace!(
+            "Cleanup scan running at time {}, active connections: {}",
+            current_time,
+            active_connections
+        );
 
         let mut broker_guard = broker.lock().await;
 
@@ -241,10 +248,14 @@ async fn cleanup_task<
             .flatten()
             .map(|info| info.session_id)
             .collect();
-        for session_id in expired {
-            info!("Cleaning up expired session {}", session_id);
-            state.connections.remove(&session_id);
-            broker_guard.remove_session(session_id);
+        let expired_count = expired.len();
+        if !expired.is_empty() {
+            info!("Found {} expired session(s)", expired_count);
+            for session_id in &expired {
+                info!("Cleaning up expired session {}", session_id);
+                state.connections.remove(session_id);
+                broker_guard.remove_session(*session_id);
+            }
         }
 
         // Check disconnected sessions
@@ -253,10 +264,25 @@ async fn cleanup_task<
             .into_iter()
             .flatten()
             .collect();
-        for session_id in disconnected {
-            info!("Cleaning up disconnected session {}", session_id);
-            state.connections.remove(&session_id);
-            broker_guard.remove_session(session_id);
+        let disconnected_count = disconnected.len();
+        if !disconnected.is_empty() {
+            info!("Found {} disconnected session(s)", disconnected_count);
+            for session_id in &disconnected {
+                info!("Cleaning up disconnected session {}", session_id);
+                state.connections.remove(session_id);
+                broker_guard.remove_session(*session_id);
+            }
+        }
+
+        if expired.is_empty() && disconnected.is_empty() {
+            trace!("Cleanup scan complete: no sessions to remove");
+        } else {
+            info!(
+                "Cleanup scan complete: removed {} expired + {} disconnected sessions, remaining connections: {}",
+                expired_count,
+                disconnected_count,
+                state.connection_count()
+            );
         }
     }
 }
